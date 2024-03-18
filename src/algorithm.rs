@@ -105,29 +105,29 @@ struct SquareNode {
     width: u32,
     height: u32,
     used: bool,
-    right: Box<SquareNode>,
-    down: Box<SquareNode>,
+    // right: Box<SquareNode>,
+    // down: Box<SquareNode>,
     // first_outgoing_edge: Option<usize>,
 }
 
 impl SquareNode {
     /// Find a node to allocate this image size (width, height)
     pub fn find(&self, node: &SquareNode, width: u32, height: u32) -> Option<SquareNode> {
-        if node.used {
-            let mut n = node.right.find(node, width, height);
-            if n.is_none() {
-                n = self.down.find(node, width, height);
-            }
-            return n;
-        } else if self.width >= width || self.height >= height {
-            return Some(self.clone());
-        }
+        // if node.used {
+        //     let mut n = node.right.find(node, width, height);
+        //     if n.is_none() {
+        //         n = self.down.find(node, width, height);
+        //     }
+        //     return n;
+        // } else if self.width >= width || self.height >= height {
+        //     return Some(self.clone());
+        // }
         None
     }
     pub fn grow(&mut self, width: u32, height: u32) -> Option<SquareNode> {
-        if self.should_grow_right(width, height) {
+        if self.should_grow_right(width) {
             self.grow_right(width, height)
-        } else if self.should_grow_down(width, height) {
+        } else if self.should_grow_down(height) {
             self.grow_down(width, height)
         } else if self.can_grow_right(width) {
             self.grow_right(width, height)
@@ -147,11 +147,11 @@ impl SquareNode {
         height <= self.height
     }
     #[inline]
-    fn should_grow_right(&self, width: u32, height: u32) -> bool {
+    fn should_grow_right(&self, width: u32) -> bool {
         self.can_grow_right(width) && self.height >= (self.width + width)
     }
     #[inline]
-    fn should_grow_down(&self, width: u32, height: u32) -> bool {
+    fn should_grow_down(&self, height: u32) -> bool {
         self.can_grow_down(height) && self.width >= (self.height + height)
     }
     /// Grow the canvas to the right.
@@ -164,14 +164,14 @@ impl SquareNode {
         self.x = 0;
         self.y = 0;
         self.width += width;
-        self.down = Box::new(old_self.clone());
-        self.right = Box::new(SquareNode {
-            x: old_self.width,
-            y: 0,
-            width,
-            height: self.height,
-            ..Default::default()
-        });
+        // self.down = Box::new(old_self.clone());
+        // self.right = Box::new(SquareNode {
+        //     x: old_self.width,
+        //     y: 0,
+        //     width,
+        //     height: self.height,
+        //     ..Default::default()
+        // });
 
         let node = self.find(self, width, height);
         if let Some(mut n) = node {
@@ -191,14 +191,14 @@ impl SquareNode {
         self.x = 0;
         self.y = 0;
         self.height += height;
-        self.right = Box::new(old_self.clone());
-        self.down = Box::new(SquareNode {
-            x: 0,
-            y: old_self.width,
-            width: self.width,
-            height,
-            ..Default::default()
-        });
+        // self.right = Box::new(old_self.clone());
+        // self.down = Box::new(SquareNode {
+        //     x: 0,
+        //     y: old_self.width,
+        //     width: self.width,
+        //     height,
+        //     ..Default::default()
+        // });
 
         let node = self.find(self, width, height);
         if let Some(mut n) = node {
@@ -215,20 +215,20 @@ impl SquareNode {
     /// `height`: New node height.
     fn split(&self, node: &mut SquareNode, width: u32, height: u32) {
         node.used = true;
-        node.down = Box::new(SquareNode {
-            x: node.x,
-            y: node.y + height,
-            width: node.width,
-            height: node.height - height,
-            ..Default::default()
-        });
-        node.right = Box::new(SquareNode {
-            x: node.x + width,
-            y: node.y,
-            width: node.width - width,
-            height,
-            ..Default::default()
-        });
+        // node.down = Box::new(SquareNode {
+        //     x: node.x,
+        //     y: node.y + height,
+        //     width: node.width,
+        //     height: node.height - height,
+        //     ..Default::default()
+        // });
+        // node.right = Box::new(SquareNode {
+        //     x: node.x + width,
+        //     y: node.y,
+        //     width: node.width - width,
+        //     height,
+        //     ..Default::default()
+        // });
     }
 }
 
@@ -238,12 +238,35 @@ mod tests {
 
     #[test]
     fn test_grow() {
-        let node = SquareNode {
+        let mut node = SquareNode {
             width: 5,
             height: 5,
             ..Default::default()
         };
-        assert!(!node.can_grow_right(2));
-        assert!(!node.can_grow_down(2));
+        assert!(node.can_grow_right(2));
+        assert!(node.can_grow_right(5));
+        assert!(!node.can_grow_right(7));
+        assert!(node.can_grow_down(2));
+        assert!(node.can_grow_down(5));
+        assert!(!node.can_grow_down(7));
+
+        node.height = 10;
+        assert!(node.should_grow_right(2));
+        assert!(node.should_grow_right(5));
+        assert!(!node.should_grow_right(8));
+        assert!(!node.should_grow_down(2));
+        assert!(!node.should_grow_down(5));
+        assert!(!node.should_grow_down(8));
+        assert!(!node.should_grow_down(12));
+
+        node.width = 20;
+        assert!(!node.should_grow_right(2));
+        assert!(!node.should_grow_right(5));
+        assert!(!node.should_grow_right(8));
+        assert!(node.should_grow_down(2));
+        assert!(node.should_grow_down(5));
+        assert!(node.should_grow_down(8));
+        assert!(node.should_grow_down(10));
+        assert!(!node.should_grow_down(10));
     }
 }
