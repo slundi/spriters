@@ -295,6 +295,8 @@ pub struct ImageAndPosition {
     pub image: DynamicImage,
     pub x: u32,
     pub y: u32,
+    pub absolute_height: u32,
+    pub absolute_width: u32,
 }
 
 #[derive(Debug, Default)]
@@ -327,14 +329,14 @@ impl Sprite {
     }
 
     /// Generate sprite map
-    fn process(&self) {
+    fn process(&mut self) {
         match self.config.algorithm {
-            Algorithm::Square => todo!(),
-            Algorithm::Vertical => todo!(),
-            Algorithm::Hortizontal => todo!(),
-            Algorithm::Diagonal => todo!(),
-            Algorithm::VerticalRight => todo!(),
-            Algorithm::HorizontalBottom => todo!(),
+            Algorithm::Square => Algorithm::square(self),
+            Algorithm::Vertical => Algorithm::vertical(self),
+            Algorithm::Hortizontal => Algorithm::horizontal(self),
+            Algorithm::Diagonal => Algorithm::diagonal(self),
+            Algorithm::VerticalRight => Algorithm::vertical_right(self),
+            Algorithm::HorizontalBottom => Algorithm::horizontal_bottom(self),
         }
     }
     /// Discover images: it return all valid images within a folder.
@@ -381,8 +383,7 @@ impl Sprite {
                 match image::open(entry.path()) {
                     Ok(img) => images.push(ImageAndPosition {
                         image: img,
-                        x: 0,
-                        y: 0,
+                        ..Default::default()
                     }),
                     Err(err) => eprintln!("Cannot open image: {}", err),
                 };
