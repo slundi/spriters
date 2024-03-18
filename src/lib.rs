@@ -291,11 +291,18 @@ impl Config {
 }
 
 #[derive(Debug, Default)]
+pub struct ImageAndPosition {
+    pub image: DynamicImage,
+    pub x: u32,
+    pub y: u32,
+}
+
+#[derive(Debug, Default)]
 pub struct Sprite {
     pub config: Config,
     pub path: PathBuf,
     pub ratios: Vec<f32>,
-    pub images: Vec<DynamicImage>,
+    pub images: Vec<ImageAndPosition>,
 }
 impl Sprite {
     pub fn new(config: Config, path: PathBuf) -> Sprite {
@@ -338,7 +345,7 @@ impl Sprite {
     ///
     /// The list of images will be ordered using the desired ordering algorithm. The default is 'Maxside'.
     fn discover_images(&self) {
-        let mut images: Vec<DynamicImage> = Vec::new();
+        let mut images: Vec<ImageAndPosition> = Vec::new();
         for entry in WalkDir::new(std::path::Path::new(&self.config.source))
             .follow_links(self.config.follow_links)
             .into_iter()
@@ -372,7 +379,11 @@ impl Sprite {
                     | "mj2"
             ) {
                 match image::open(entry.path()) {
-                    Ok(img) => images.push(img),
+                    Ok(img) => images.push(ImageAndPosition {
+                        image: img,
+                        x: 0,
+                        y: 0,
+                    }),
                     Err(err) => eprintln!("Cannot open image: {}", err),
                 };
             } // else { continue; }
