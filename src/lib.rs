@@ -4,6 +4,7 @@ use image::DynamicImage;
 use walkdir::WalkDir;
 
 pub mod algorithm;
+mod algorithm_square;
 pub mod util;
 
 /// Used to order the images before adding them to the canvas can be tunned. By default the algorithm is `Square``,
