@@ -58,8 +58,8 @@ impl SquareGraph {
             height,
             ..Default::default()
         };
-        let down_index = self.add_node(down);
         let right_index = self.add_node(right);
+        let down_index = self.add_node(down);
 
         let node = &mut self.nodes[node_index];
         node.used = true;
@@ -145,7 +145,7 @@ impl SquareGraph {
 type NodeIndex = usize;
 
 /// Square node for the graph. Each node is identified by a `NodeIndex`
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 struct SquareNode {
     x: u32,
     y: u32,
@@ -158,7 +158,7 @@ struct SquareNode {
 
 pub(crate) fn process(sprite: &mut Sprite) {
     let mut graph = SquareGraph {
-        nodes: Vec::with_capacity(sprite.images.len()),
+        nodes: Vec::with_capacity(sprite.images.len() * 2),
     };
     // Add the root node
     graph.add_node(SquareNode {
@@ -249,5 +249,65 @@ mod tests {
         assert!(node.should_grow_down(8));
         assert!(node.should_grow_down(10));
         assert!(!node.should_grow_down(10));
+    }
+
+    #[test]
+    fn test_graph() {
+        let mut g = SquareGraph {
+            nodes: Vec::with_capacity(1),
+        };
+        let root_index = g.add_node(SquareNode {
+            width: 10,
+            height: 10,
+            ..Default::default()
+        });
+        assert_eq!(root_index, 0);
+        // TODO: better tests
+        g.split(0, 5, 5);
+        assert_eq!(g.nodes.len(), 3);
+        assert_eq!(
+            g.nodes[1],
+            SquareNode {
+                x: 5,
+                width: 5,
+                height: 5,
+                ..Default::default()
+            }
+        );
+        assert_eq!(
+            g.nodes[2],
+            SquareNode {
+                y: 5,
+                width: 10,
+                height: 5,
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn test_graph_2() {
+        let mut g = SquareGraph {
+            nodes: Vec::with_capacity(7),
+        };
+        let root_index = g.add_node(SquareNode {
+            width: 10,
+            height: 10,
+            ..Default::default()
+        });
+        // TODO: better tests
+        assert_eq!(g.grow(root_index, 8, 4), Some(1));
+        assert_eq!(
+            g.nodes[1],
+            SquareNode {
+                x: 10,
+                y: 0,
+                width: 8,
+                height: 10,
+                used: true,
+                right: Some(3),
+                down: Some(4)
+            }
+        );
     }
 }
