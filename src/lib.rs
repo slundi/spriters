@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{fmt, path::PathBuf, str::FromStr};
 
 use image::DynamicImage;
 use walkdir::WalkDir;
@@ -7,8 +7,12 @@ pub mod algorithm;
 mod algorithm_square;
 pub mod util;
 
+
+/// Order possibilities before using the algorithm
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u8)]
 pub enum Ordering {
+    #[default]
     Maxside,
     MaxsideReverse,
     Width,
@@ -19,6 +23,40 @@ pub enum Ordering {
     AreaReverse,
     Filename,
     FilenameReverse,
+}
+impl fmt::Display for Ordering {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Ordering::Maxside => write!(f, "maxside"),
+            Ordering::MaxsideReverse => write!(f, "-maxside"),
+            Ordering::Width => write!(f, "width"),
+            Ordering::WidthReverse => write!(f, "-width"),
+            Ordering::Height => write!(f, "height"),
+            Ordering::HeightReverse => write!(f, "-height"),
+            Ordering::Area => write!(f, "area"),
+            Ordering::AreaReverse => write!(f, "-area"),
+            Ordering::Filename => write!(f, "filename"),
+            Ordering::FilenameReverse => write!(f, "-filename"),
+        }
+    }
+}
+impl FromStr for Ordering {
+    type Err = ();
+    fn from_str(input: &str) -> Result<Ordering, Self::Err> {
+        match input.to_lowercase().as_str() {
+            "maxside"  => Ok(Ordering::Maxside),
+            "-maxside"  => Ok(Ordering::MaxsideReverse),
+            "width"  => Ok(Ordering::Width),
+            "-width"  => Ok(Ordering::WidthReverse),
+            "height"  => Ok(Ordering::Height),
+            "-height"  => Ok(Ordering::HeightReverse),
+            "area"  => Ok(Ordering::Area),
+            "-area"  => Ok(Ordering::AreaReverse),
+            "filename"  => Ok(Ordering::Filename),
+            "-filename"  => Ok(Ordering::FilenameReverse),
+            _      => Err(()),
+        }
+    }
 }
 
 /// Used to order the images before adding them to the canvas can be tunned. By default the algorithm is `Square``,
@@ -39,17 +77,6 @@ pub enum Algorithm {
     VerticalRight,
     /// The diagonal one allocates the images diagonally. It was inspired by the Diagonal CSS Sprites Article by Aaron Barker.
     HorizontalBottom,
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-#[repr(u8)]
-pub enum Ordering {
-    #[default]
-    Maxside,
-    Width,
-    Height,
-    Area,
-    Filename,
 }
 
 #[derive(Debug, Clone, Default)]
