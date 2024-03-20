@@ -7,6 +7,20 @@ pub mod algorithm;
 mod algorithm_square;
 pub mod util;
 
+#[repr(u8)]
+pub enum Ordering {
+    Maxside,
+    MaxsideReverse,
+    Width,
+    WidthReverse,
+    Height,
+    HeightReverse,
+    Area,
+    AreaReverse,
+    Filename,
+    FilenameReverse,
+}
+
 /// Used to order the images before adding them to the canvas can be tunned. By default the algorithm is `Square``,
 /// but in some situations using another ordering like vertical or horizontal could be useful depending on the kind of images you are spriting.
 #[derive(Debug, Clone, Copy, Default)]
