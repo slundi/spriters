@@ -1,6 +1,6 @@
 use crate::{
     util::{absolute_length, horizontal_spacing, vertical_spacing},
-    Algorithm, Config, Sprite,
+    Algorithm, Sprite,
 };
 
 impl Algorithm {

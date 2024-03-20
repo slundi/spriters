@@ -52,7 +52,7 @@ impl ops::Add<Spacing> for Spacing {
     type Output = Spacing;
 
     fn add(self, rhs: Spacing) -> Self::Output {
-        let mut result = self.clone();
+        let mut result = self;
         result.top += rhs.top;
         result.right += rhs.right;
         result.bottom += rhs.bottom;

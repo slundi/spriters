@@ -382,13 +382,13 @@ impl Sprite {
         } else {
             result.ratios.push(1f32);
         }
-        result.discover_images(&config);
-        result.process(&config);
+        result.discover_images();
+        result.process();
         result
     }
 
     /// Generate sprite map
-    fn process(&mut self, config: &Config) {
+    fn process(&mut self) {
         match self.config.algorithm {
             Algorithm::Square => Algorithm::square(self),
             Algorithm::Vertical => Algorithm::vertical(self),
@@ -405,7 +405,7 @@ impl Sprite {
     /// If the folder doesn't contain any valid image it will exit with an error message.
     ///
     /// The list of images will be ordered using the desired ordering algorithm. The default is 'Maxside'.
-    fn discover_images(&self, config: &Config) {
+    fn discover_images(&self) {
         let mut images: Vec<ImageAndPosition> = Vec::new();
         for entry in WalkDir::new(std::path::Path::new(&self.config.source))
             .follow_links(self.config.follow_links)
@@ -455,7 +455,7 @@ impl Sprite {
     }
 
     /// Sort images depending on the `config.ordering` value.
-    fn sort_images(&self, images: &mut Vec<ImageAndPosition>) {
+    fn sort_images(&self, images: &mut [ImageAndPosition]) {
         images.sort_by(|a, b| match self.config.ordering {
             Ordering::Maxside | Ordering::MaxsideReverse => absolute_length(
                 b.image.height(),
