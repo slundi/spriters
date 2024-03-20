@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use image::DynamicImage;
+use log::*;
 use walkdir::WalkDir;
 
 pub mod algorithm;
@@ -267,7 +268,7 @@ impl Config {
     /// Check mandatory arguments and some values
     pub fn check(&self) -> Result<(), lexopt::Error> {
         if !self.source.is_dir() {
-            eprintln!(
+            error!(
                 "Source directory does not exist or is not accessible: {:?}",
                 self.source
             );
@@ -277,7 +278,7 @@ impl Config {
             });
         }
         if !self.output.is_dir() {
-            eprintln!(
+            error!(
                 "Output directory does not exist or is not accessible: {:?}",
                 self.output
             );
@@ -385,12 +386,12 @@ impl Sprite {
                         image: img,
                         ..Default::default()
                     }),
-                    Err(err) => eprintln!("Cannot open image: {}", err),
+                    Err(err) => error!("Cannot open image: {}", err),
                 };
             } // else { continue; }
         }
         if images.is_empty() {
-            eprintln!("No images were found in the source directory");
+            error!("No images were found in the source directory");
         }
         images.sort_by(|a, b| match self.config.algorithm {
             Algorithm::Square => todo!(),
