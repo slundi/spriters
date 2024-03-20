@@ -372,13 +372,14 @@ impl Sprite {
             path,
             ..Default::default()
         };
-        // ratios
+        // ratios: list & sort them
         if let Some(ratios) = config.ratios.clone() {
             for value in ratios.split(',') {
                 result
                     .ratios
                     .push(value.trim().parse::<f32>().expect("Invalid ratio"));
             }
+            result.ratios.sort_by(|a, b| a.partial_cmp(b).unwrap());
         } else {
             result.ratios.push(1f32);
         }
