@@ -1,12 +1,16 @@
-use std::{fmt, path::PathBuf, str::FromStr};
+use std::{
+    fmt,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 use image::DynamicImage;
+use util::{absolute_length, horizontal_spacing, vertical_spacing, Spacing};
 use walkdir::WalkDir;
 
 pub mod algorithm;
 mod algorithm_square;
 pub mod util;
-
 
 /// Order possibilities before using the algorithm
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -23,6 +27,18 @@ pub enum Ordering {
     AreaReverse,
     Filename,
     FilenameReverse,
+}
+impl Ordering {
+    pub fn is_reverse(&self) -> bool {
+        matches!(
+            self,
+            Ordering::MaxsideReverse
+                | Ordering::WidthReverse
+                | Ordering::HeightReverse
+                | Ordering::AreaReverse
+                | Ordering::FilenameReverse
+        )
+    }
 }
 impl fmt::Display for Ordering {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -44,17 +60,17 @@ impl FromStr for Ordering {
     type Err = ();
     fn from_str(input: &str) -> Result<Ordering, Self::Err> {
         match input.to_lowercase().as_str() {
-            "maxside"  => Ok(Ordering::Maxside),
-            "-maxside"  => Ok(Ordering::MaxsideReverse),
-            "width"  => Ok(Ordering::Width),
-            "-width"  => Ok(Ordering::WidthReverse),
-            "height"  => Ok(Ordering::Height),
-            "-height"  => Ok(Ordering::HeightReverse),
-            "area"  => Ok(Ordering::Area),
-            "-area"  => Ok(Ordering::AreaReverse),
-            "filename"  => Ok(Ordering::Filename),
-            "-filename"  => Ok(Ordering::FilenameReverse),
-            _      => Err(()),
+            "maxside" => Ok(Ordering::Maxside),
+            "-maxside" => Ok(Ordering::MaxsideReverse),
+            "width" => Ok(Ordering::Width),
+            "-width" => Ok(Ordering::WidthReverse),
+            "height" => Ok(Ordering::Height),
+            "-height" => Ok(Ordering::HeightReverse),
+            "area" => Ok(Ordering::Area),
+            "-area" => Ok(Ordering::AreaReverse),
+            "filename" => Ok(Ordering::Filename),
+            "-filename" => Ok(Ordering::FilenameReverse),
+            _ => Err(()),
         }
     }
 }
@@ -334,11 +350,10 @@ impl Config {
 
 #[derive(Debug, Default)]
 pub struct ImageAndPosition {
+    pub path: String,
     pub image: DynamicImage,
     pub x: u32,
     pub y: u32,
-    pub absolute_height: u32,
-    pub absolute_width: u32,
 }
 
 #[derive(Debug, Default)]
@@ -347,6 +362,8 @@ pub struct Sprite {
     pub path: PathBuf,
     pub ratios: Vec<f32>,
     pub images: Vec<ImageAndPosition>,
+    pub margin: Spacing,
+    pub padding: Spacing,
 }
 impl Sprite {
     pub fn new(config: Config, path: PathBuf) -> Sprite {
@@ -356,7 +373,7 @@ impl Sprite {
             ..Default::default()
         };
         // ratios
-        if let Some(ratios) = config.ratios {
+        if let Some(ratios) = config.ratios.clone() {
             for value in ratios.split(',') {
                 result
                     .ratios
@@ -365,13 +382,13 @@ impl Sprite {
         } else {
             result.ratios.push(1f32);
         }
-        result.discover_images();
-        result.process();
+        result.discover_images(&config);
+        result.process(&config);
         result
     }
 
     /// Generate sprite map
-    fn process(&mut self) {
+    fn process(&mut self, config: &Config) {
         match self.config.algorithm {
             Algorithm::Square => Algorithm::square(self),
             Algorithm::Vertical => Algorithm::vertical(self),
@@ -388,7 +405,7 @@ impl Sprite {
     /// If the folder doesn't contain any valid image it will exit with an error message.
     ///
     /// The list of images will be ordered using the desired ordering algorithm. The default is 'Maxside'.
-    fn discover_images(&self) {
+    fn discover_images(&self, config: &Config) {
         let mut images: Vec<ImageAndPosition> = Vec::new();
         for entry in WalkDir::new(std::path::Path::new(&self.config.source))
             .follow_links(self.config.follow_links)
@@ -434,14 +451,142 @@ impl Sprite {
         if images.is_empty() {
             eprintln!("No images were found in the source directory");
         }
-        images.sort_by(|a, b| match self.config.algorithm {
-            Algorithm::Square => todo!(),
-            Algorithm::Vertical => todo!(),
-            Algorithm::Hortizontal => todo!(),
-            Algorithm::Diagonal => todo!(),
-            Algorithm::VerticalRight => todo!(),
-            Algorithm::HorizontalBottom => todo!(),
+        self.sort_images(&mut images);
+    }
+
+    /// Sort images depending on the `config.ordering` value.
+    fn sort_images(&self, images: &mut Vec<ImageAndPosition>) {
+        images.sort_by(|a, b| match self.config.ordering {
+            Ordering::Maxside | Ordering::MaxsideReverse => absolute_length(
+                b.image.height(),
+                vertical_spacing(
+                    self.padding.top,
+                    self.padding.bottom,
+                    self.margin.top,
+                    self.margin.bottom,
+                ),
+                self.ratios[0],
+            )
+            .max(absolute_length(
+                b.image.width(),
+                horizontal_spacing(
+                    self.padding.left,
+                    self.padding.right,
+                    self.margin.left,
+                    self.margin.right,
+                ),
+                self.ratios[0],
+            ))
+            .cmp(
+                &absolute_length(
+                    a.image.height(),
+                    vertical_spacing(
+                        self.padding.top,
+                        self.padding.bottom,
+                        self.margin.top,
+                        self.margin.bottom,
+                    ),
+                    self.ratios[0],
+                )
+                .max(absolute_length(
+                    a.image.width(),
+                    horizontal_spacing(
+                        self.padding.left,
+                        self.padding.right,
+                        self.margin.left,
+                        self.margin.right,
+                    ),
+                    self.ratios[0],
+                )),
+            ),
+            Ordering::Height | Ordering::HeightReverse => absolute_length(
+                b.image.height(),
+                vertical_spacing(
+                    self.padding.top,
+                    self.padding.bottom,
+                    self.margin.top,
+                    self.margin.bottom,
+                ),
+                self.ratios[0],
+            )
+            .cmp(&absolute_length(
+                a.image.height(),
+                vertical_spacing(
+                    self.padding.top,
+                    self.padding.bottom,
+                    self.margin.top,
+                    self.margin.bottom,
+                ),
+                self.ratios[0],
+            )),
+            Ordering::Width | Ordering::WidthReverse => absolute_length(
+                b.image.width(),
+                horizontal_spacing(
+                    self.padding.left,
+                    self.padding.right,
+                    self.margin.left,
+                    self.margin.right,
+                ),
+                self.ratios[0],
+            )
+            .cmp(&absolute_length(
+                a.image.width(),
+                horizontal_spacing(
+                    self.padding.left,
+                    self.padding.right,
+                    self.margin.left,
+                    self.margin.right,
+                ),
+                self.ratios[0],
+            )),
+            Ordering::Area | Ordering::AreaReverse => (absolute_length(
+                b.image.width(),
+                horizontal_spacing(
+                    self.padding.left,
+                    self.padding.right,
+                    self.margin.left,
+                    self.margin.right,
+                ),
+                self.ratios[0],
+            ) * absolute_length(
+                b.image.height(),
+                vertical_spacing(
+                    self.padding.top,
+                    self.padding.bottom,
+                    self.margin.top,
+                    self.margin.bottom,
+                ),
+                self.ratios[0],
+            ))
+            .cmp(
+                &(absolute_length(
+                    a.image.width(),
+                    horizontal_spacing(
+                        self.padding.left,
+                        self.padding.right,
+                        self.margin.left,
+                        self.margin.right,
+                    ),
+                    self.ratios[0],
+                ) * absolute_length(
+                    a.image.height(),
+                    vertical_spacing(
+                        self.padding.top,
+                        self.padding.bottom,
+                        self.margin.top,
+                        self.margin.bottom,
+                    ),
+                    self.ratios[0],
+                )),
+            ),
+            Ordering::Filename | Ordering::FilenameReverse => Path::new(&b.path)
+                .file_name()
+                .unwrap()
+                .cmp(Path::new(&a.path).file_name().unwrap()),
         });
+        if self.config.ordering.is_reverse() {
+            images.reverse();
+        }
     }
 }
 

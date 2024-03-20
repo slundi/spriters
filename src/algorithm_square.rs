@@ -1,4 +1,7 @@
-use crate::Sprite;
+use crate::{
+    util::{absolute_length, horizontal_spacing, vertical_spacing},
+    Sprite,
+};
 
 /// Square algorithm graph. It uses 2 Vecs because we cannot make the graph easily by just having recursive object.
 /// Links between node are done with `edges`. It is not designed to have dynamic add/remove... so here, no problem
@@ -162,20 +165,40 @@ pub(crate) fn process(sprite: &mut Sprite) {
     };
     // Add the root node
     graph.add_node(SquareNode {
-        width: sprite.images[0].absolute_width,
-        height: sprite.images[0].absolute_height,
+        width: absolute_length(sprite.images[0].image.width(), 0, 1f32),
+        height: absolute_length(sprite.images[0].image.height(), 0, 1f32),
         ..Default::default()
     });
 
     // # Loot all over the images creating a binary tree
     for image in sprite.images.iter_mut() {
-        let mut ni = graph.find(0, image.absolute_width, image.absolute_height);
+        let absolute_width = absolute_length(
+            image.image.width(),
+            horizontal_spacing(
+                sprite.padding.left,
+                sprite.padding.right,
+                sprite.margin.left,
+                sprite.margin.right,
+            ),
+            sprite.ratios[0],
+        );
+        let absolute_height = absolute_length(
+            image.image.height(),
+            vertical_spacing(
+                sprite.padding.top,
+                sprite.padding.bottom,
+                sprite.margin.top,
+                sprite.margin.bottom,
+            ),
+            sprite.ratios[0],
+        );
+        let mut ni = graph.find(0, absolute_width, absolute_height);
         if let Some(n) = ni {
             // use this node
-            graph.split(n, image.absolute_width, image.absolute_height);
+            graph.split(n, absolute_width, absolute_height);
         } else {
             // Grow the canvas
-            ni = graph.grow(0, image.absolute_width, image.absolute_height);
+            ni = graph.grow(0, absolute_width, absolute_height);
         }
         if let Some(n) = ni {
             image.x = graph.nodes[n].x;

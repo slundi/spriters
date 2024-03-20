@@ -19,13 +19,39 @@ fn test_ordering_to_display() {
 #[test]
 fn test_ordering_from_str() {
     assert_eq!(Ordering::from_str("maxside").unwrap(), Ordering::Maxside);
-    assert_eq!(Ordering::from_str("-maxside").unwrap(), Ordering::MaxsideReverse);
+    assert_eq!(
+        Ordering::from_str("-maxside").unwrap(),
+        Ordering::MaxsideReverse
+    );
     assert_eq!(Ordering::from_str("width").unwrap(), Ordering::Width);
-    assert_eq!(Ordering::from_str("-width").unwrap(), Ordering::WidthReverse);
+    assert_eq!(
+        Ordering::from_str("-width").unwrap(),
+        Ordering::WidthReverse
+    );
     assert_eq!(Ordering::from_str("height").unwrap(), Ordering::Height);
-    assert_eq!(Ordering::from_str("-height").unwrap(), Ordering::HeightReverse);
+    assert_eq!(
+        Ordering::from_str("-height").unwrap(),
+        Ordering::HeightReverse
+    );
     assert_eq!(Ordering::from_str("area").unwrap(), Ordering::Area);
     assert_eq!(Ordering::from_str("-area").unwrap(), Ordering::AreaReverse);
     assert_eq!(Ordering::from_str("filename").unwrap(), Ordering::Filename);
-    assert_eq!(Ordering::from_str("-filename").unwrap(), Ordering::FilenameReverse);
+    assert_eq!(
+        Ordering::from_str("-filename").unwrap(),
+        Ordering::FilenameReverse
+    );
+}
+
+#[test]
+fn test_ordering_is_reverse() {
+    assert!(!Ordering::Maxside.is_reverse());
+    assert!(Ordering::MaxsideReverse.is_reverse());
+    assert!(!Ordering::Width.is_reverse());
+    assert!(Ordering::WidthReverse.is_reverse());
+    assert!(!Ordering::Height.is_reverse());
+    assert!(Ordering::HeightReverse.is_reverse());
+    assert!(!Ordering::Area.is_reverse());
+    assert!(Ordering::AreaReverse.is_reverse());
+    assert!(!Ordering::Filename.is_reverse());
+    assert!(Ordering::FilenameReverse.is_reverse());
 }
