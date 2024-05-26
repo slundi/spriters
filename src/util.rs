@@ -102,7 +102,7 @@ pub fn round_up(value: f32) -> u32 {
     value.round().max(0f32) as u32
 }
 
-/// Return the nearest fraction. If fraction.Fraction is not available, return a fraction.
+/// Return the nearest fraction. If fraction. Fraction is not available, return a fraction.
 ///
 /// *Note: used for Opera CSS pixel-ratio media queries.*
 pub fn nearest_fration(value: f32) -> String {

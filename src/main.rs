@@ -21,6 +21,12 @@ fn main() -> Result<(), lexopt::Error> {
                 notify::RecursiveMode::Recursive,
             )
             .expect("Cannot watch the source directory.");
+        return Ok(());
     }
+    let mut manager = spriters::Manager {
+        project: config.project,
+        ..Default::default()
+    };
+    manager.find_sprites(&config);
     Ok(())
 }

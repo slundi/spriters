@@ -367,7 +367,7 @@ pub struct Sprite {
     pub padding: Spacing,
 }
 impl Sprite {
-    pub fn new(config: Config, path: PathBuf) -> Sprite {
+    pub fn new(config: &Config, path: PathBuf) -> Sprite {
         let mut result = Sprite {
             config: config.clone(),
             path,
@@ -599,7 +599,7 @@ pub struct Manager {
 }
 
 impl Manager {
-    fn find_sprites(&mut self, config: &Config) {
+    pub fn find_sprites(&mut self, config: &Config) {
         if self.project {
             for entry in std::fs::read_dir(std::path::Path::new(&config.source.clone()))
                 .expect("Source does not exists or permissions are insufficient or it is a file")
@@ -617,14 +617,17 @@ impl Manager {
                                 continue;
                             }
                         }
-                        self.sprites.push(Sprite::new(config.clone(), p));
+                        self.sprites.push(Sprite::new(config, p));
                     }
                     Err(_) => continue,
                 }
             }
         } else {
             self.sprites
-                .push(Sprite::new(config.clone(), PathBuf::from(&config.source)));
+                .push(Sprite::new(config, PathBuf::from(&config.source)));
+        }
+        if self.sprites.is_empty() {
+            log::error!("Input folder does not have images.");
         }
     }
     /// Validate all sprites inside this manager.
@@ -633,6 +636,8 @@ impl Manager {
     }
     /// Save all sprites inside this manager.
     fn save(&self) {
+        // TODO: pre-processing (crop, resize, ...)
+        // TODO: process: build image(s), generate description file (CSS, ...)
         todo!()
     }
 }
