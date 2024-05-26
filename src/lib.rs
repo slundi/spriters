@@ -1,7 +1,5 @@
 use std::{
-    fmt,
-    path::{Path, PathBuf},
-    str::FromStr,
+    default, fmt, path::{Path, PathBuf}, str::FromStr
 };
 
 use image::DynamicImage;
@@ -12,6 +10,20 @@ use walkdir::WalkDir;
 pub mod algorithm;
 mod algorithm_square;
 pub mod util;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(u8)]
+pub enum Colors {
+    /// Black and white
+    Monochrome,
+    Grayscale,
+    /// 8 bits color palette
+    Ansi,
+    /// 16 bits color palette
+    Bits16,
+    #[default]
+    All,
+}
 
 /// Order possibilities before using the algorithm
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

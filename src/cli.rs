@@ -19,6 +19,11 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
             Long("cachebuster-filename-only-sprites") => {
                 args.cachebuster_filename_only_sprites = true
             }
+            // Long("colors") => {
+            //     match parser.value()?.to_ascii_lowercase() {
+
+            //     }
+            // },
             Long("caat") => args.caat = true,
             Long("html") => args.html = true,
             Long("json") => args.json = true,
