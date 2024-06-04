@@ -1,8 +1,11 @@
 use std::{
-    default, fmt, path::{Path, PathBuf}, str::FromStr
+    default, fmt,
+    path::{Path, PathBuf},
+    str::FromStr,
 };
 
-use image::DynamicImage;
+use fraction::ToPrimitive;
+use image::{DynamicImage, GenericImageView, Pixel};
 use log::*;
 use util::{absolute_length, horizontal_spacing, vertical_spacing, Spacing};
 use walkdir::WalkDir;
@@ -656,6 +659,89 @@ impl Manager {
 
 pub fn add(left: usize, right: usize) -> usize {
     left + right
+}
+
+/// Crop an image. When no color is provided, it crops white or transparent areas (when alpha channel is available).
+pub fn crop(image: &mut DynamicImage, color: Option<u32>) {
+    let mut croppable_color: u32 = 0xffffff00; // default is white
+    let mut crop_alpha = false;
+    if let Some(c) = color {
+        croppable_color = c;
+    } else {
+        crop_alpha = image.color().has_alpha();
+    }
+    let mut x_matrix: Vec<bool> = vec![true; image.width() as usize];
+    let mut y_matrix: Vec<bool> = vec![true; image.height() as usize];
+    // detect top/bottom
+    for x in 0..image.width() {
+        if image.height() == 1 {
+            continue;
+        }
+        for y in 0..image.height() - 1 {
+            let pixel = image.get_pixel(x, y);
+            if (pixel != image.get_pixel(x, y - 1) && !crop_alpha)
+                || (crop_alpha && pixel.0[3] == 255)
+            {
+                y_matrix[y as usize] = false;
+                break;
+            }
+        }
+    }
+    // detect left/right
+    for y in 0..image.height() {
+        if image.width() == 1 {
+            continue;
+        }
+        for x in 0..image.width() - 1 {
+            let pixel = image.get_pixel(x, y);
+            if (pixel != image.get_pixel(x - 1, y) && !crop_alpha)
+                || (crop_alpha && pixel.0[3] == 255)
+            {
+                x_matrix[x as usize] = false;
+                break;
+            }
+        }
+    }
+    // find croppable areas
+    let mut top: u32 = 0;
+    let mut bottom: u32 = 0;
+    let mut left: u32 = 0;
+    let mut right: u32 = 0;
+    for i in 0..x_matrix.len() - 1 {
+        if x_matrix[i] && x_matrix[i] == x_matrix[i + 1] {
+            left += 1;
+        } else {
+            break;
+        }
+    }
+    for i in x_matrix.len()..1 {
+        if x_matrix[i] && x_matrix[i] == x_matrix[i - 1] {
+            right += 1;
+        } else {
+            break;
+        }
+    }
+    for i in 0..y_matrix.len() - 1 {
+        if y_matrix[i] && y_matrix[i] == y_matrix[i + 1] {
+            top += 1;
+        } else {
+            break;
+        }
+    }
+    for i in y_matrix.len()..1 {
+        if y_matrix[i] && y_matrix[i] == y_matrix[i - 1] {
+            bottom += 1;
+        } else {
+            break;
+        }
+    }
+    image.crop_imm(
+        left,
+        top,
+        image.width() - left - right,
+        image.height() - top - bottom,
+    );
+    todo!("croppable color");
 }
 
 #[cfg(test)]
