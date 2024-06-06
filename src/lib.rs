@@ -1,11 +1,10 @@
 use std::{
-    default, fmt,
+    fmt,
     path::{Path, PathBuf},
     str::FromStr,
 };
 
-use fraction::ToPrimitive;
-use image::{DynamicImage, GenericImageView, Pixel};
+use image::{DynamicImage, GenericImageView};
 use log::*;
 use util::{absolute_length, horizontal_spacing, vertical_spacing, Spacing};
 use walkdir::WalkDir;
@@ -679,8 +678,8 @@ pub fn crop(image: &mut DynamicImage, color: Option<u32>) {
         }
         for y in 0..image.height() - 1 {
             let pixel = image.get_pixel(x, y);
-            if (pixel != image.get_pixel(x, y - 1) && !crop_alpha)
-                || (crop_alpha && pixel.0[3] == 255)
+            if pixel != image.get_pixel(x, y - 1)
+                || !is_color_or_transparent(&pixel, crop_alpha, croppable_color)
             {
                 y_matrix[y as usize] = false;
                 break;
@@ -694,8 +693,8 @@ pub fn crop(image: &mut DynamicImage, color: Option<u32>) {
         }
         for x in 0..image.width() - 1 {
             let pixel = image.get_pixel(x, y);
-            if (pixel != image.get_pixel(x - 1, y) && !crop_alpha)
-                || (crop_alpha && pixel.0[3] == 255)
+            if pixel != image.get_pixel(x - 1, y)
+                || !is_color_or_transparent(&pixel, crop_alpha, croppable_color)
             {
                 x_matrix[x as usize] = false;
                 break;
@@ -741,7 +740,16 @@ pub fn crop(image: &mut DynamicImage, color: Option<u32>) {
         image.width() - left - right,
         image.height() - top - bottom,
     );
-    todo!("croppable color");
+}
+
+fn is_color_or_transparent(pixel: &image::Rgba<u8>, crop_alpha: bool, color: u32) -> bool {
+    if crop_alpha {
+        if pixel.0[3] < 255 {
+            return false;
+        }
+        return true;
+    }
+    u32::from_be_bytes(pixel.0) == color
 }
 
 #[cfg(test)]
@@ -749,8 +757,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+    fn test_is_croppable_color() {
+        // not croppable color
+        assert!(!is_color_or_transparent(
+            &image::Rgba::from([128u8, 128, 128, 0]),
+            false,
+            0xffffff00
+        ));
+        // transparent but not set
+        assert!(!is_color_or_transparent(
+            &image::Rgba::from([128u8, 128, 128, 255]),
+            false,
+            0xffffff00
+        ));
+        // transparent cropable
+        assert!(is_color_or_transparent(
+            &image::Rgba::from([128u8, 128, 128, 255]),
+            true,
+            0xffffff00
+        ));
+        // croppable color no alpha
+        assert!(is_color_or_transparent(
+            &image::Rgba::from([255u8, 255, 255, 0]),
+            false,
+            0xffffff00
+        ));
     }
 }
