@@ -1,3 +1,4 @@
+use image::imageops::FilterType;
 use spriters::Config;
 
 pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
@@ -13,6 +14,18 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
         match arg {
             Short('a') | Long("algorithm") => todo!(),
             Short('c') | Long("crop") => args.crop = true,
+            Long("max-width") => args.max_width = Some(parser.value()?.parse()?),
+            Long("max-height") => args.max_height = Some(parser.value()?.parse()?),
+            Long("resize-alogorithm") => {
+                let fa: String = parser.value()?.parse()?;
+                match fa.to_lowercase().as_str() {
+                    "nearest" => args.resize_algorithm = FilterType::Nearest,
+                    "triangle" => args.resize_algorithm = FilterType::Triangle,
+                    "gaussian" => args.resize_algorithm = FilterType::Gaussian,
+                    "lanczos3" => args.resize_algorithm = FilterType::Lanczos3,
+                    _ => args.resize_algorithm = FilterType::CatmullRom,
+                }
+            }
             Long("project") => args.project = true,
             Long("cachebuster") => args.cachebuster = true,
             Long("cachebuster-filename") => args.cachebuster_filename = true,

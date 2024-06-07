@@ -16,15 +16,23 @@ pub mod util;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u8)]
 pub enum Colors {
+    /// Using the color
+    #[default]
+    MaxDetected,
     /// Black and white
     Monochrome,
+    /// Grayscale, alias for Luma8,
     Grayscale,
     /// 8 bits color palette
     Ansi,
     /// 16 bits color palette
     Bits16,
-    #[default]
-    All,
+    Luma8,
+    Luma16,
+    Luma32f,
+    LumaAlpha8,
+    LumaAlpha16,
+    LumaAlpha32f,
 }
 
 /// Order possibilities before using the algorithm
@@ -110,7 +118,7 @@ pub enum Algorithm {
     HorizontalBottom,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Config {
     pub algorithm: Algorithm,
     /// Before processing the images using the algorithm **spriters** orders the images. The default ordering is `maxside` but you can configure it using the
@@ -125,6 +133,11 @@ pub struct Config {
     /// Usually designers add some unnecessary transparent space around the images because it is easier for them to work with a larger
     /// canvas. **spriters** can optimize our sprite by croping all the unnecessary transparent spaces that the original images could have.
     pub crop: bool,
+    /// If the width of the image is gratear than the given value, the image will be resized before making the sprite
+    pub max_width: Option<u32>,
+    /// If the height of the image is gratear than the given value, the image will be resized before making the sprite
+    pub max_height: Option<u32>,
+    pub resize_algorithm: image::imageops::FilterType,
     /// If you want to spread the images around the sprite but you don’t want to count this space as image width/height (as happens using
     /// `--padding`), you can use the --margin option followed by the margin you want to add:
     ///
@@ -360,6 +373,14 @@ impl Config {
             });
         }
         Ok(())
+    }
+}
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            resize_algorithm: image::imageops::FilterType::CatmullRom,
+            ..Default::default()
+        }
     }
 }
 
@@ -650,8 +671,9 @@ impl Manager {
     }
     /// Save all sprites inside this manager.
     fn save(&self) {
-        // TODO: pre-processing (crop, resize, ...)
-        // TODO: process: build image(s), generate description file (CSS, ...)
+        // TODO: pre-processing (crop, resize, ...): async/thread pool
+        // TODO: process: build image(s): async/thread pool in project mode?
+        // TODO: generate description file (CSS, ...): async/thread pool for each format?
         todo!()
     }
 }
