@@ -4,7 +4,7 @@ use std::{
     str::FromStr,
 };
 
-use image::{DynamicImage, GenericImageView};
+use image::{ColorType, DynamicImage, GenericImageView};
 use log::*;
 use util::{absolute_length, horizontal_spacing, vertical_spacing, Spacing};
 use walkdir::WalkDir;
@@ -625,6 +625,42 @@ impl Sprite {
             images.reverse();
         }
     }
+
+    fn get_max_color_type(&self) -> ColorType {
+        let mut current = ColorType::L8;
+        for i in self.images.iter() {
+            current = get_greatet_quality(&current, &i.image.color());
+        }
+        current
+    }
+}
+
+/// Order color set by quality/number of colors/alpha
+const SORTED_COLOR_TYPES: [ColorType; 10] = [
+    ColorType::L8,
+    ColorType::La8,
+    ColorType::Rgb8,
+    ColorType::Rgba8,
+    ColorType::L16,
+    ColorType::La16,
+    ColorType::Rgb16,
+    ColorType::Rgba16,
+    ColorType::Rgb32F,
+    ColorType::Rgba32F,
+];
+
+pub fn get_greatet_quality(a: &ColorType, b: &ColorType) -> ColorType {
+    let mut index_a = 0usize;
+    let mut index_b = 0usize;
+    for c in SORTED_COLOR_TYPES.iter().enumerate() {
+        if a == c.1 {
+            index_a = c.0;
+        }
+        if b == c.1 {
+            index_b = c.0;
+        }
+    }
+    SORTED_COLOR_TYPES[index_a.max(index_b)]
 }
 
 #[derive(Debug, Default)]
@@ -804,5 +840,21 @@ mod tests {
             false,
             0xffffff00
         ));
+    }
+
+    #[test]
+    fn test_greatest_quality() {
+        assert_eq!(
+            get_greatet_quality(&ColorType::L8, &ColorType::Rgb16),
+            ColorType::Rgb16
+        );
+        assert_eq!(
+            get_greatet_quality(&ColorType::La8, &ColorType::La8),
+            ColorType::La8
+        );
+        assert_eq!(
+            get_greatet_quality(&ColorType::Rgba32F, &ColorType::Rgb16),
+            ColorType::Rgba32F
+        );
     }
 }
