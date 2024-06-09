@@ -1,0 +1,122 @@
+use std::fs::File;
+use std::io::{BufWriter, Write};
+
+use crate::{Config, Sprite};
+
+const CSS_PSEUDO_CLASSES: [&str; 10] = [
+    "link",
+    "visited",
+    "active",
+    "hover",
+    "focus",
+    "first-letter",
+    "first-line",
+    "first-child",
+    "before",
+    "after",
+];
+
+fn generate_css(config: &Config, sprite: &Sprite) {
+    let mut f = BufWriter::new(File::create(&sprite.path).expect("Unable to create file"));
+    let name = sprite.path.file_name().unwrap().to_string_lossy();
+    let _ = writeln!(
+        &mut f,
+        ".{class} {{\tbackground-image: url('{name}.png'); background-repeat: no-repeat;\n}}",
+        class = name
+    );
+    for img in sprite.images.iter() {
+        // write!(&mut f, ".{}{} {{\n", it.1.label, it.1.pseudo);
+        let _ = write!(&mut f, "\tbackground-position: {{ {x} ~ ('px' if {x}) }} {{ {y} ~ ('px' if {y}) }}; width: {w}px; height: {h}px;\n}}\n", x=img.x, y=img.y, w=img.computed_width, h=img.computed_height);
+        //sprite.path.as_ref()
+    }
+    for r in config.ratios.iter() {
+        let _ = writeln!(&mut f, "@media screen and (-webkit-min-device-pixel-ratio: {}), screen and (min--moz-device-pixel-ratio: {}), screen and (-o-min-device-pixel-ratio: {{ ratio.fraction }}), screen and (min-device-pixel-ratio: {}), screen and (min-resolution: {}dppx) {{", r, r, r, r);
+        for it in sprite.images.iter().enumerate() {
+            // write!(&mut f, "\t.{}{} {{\n", it.1.label, it.1.pseudo);
+            let _ = write!(
+                &mut f,
+                "\t\tbackground-image: url('{}.png'); -webkit-background-size: {}px {}px; background-size: {}px {}px;\n\t}}\n",
+                name,
+                it.1.x, it.1.y, it.1.computed_width, it.1.computed_height
+            );
+        }
+        let _ = write!(&mut f, "\t}}");
+    }
+}
+
+fn generate_html(config: &Config, sprite: &Sprite) {
+    let mut f = BufWriter::new(File::create(&sprite.path).expect("Unable to create file"));
+    let n = sprite.images.len();
+    let _ = writeln!(&mut f, "<html>
+    <head><title>Spriters Test Html</title>
+    <link rel=\"stylesheet\" type=\"text/css\" href=\"{}.css\">
+    <style type=\"text/css\">tr div:hover{{border:1px solid #ccc;}} tr div{{border:1px solid white;}}</style>
+    </head><body>
+    <h1>CSS Classes ({})</h1>
+    <table>
+    <thead><tr>
+        <th>CSS Class</th>
+        <th>Result</th>
+    </tr></thead><tbody>", config.output.to_string_lossy(), n);
+    for image in sprite.images.iter() {
+        let _ = writeln!(
+            &mut f,
+            "<tr><td>.{label}</td><td><div class=\"{label}\"></div></td></tr>",
+            label = image.label()
+        );
+    }
+    let _ = write!(&mut f, "</tbody></table>
+    <footer>Generated using <a href=\"https://codeberg.org/slundi/spriters\">Spriters v<%= version %></a></footer>
+    </body></html>");
+}
+const LESS_TEMPLATE: &str = "<% for image in &images { %>.<%= image.label %><%= image.pseudo %><%- if !image.last %>,\n<% } %><% } %>{
+    background-image:url('<%= sprite_path %'); background-repeat:no-repeat;
+    -webkit-background-size: {{ width }}px {{ height }}px;
+    -moz-background-size: {{ width }}px {{ height }}px;
+    background-size: {{ width }}px {{ height }}px;
+    {% for r, ratio in ratios.items() %}
+    @media screen and (-webkit-min-device-pixel-ratio: {{ ratio.ratio }}), screen and (min--moz-device-pixel-ratio: {{ ratio.ratio }}),screen and (-o-min-device-pixel-ratio: {{ ratio.fraction }}),screen and (min-device-pixel-ratio: {{ ratio.ratio }}),screen and (min-resolution: {{ ratio.ratio }}dppx){
+        background-image:url('<%= ratio.sprite_path %');
+    }
+    <% } %>
+}
+<% for image in &images { %>
+.<%= image.label %><%= image.pseudo %>{
+    background-position:{{ image.x ~ ('px' if image.x) }} {{ image.y ~ ('px' if image.y) }};
+    width:<%= image.width %>px;
+    height:<%= image.height %>px;
+}
+<% } %>";
+
+fn generate_less(config: &Config, sprite: &Sprite) {
+    todo!();
+}
+
+fn generate_coco2d(config: &Config, sprite: &Sprite) {
+    todo!();
+}
+
+fn generate_json(config: &Config, sprite: &Sprite) {
+    todo!();
+}
+
+pub fn generate_files(config: &Config, sprite: &Sprite) {
+    if !config.no_css {
+        generate_css(config, sprite);
+    }
+    if !config.no_img {
+        todo!();
+    }
+    if config.html {
+        generate_html(config, sprite);
+    }
+    if config.less {
+        generate_less(config, sprite);
+    }
+    if config.cocos2d {
+        generate_coco2d(config, sprite);
+    }
+    if config.json {
+        generate_json(config, sprite);
+    }
+}

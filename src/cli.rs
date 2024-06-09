@@ -37,7 +37,6 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
 
             //     }
             // },
-            Long("caat") => args.caat = true,
             Long("html") => args.html = true,
             Long("json") => args.json = true,
             Long("cocos2d") => args.cocos2d = true,

@@ -11,6 +11,7 @@ use walkdir::WalkDir;
 
 pub mod algorithm;
 mod algorithm_square;
+mod output;
 pub mod util;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -278,8 +279,6 @@ pub struct Config {
     /// `--watch` will allow you to keep **spriters** running in the background and it’ll rebuild the sprite every time it detects changes on the source directory.
     pub watch: bool,
     // output format
-    /// Using the --caat option, **Spriters** will generate both a sprite image and a caat metadata file.
-    pub caat: bool,
     /// Using the `--cocos2d` option, **Spriters** will generate both a sprite image and a xml metadata file compatible with cocos2d.
     pub cocos2d: bool,
     /// Using the --json option, **spriters** will generate both a sprite image and a json metadata file.
@@ -343,11 +342,6 @@ pub struct Config {
     ///     └── rss.png
     /// ```
     pub project: bool,
-
-    // lexopt example
-    pub thing: String,
-    pub number: u32,
-    pub shout: bool,
 }
 impl Config {
     /// Check mandatory arguments and some values
@@ -379,7 +373,43 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             resize_algorithm: image::imageops::FilterType::CatmullRom,
-            ..Default::default()
+            algorithm: Algorithm::Square,
+            ordering: Ordering::Maxside,
+            crop: false,
+            max_width: None,
+            max_height: None,
+            margin: None,
+            padding: None,
+            ratios: None,
+            cachebuster: false,
+            cachebuster_filename: todo!(),
+            cachebuster_filename_only_sprites: todo!(),
+            force: false,
+            follow_links: false,
+            namespace: None,
+            sprite_namespace: None,
+            separator: String::with_capacity(0),
+            quiet: false,
+            recursive: false,
+            url: None,
+            source: todo!(),
+            output: todo!(),
+            watch: false,
+            cocos2d: false,
+            json: false,
+            html: false,
+            pseudo_class_separator: None,
+            css: None,
+            css_template: None,
+            img: None,
+            png8: false,
+            less: false,
+            scss: false,
+            scss_template: None,
+            less_template: None,
+            no_img: false,
+            no_css: false,
+            project: false,
         }
     }
 }
@@ -392,6 +422,16 @@ pub struct ImageAndPosition {
     pub y: u32,
     pub computed_width: u32,
     pub computed_height: u32,
+}
+impl ImageAndPosition {
+    pub fn label(&self) -> String {
+        slug::slugify(
+            std::path::Path::new(&self.path)
+                .file_stem()
+                .unwrap()
+                .to_string_lossy(),
+        )
+    }
 }
 
 #[derive(Debug, Default)]
@@ -735,16 +775,15 @@ impl Manager {
             log::error!("Input folder does not have images.");
         }
     }
-    /// Validate all sprites inside this manager.
-    fn validate(&self) {
-        todo!();
-    }
+
     /// Save all sprites inside this manager.
-    fn save(&self) {
+    pub fn save(&self, config: &Config) {
         // TODO: pre-processing (crop, resize, ...): async/thread pool
         // TODO: process: build image(s): async/thread pool in project mode?
         // TODO: generate description file (CSS, ...): async/thread pool for each format?
-        todo!()
+        for sprite in self.sprites.iter() {
+            crate::output::generate_files(config, sprite);
+        }
     }
 }
 
@@ -852,7 +891,7 @@ fn get_dimensions_from_max(
     max_height: Option<u32>,
 ) -> (u32, u32) {
     let mut dimensions = (width as f64, height as f64);
-    let mut ratio = 1f64;
+    let mut ratio;
     if let Some(mw) = max_width {
         if mw < width {
             ratio = (mw as f64) / (width as f64);

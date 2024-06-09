@@ -28,5 +28,6 @@ fn main() -> Result<(), lexopt::Error> {
         ..Default::default()
     };
     manager.find_sprites(&config);
+    manager.save(&config);
     Ok(())
 }
