@@ -390,6 +390,8 @@ pub struct ImageAndPosition {
     pub image: DynamicImage,
     pub x: u32,
     pub y: u32,
+    pub computed_width: u32,
+    pub computed_height: u32,
 }
 
 #[derive(Debug, Default)]
@@ -477,10 +479,42 @@ impl Sprite {
                     | "mj2"
             ) {
                 match image::open(entry.path()) {
-                    Ok(img) => images.push(ImageAndPosition {
-                        image: img,
-                        ..Default::default()
-                    }),
+                    // Perform pre-processing operations when applicable
+                    // 1. crop
+                    // 2. resize depending on max-width and max-height
+                    // pub fn pre_process(&self, config: &Config) {
+                    //     for s in self.sprites.iter() {
+                    //         for i in s.images.iter() {
+                    //             if config.crop {
+                    //                 crop(&mut i.image, None);
+                    //             }
+                    //             if let Some(mw) = config.max_width {
+                    //                 todo!();
+                    //             }
+                    //             if let Some(mh) = config.max_height {
+                    //                 todo!();
+                    //             }
+                    //         }
+                    //     }
+                    // }
+                    Ok(img) => {
+                        let mut img2 = img.clone();
+                        if self.config.crop {
+                            crop(&mut img2, None);
+                        }
+                        let d = get_dimensions_from_max(
+                            img2.width(),
+                            img2.height(),
+                            self.config.max_width,
+                            self.config.max_height,
+                        );
+                        images.push(ImageAndPosition {
+                            image: img,
+                            computed_width: d.0,
+                            computed_height: d.1,
+                            ..Default::default()
+                        })
+                    }
                     Err(err) => error!("Cannot open image: {}", err),
                 };
             } // else { continue; }
@@ -810,6 +844,33 @@ fn is_color_or_transparent(pixel: &image::Rgba<u8>, crop_alpha: bool, color: u32
     u32::from_be_bytes(pixel.0) == color
 }
 
+/// Get the `(width, height)` tuple after the computation of the new image size depending on max width an height.
+fn get_dimensions_from_max(
+    width: u32,
+    height: u32,
+    max_width: Option<u32>,
+    max_height: Option<u32>,
+) -> (u32, u32) {
+    let mut dimensions = (width as f64, height as f64);
+    let mut ratio = 1f64;
+    if let Some(mw) = max_width {
+        if mw < width {
+            ratio = (mw as f64) / (width as f64);
+            dimensions.0 = mw as f64;
+            dimensions.1 = (height as f64) * ratio;
+        }
+    }
+    if let Some(mh) = max_height {
+        let mhf64 = mh as f64;
+        if mhf64 < dimensions.1 {
+            ratio = mhf64 / dimensions.1;
+            dimensions.1 = mhf64;
+            dimensions.0 *= ratio;
+        }
+    }
+    (dimensions.0 as u32, dimensions.1 as u32)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -856,5 +917,19 @@ mod tests {
             get_greatet_quality(&ColorType::Rgba32F, &ColorType::Rgb16),
             ColorType::Rgba32F
         );
+    }
+
+    #[test]
+    fn test_max_dimensions() {
+        assert_eq!(get_dimensions_from_max(10, 20, None, None), (10, 20));
+        assert_eq!(get_dimensions_from_max(10, 20, Some(5), None), (5, 10));
+        assert_eq!(get_dimensions_from_max(10, 20, Some(15), None), (10, 20));
+        assert_eq!(get_dimensions_from_max(10, 20, None, Some(10)), (5, 10));
+        assert_eq!(get_dimensions_from_max(10, 20, None, Some(40)), (10, 20));
+        assert_eq!(get_dimensions_from_max(10, 20, Some(5), Some(10)), (5, 10));
+        assert_eq!(get_dimensions_from_max(10, 20, Some(5), Some(15)), (5, 10));
+        assert_eq!(get_dimensions_from_max(10, 20, Some(10), Some(10)), (5, 10));
+        assert_eq!(get_dimensions_from_max(10, 20, Some(2), Some(10)), (2, 4));
+        assert_eq!(get_dimensions_from_max(10, 20, Some(5), Some(5)), (2, 5));
     }
 }
