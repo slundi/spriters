@@ -54,6 +54,16 @@ fn get_filename_depending_on_cache_buster(config: &Config, sprite: &Sprite) -> S
     )
 }
 
+fn implode_image_label(sprite: &Sprite) -> String {
+    let mut labels: Vec<String> = Vec::with_capacity(sprite.images.len());
+    for img in sprite.images.iter() {
+        let mut label = String::from("sprite-");
+        label.push_str(&img.label());
+        labels.push(label);
+    }
+    labels.join(",")
+}
+
 fn generate_css(config: &Config, sprite: &Sprite) {
     let mut f = BufWriter::new(File::create(&sprite.path).expect("Unable to create file"));
     let name = sprite.path.file_name().unwrap().to_string_lossy();
@@ -108,7 +118,7 @@ fn generate_html(config: &Config, sprite: &Sprite) {
     <footer>Generated using <a href=\"https://codeberg.org/slundi/spriters\">Spriters v<%= version %></a></footer>
     </body></html>");
 }
-const LESS_TEMPLATE: &str = "<% for image in &images { %>.<%= image.label %><%= image.pseudo %><%- if !image.last %>,\n<% } %><% } %>{
+const _LESS_TEMPLATE: &str = "<% for image in &images { %>.<%= image.label %><%= image.pseudo %><%- if !image.last %>,\n<% } %><% } %>{
     background-image:url('<%= sprite_path %'); background-repeat:no-repeat;
     -webkit-background-size: {{ width }}px {{ height }}px;
     -moz-background-size: {{ width }}px {{ height }}px;
@@ -128,7 +138,36 @@ const LESS_TEMPLATE: &str = "<% for image in &images { %>.<%= image.label %><%= 
 <% } %>";
 
 fn generate_less(config: &Config, sprite: &Sprite) {
-    todo!();
+    let mut f = BufWriter::new(File::create(&sprite.path).expect("Unable to create file"));
+    let name = sprite.path.file_name().unwrap().to_string_lossy();
+    let _ = writeln!(
+        f,
+        "{list}{{
+    background-image:url('{name}.png');
+    -webkit-background-size: {w}px {h}px;
+    -moz-background-size: {w}px {h}px;
+    background-size: {w}px {h}px;
+    @media screen and (-webkit-min-device-pixel-ratio: 1.0), screen and (min--moz-device-pixel-ratio: 1.0),screen and (-o-min-device-pixel-ratio: 100/100),screen and (min-device-pixel-ratio: 1.0),screen and (min-resolution: 1.0dppx){{
+        background-image:url('{name}.png');
+    }}
+}}",
+        list = implode_image_label(sprite),
+        name = name,
+        w = todo!(), //sprite.get_width(),
+        h = todo!(), //sprite.get_height(),
+    );
+    for img in sprite.images.iter() {
+        let _ = writeln!(
+            f,
+            ".sprite-{name}-{label}{{background-position: {x} {y}; width: {w}px; height: {h}px;}}",
+            label = img.label(),
+            name = name,
+            x = img.x,
+            y = img.y,
+            w = img.computed_width,
+            h = img.computed_height,
+        );
+    }
 }
 
 fn generate_coco2d(config: &Config, sprite: &Sprite) {
@@ -140,11 +179,11 @@ fn generate_json(config: &Config, sprite: &Sprite) {
 }
 
 pub fn generate_files(config: &Config, sprite: &Sprite) {
-    if !config.no_css {
-        generate_css(config, sprite);
-    }
     if !config.no_img {
         todo!();
+    }
+    if !config.no_css {
+        generate_css(config, sprite);
     }
     if config.html {
         generate_html(config, sprite);
