@@ -29,9 +29,6 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
             Long("project") => args.project = true,
             Long("cachebuster") => args.cachebuster = true,
             Long("cachebuster-filename") => args.cachebuster_filename = true,
-            Long("cachebuster-filename-only-sprites") => {
-                args.cachebuster_filename_only_sprites = true
-            }
             // Long("colors") => {
             //     match parser.value()?.to_ascii_lowercase() {
 
@@ -75,9 +72,6 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
     }
 
     Ok(Config {
-        thing: thing.ok_or("missing argument THING")?,
-        number,
-        shout,
         ..Default::default()
     })
 }

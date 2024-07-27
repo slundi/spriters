@@ -1,3 +1,4 @@
+use rand::{distributions::Alphanumeric, Rng};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 
@@ -16,13 +17,51 @@ const CSS_PSEUDO_CLASSES: [&str; 10] = [
     "after",
 ];
 
+/// Get the cache buster String when enabled.
+/// If `filename = true` the cache buster is in the filename like `_p3c54d` otherwise it is a a query param lik `?p3c54d`
+fn get_cache_buster(enabled: bool, filename: bool) -> String {
+    let mut cache_buster: String = String::with_capacity(7);
+    if enabled {
+        cache_buster.push(if filename { '_' } else { '?' });
+        let hash: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(6)
+            .map(char::from)
+            .collect();
+        cache_buster.push_str(&hash);
+    }
+    cache_buster
+}
+
+/// Get the filename, if there is cache buster, filename will change: if `config.cachebuster_filename = true` the cache buster
+/// is in the filename like `icons_p3c54d.png` otherwise it is a a query param lik `icons.png?p3c54d`
+fn get_filename_depending_on_cache_buster(config: &Config, sprite: &Sprite) -> String {
+    let name = sprite.path.file_name().unwrap().to_string_lossy();
+    let cache_buster = get_cache_buster(config.cachebuster, config.cachebuster_filename);
+    format!(
+        "{name}{cbf}.png{cbq}",
+        name = name,
+        cbf = if config.cachebuster_filename {
+            cache_buster.clone()
+        } else {
+            String::with_capacity(0)
+        },
+        cbq = if config.cachebuster {
+            cache_buster
+        } else {
+            String::with_capacity(0)
+        }
+    )
+}
+
 fn generate_css(config: &Config, sprite: &Sprite) {
     let mut f = BufWriter::new(File::create(&sprite.path).expect("Unable to create file"));
     let name = sprite.path.file_name().unwrap().to_string_lossy();
     let _ = writeln!(
         &mut f,
-        ".{class} {{\tbackground-image: url('{name}.png'); background-repeat: no-repeat;\n}}",
-        class = name
+        ".{name} {{\tbackground-image: url('{filename}'); background-repeat: no-repeat;\n}}",
+        name = name,
+        filename = get_filename_depending_on_cache_buster(config, sprite),
     );
     for img in sprite.images.iter() {
         // write!(&mut f, ".{}{} {{\n", it.1.label, it.1.pseudo);
@@ -118,5 +157,24 @@ pub fn generate_files(config: &Config, sprite: &Sprite) {
     }
     if config.json {
         generate_json(config, sprite);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::get_cache_buster;
+
+    #[test]
+    fn test_cache_buster() {
+        assert_eq!(get_cache_buster(false, false), "");
+        assert_eq!(get_cache_buster(false, true), "");
+
+        let cb = get_cache_buster(true, false);
+        assert_eq!(cb.chars().count(), 7);
+        assert!(cb.starts_with('?'));
+
+        let cb = get_cache_buster(true, true);
+        assert_eq!(cb.chars().count(), 7);
+        assert!(cb.starts_with('_'));
     }
 }

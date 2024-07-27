@@ -214,8 +214,6 @@ pub struct Config {
     /// // ...
     /// ```
     pub cachebuster_filename: bool,
-    /// Unlike `--cachebuster-filename`, **sprinters** will only apply filename cachebusting to the sprite image and not to both the CSS and the sprite image.
-    pub cachebuster_filename_only_sprites: bool,
     /// By default **spriters** store some metadata inside the generated sprites in order to not rebuild it again if the source images and settings are the same.
     /// **spriters** set two different keys, **spriters** with the version number the sprite was build and hash, generated using the source images data, name and all the
     /// relevant sprite settings like padding, margin etc...
@@ -382,8 +380,7 @@ impl Default for Config {
             padding: None,
             ratios: None,
             cachebuster: false,
-            cachebuster_filename: todo!(),
-            cachebuster_filename_only_sprites: todo!(),
+            cachebuster_filename: false,
             force: false,
             follow_links: false,
             namespace: None,
