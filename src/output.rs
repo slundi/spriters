@@ -137,7 +137,7 @@ const _LESS_TEMPLATE: &str = "<% for image in &images { %>.<%= image.label %><%=
 }
 <% } %>";
 
-fn generate_less(config: &Config, sprite: &Sprite) {
+fn generate_less_old(config: &Config, sprite: &Sprite) {
     let mut f = BufWriter::new(File::create(&sprite.path).expect("Unable to create file"));
     let name = sprite.path.file_name().unwrap().to_string_lossy();
     let _ = writeln!(
@@ -147,14 +147,44 @@ fn generate_less(config: &Config, sprite: &Sprite) {
     -webkit-background-size: {w}px {h}px;
     -moz-background-size: {w}px {h}px;
     background-size: {w}px {h}px;
-    @media screen and (-webkit-min-device-pixel-ratio: 1.0), screen and (min--moz-device-pixel-ratio: 1.0),screen and (-o-min-device-pixel-ratio: 100/100),screen and (min-device-pixel-ratio: 1.0),screen and (min-resolution: 1.0dppx){{
+    @media screen and (-webkit-min-device-pixel-ratio: 1.0), screen and (min--moz-device-pixel-ratio: 1.0), screen and (-o-min-device-pixel-ratio: 100/100), screen and (min-device-pixel-ratio: 1.0),screen and (min-resolution: 1.0dppx){{
         background-image:url('{name}.png');
     }}
 }}",
         list = implode_image_label(sprite),
         name = name,
-        w = todo!(), //sprite.get_width(),
-        h = todo!(), //sprite.get_height(),
+        w = 0, // TODO: sprite.get_width(),
+        h = 0, //sprite.get_height(),
+    );
+    for img in sprite.images.iter() {
+        let _ = writeln!(
+            f,
+            ".sprite-{name}-{label}{{background-position: {x} {y}; width: {w}px; height: {h}px;}}",
+            label = img.label(),
+            name = name,
+            x = img.x,
+            y = img.y,
+            w = img.computed_width,
+            h = img.computed_height,
+        );
+    }
+    let _ = writeln!(f, "@media screen and (-webkit-min-device-pixel-ratio: 1.0), screen and (min--moz-device-pixel-ratio: 1.0), screen and (-o-min-device-pixel-ratio: 100/100), screen and (min-device-pixel-ratio: 1.0), screen and (min-resolution: 1.0dppx){{
+    background-image: url('{name}'); -webkit-background-size: {w}px {h}px; -moz-background-size: {w}px {h}px; background-size: {w}px {h}px;
+}}",
+        name = name,
+        w = 0, // TODO:
+        h = 0,
+    );
+}
+
+fn generate_less(config: &Config, sprite: &Sprite) {
+    let mut f = BufWriter::new(File::create(&sprite.path).expect("Unable to create file"));
+    let name = sprite.path.file_name().unwrap().to_string_lossy();
+    let _ = writeln!(
+        f,
+        "{list} {{background-image: url('{name}');background-repeat: no-repeat;}}",
+        list = implode_image_label(sprite),
+        name = name,
     );
     for img in sprite.images.iter() {
         let _ = writeln!(
@@ -175,7 +205,29 @@ fn generate_coco2d(config: &Config, sprite: &Sprite) {
 }
 
 fn generate_json(config: &Config, sprite: &Sprite) {
-    todo!();
+    let mut f = BufWriter::new(File::create(&sprite.path).expect("Unable to create file"));
+    let name = sprite.path.file_name().unwrap().to_string_lossy();
+    let n = sprite.images.len();
+    let _ = writeln!(f, "{{\"frames\":[");
+    for (index, img) in sprite.images.iter().enumerate() {
+        let _ = writeln!(
+            f,
+            "{{\"filename\": \"{label}\", \"frame\":{{\"x\":{x},\"y\":{y},\"w\":{w},\"h\":{h}}}}}{coma}",
+            label = img.label(),
+            x = img.x,
+            y = img.y,
+            w = img.computed_width,
+            h = img.computed_height,
+            coma = if index + 1 < n { ""} else { "," },
+        );
+    }
+    let _ = writeln!(
+        f,
+        "],\n\"meta\":{{\"width\": {w}, \"height\": {h}, \"sprite_filename\": \"{name}\", \"sprite_path\": \"{name}\"}}\n}}",
+        w = 0, // TODO:
+        h = 0,
+        // TODO: image hash?
+    );
 }
 
 pub fn generate_files(config: &Config, sprite: &Sprite) {
@@ -190,6 +242,9 @@ pub fn generate_files(config: &Config, sprite: &Sprite) {
     }
     if config.less {
         generate_less(config, sprite);
+    }
+    if config.scss {
+        generate_scss(config, sprite);
     }
     if config.cocos2d {
         generate_coco2d(config, sprite);
