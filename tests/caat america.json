@@ -1,0 +1,23 @@
+{
+    "sprites": {
+        "us.png": {
+            "x": 0,
+            "y": 0,
+            "width": 250,
+            "height": 132
+        },
+        "ca.png": {
+            "x": 0,
+            "y": 132,
+            "width": 100,
+            "height": 50
+        }
+    },
+    "meta": {
+        "version": "0.13",
+        "hash": "3ed308286e",
+        "sprite_filename": "america.png",
+        "width": 250,
+        "height": 182
+    }
+}

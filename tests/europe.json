@@ -1,0 +1,118 @@
+{
+    "frames": [
+        {
+            "filename": "fr.png",
+            "frame": {
+                "x": 0,
+                "y": 0,
+                "w": 250,
+                "h": 167
+            },
+            "rotated": false,
+            "trimmed": false,
+            "spriteSourceSize": {
+                "x": 0,
+                "y": 0,
+                "w": 250,
+                "h": 167
+            },
+            "sourceSize": {
+                "w": 250,
+                "h": 167
+            }
+        },
+        {
+            "filename": "fi.png",
+            "frame": {
+                "x": -250,
+                "y": 0,
+                "w": 250,
+                "h": 153
+            },
+            "rotated": false,
+            "trimmed": false,
+            "spriteSourceSize": {
+                "x": -250,
+                "y": 0,
+                "w": 250,
+                "h": 153
+            },
+            "sourceSize": {
+                "w": 250,
+                "h": 153
+            }
+        },
+        {
+            "filename": "de.png",
+            "frame": {
+                "x": 0,
+                "y": -167,
+                "w": 250,
+                "h": 150
+            },
+            "rotated": false,
+            "trimmed": false,
+            "spriteSourceSize": {
+                "x": 0,
+                "y": -167,
+                "w": 250,
+                "h": 150
+            },
+            "sourceSize": {
+                "w": 250,
+                "h": 150
+            }
+        },
+        {
+            "filename": "se.png",
+            "frame": {
+                "x": -250,
+                "y": -167,
+                "w": 100,
+                "h": 63
+            },
+            "rotated": false,
+            "trimmed": false,
+            "spriteSourceSize": {
+                "x": -250,
+                "y": -167,
+                "w": 100,
+                "h": 63
+            },
+            "sourceSize": {
+                "w": 100,
+                "h": 63
+            }
+        },
+        {
+            "filename": "no.png",
+            "frame": {
+                "x": -250,
+                "y": -230,
+                "w": 100,
+                "h": 73
+            },
+            "rotated": false,
+            "trimmed": false,
+            "spriteSourceSize": {
+                "x": -250,
+                "y": -230,
+                "w": 100,
+                "h": 73
+            },
+            "sourceSize": {
+                "w": 100,
+                "h": 73
+            }
+        }
+    ],
+    "meta": {
+        "version": "0.13",
+        "hash": "b28cc664c7",
+        "name": "europe",
+        "sprite_path": "europe.png",
+        "sprite_filename": "europe.png",
+        "width": 500,
+        "height": 317
+    }
+}

@@ -1,0 +1,53 @@
+/* glue: 0.13 hash: f2be4a696e */
+        .sprite-europe-fr,
+.sprite-europe-fi,
+.sprite-europe-de,
+.sprite-europe-se,
+.sprite-europe-no {
+            background-image: url('europe.png');
+            background-repeat: no-repeat;
+        }
+        
+        .sprite-europe-fr {
+            background-position: 0 0;
+            width: 250px;
+            height: 167px;
+        }
+        
+        .sprite-europe-fi {
+            background-position: -250px 0;
+            width: 250px;
+            height: 153px;
+        }
+        
+        .sprite-europe-de {
+            background-position: 0 -167px;
+            width: 250px;
+            height: 150px;
+        }
+        
+        .sprite-europe-se {
+            background-position: -250px -167px;
+            width: 100px;
+            height: 63px;
+        }
+        
+        .sprite-europe-no {
+            background-position: -250px -230px;
+            width: 100px;
+            height: 73px;
+        }
+        
+        @media screen and (-webkit-min-device-pixel-ratio: 1.0), screen and (min--moz-device-pixel-ratio: 1.0), screen and (-o-min-device-pixel-ratio: 100/100), screen and (min-device-pixel-ratio: 1.0), screen and (min-resolution: 1.0dppx) {
+            .sprite-europe-fr,
+    .sprite-europe-fi,
+    .sprite-europe-de,
+    .sprite-europe-se,
+    .sprite-europe-no {
+                background-image: url('europe.png');
+                -webkit-background-size: 500px 317px;
+                -moz-background-size: 500px 317px;
+                background-size: 500px 317px;
+            }
+        }
+        

@@ -1,0 +1,24 @@
+/* glue: 0.13 hash: e7033fe7d2 */
+.sprite-america-us,.sprite-america-ca{
+    background-image:url('america.png');
+    background-repeat:no-repeat;
+}
+.sprite-america-us{
+    background-position:0 0;
+    width:250px;
+    height:132px;
+}
+.sprite-america-ca{
+    background-position: 0 -132px;
+    width: 100px;
+    height: 50px;
+}
+
+@media screen and (-webkit-min-device-pixel-ratio: 1.0), screen and (min--moz-device-pixel-ratio: 1.0), screen and (-o-min-device-pixel-ratio: 100/100), screen and (min-device-pixel-ratio: 1.0), screen and (min-resolution: 1.0dppx) {
+sprite-america-us,.sprite-america-ca {
+        background-image: url('america.png');
+        -webkit-background-size: 250px 182px;
+        -moz-background-size: 250px 182px;
+        background-size: 250px 182px;
+    }
+}

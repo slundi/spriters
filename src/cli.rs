@@ -6,9 +6,6 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
 
     let mut args: Config = Config::default();
 
-    let mut thing = None;
-    let mut number = 1;
-    let mut shout = false;
     let mut parser = lexopt::Parser::from_env();
     while let Some(arg) = parser.next()? {
         match arg {
@@ -16,7 +13,7 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
             Short('c') | Long("crop") => args.crop = true,
             Long("max-width") => args.max_width = Some(parser.value()?.parse()?),
             Long("max-height") => args.max_height = Some(parser.value()?.parse()?),
-            Long("resize-alogorithm") => {
+            Long("resize-algorithm") => {
                 let fa: String = parser.value()?.parse()?;
                 match fa.to_lowercase().as_str() {
                     "nearest" => args.resize_algorithm = FilterType::Nearest,
@@ -54,16 +51,7 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
                 todo!();
             }
 
-            Short('n') | Long("number") => {
-                number = parser.value()?.parse()?;
-            }
-            Long("shout") => {
-                shout = true;
-            }
-            Value(val) if thing.is_none() => {
-                thing = Some(val.string()?);
-            }
-            Long("help") => {
+            Short('h') | Long("help") => {
                 println!("Usage: hello [-n|--number=NUM] [--shout] THING");
                 std::process::exit(0);
             }

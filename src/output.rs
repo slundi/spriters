@@ -18,7 +18,7 @@ const CSS_PSEUDO_CLASSES: [&str; 10] = [
 ];
 
 /// Get the cache buster String when enabled.
-/// If `filename = true` the cache buster is in the filename like `_p3c54d` otherwise it is a a query param lik `?p3c54d`
+/// If `filename = true` the cache buster is in the filename like `_p3c54d` otherwise it is a a query param like `?p3c54d`
 fn get_cache_buster(enabled: bool, filename: bool) -> String {
     let mut cache_buster: String = String::with_capacity(7);
     if enabled {
@@ -34,7 +34,7 @@ fn get_cache_buster(enabled: bool, filename: bool) -> String {
 }
 
 /// Get the filename, if there is cache buster, filename will change: if `config.cachebuster_filename = true` the cache buster
-/// is in the filename like `icons_p3c54d.png` otherwise it is a a query param lik `icons.png?p3c54d`
+/// is in the filename like `icons_p3c54d.png` otherwise it is a a query param like `icons.png?p3c54d`
 fn get_filename_depending_on_cache_buster(config: &Config, sprite: &Sprite) -> String {
     let name = sprite.path.file_name().unwrap().to_string_lossy();
     let cache_buster = get_cache_buster(config.cachebuster, config.cachebuster_filename);
@@ -243,9 +243,9 @@ pub fn generate_files(config: &Config, sprite: &Sprite) {
     if config.less {
         generate_less(config, sprite);
     }
-    if config.scss {
-        generate_scss(config, sprite);
-    }
+    // if config.scss {
+    //     generate_scss(config, sprite);
+    // }
     if config.cocos2d {
         generate_coco2d(config, sprite);
     }

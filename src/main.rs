@@ -6,7 +6,9 @@ pub mod cli;
 fn main() -> Result<(), lexopt::Error> {
     let config = cli::parse_args()?;
     config.check()?;
-    stderrlog::new().quiet(config.quiet).init().unwrap();
+    stderrlog::new().module(module_path!()).verbosity(log::Level::Info).quiet(config.quiet).init().unwrap();
+    info!("Input directory: {}", config.source.to_string_lossy());
+    info!("Output directory: {}", config.output.to_string_lossy());
     if config.watch {
         let mut watcher = notify::recommended_watcher(|res| match res {
             Ok(event) => todo!("event: {:?}", event),
@@ -28,6 +30,6 @@ fn main() -> Result<(), lexopt::Error> {
         ..Default::default()
     };
     manager.find_sprites(&config);
-    manager.save(&config);
+    // manager.save(&config);
     Ok(())
 }

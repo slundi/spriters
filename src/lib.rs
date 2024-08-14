@@ -99,7 +99,7 @@ impl FromStr for Ordering {
     }
 }
 
-/// Used to order the images before adding them to the canvas can be tunned. By default the algorithm is `Square``,
+/// Used to order the images before adding them to the canvas can be tuned. By default the algorithm is `Square``,
 /// but in some situations using another ordering like vertical or horizontal could be useful depending on the kind of images you are spriting.
 #[derive(Debug, Clone, Copy, Default)]
 #[repr(u8)]
@@ -194,7 +194,7 @@ pub struct Config {
     /// // ...
     /// ```
     pub cachebuster: bool,
-    /// This option has the same purpose than `--cachebuster `but insted of using the hash of the PNG as a queryarg it uses it as part of the filename.
+    /// This option has the same purpose than `--cachebuster `but instead of using the hash of the PNG as a queryarg it uses it as part of the filename.
     ///
     /// ```shell
     /// $ spriters source output --cachebuster-filename
@@ -389,8 +389,8 @@ impl Default for Config {
             quiet: false,
             recursive: false,
             url: None,
-            source: todo!(),
-            output: todo!(),
+            source: std::env::current_dir().unwrap(),
+            output: std::env::current_dir().unwrap(),
             watch: false,
             cocos2d: false,
             json: false,
@@ -459,7 +459,7 @@ impl Sprite {
             result.ratios.push(1f32);
         }
         result.discover_images();
-        result.process();
+        // result.process();
         result
     }
 
@@ -550,7 +550,8 @@ impl Sprite {
                             computed_width: d.0,
                             computed_height: d.1,
                             ..Default::default()
-                        })
+                        });
+                        info!("\t Adding: {}", entry.path().display());
                     }
                     Err(err) => error!("Cannot open image: {}", err),
                 };
@@ -759,17 +760,19 @@ impl Manager {
                                 continue;
                             }
                         }
+                        info!("Creating sprite: {}", p.file_stem().unwrap().to_string_lossy());
                         self.sprites.push(Sprite::new(config, p));
                     }
                     Err(_) => continue,
                 }
             }
         } else {
-            self.sprites
-                .push(Sprite::new(config, PathBuf::from(&config.source)));
+            let p = PathBuf::from(&config.source);
+            info!("Creating sprite: {}", p.file_stem().unwrap().to_string_lossy());
+            self.sprites.push(Sprite::new(config, p));
         }
         if self.sprites.is_empty() {
-            log::error!("Input folder does not have images.");
+            error!("Input folder does not have images.");
         }
     }
 

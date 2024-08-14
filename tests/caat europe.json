@@ -1,0 +1,41 @@
+{
+    "sprites": {
+        "fr.png": {
+            "x": 0,
+            "y": 0,
+            "width": 250,
+            "height": 167
+        },
+        "fi.png": {
+            "x": 250,
+            "y": 0,
+            "width": 250,
+            "height": 153
+        },
+        "de.png": {
+            "x": 0,
+            "y": 167,
+            "width": 250,
+            "height": 150
+        },
+        "se.png": {
+            "x": 250,
+            "y": 167,
+            "width": 100,
+            "height": 63
+        },
+        "no.png": {
+            "x": 250,
+            "y": 230,
+            "width": 100,
+            "height": 73
+        }
+    },
+    "meta": {
+        "version": "0.13",
+        "hash": "100312571b",
+        "sprite_filename": "europe.png",
+        "width": 500,
+        "height": 317
+    }
+}
