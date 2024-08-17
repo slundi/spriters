@@ -1,6 +1,39 @@
 use image::imageops::FilterType;
 use spriters::Config;
 
+const HELP_MSG: &str = "spriters [OPTIONS] [SOURCE_DIR] [OUTPUT_DIR]
+
+By default, it search images on the current working directory. The output is alson on the working directory.
+
+General options:
+-h, --help:             print this message
+-q, --quiet:            don't print anything on the console
+-i, --input:            input directory
+-o, --output:           output directory
+-r, --recursive:        read directories recursively and add all the images to the same sprite
+--project:              generate a sprite per working directory sub folder
+--watch:                watch working directory for changes (run in background)
+--follow-links:         follow symbolic links
+
+Output options:
+--html:                 generate an HTML page
+--json:                 generate JSON
+--cocos2d:              generate Cocos2d XML compatible files
+-l, --less:             generate LESS dynamic  stylesheet
+--scss:                 generate SCSS dynamic stylesheet
+--no-css:               do not generate CSS files
+--no-img:               do not generate image file
+--cachebuster:          when generating CSS, add image hash in the end of the filename
+--cachebuster-filename: when generating CSS, add image hash before the extension in the filename
+
+Image processing options:
+-a, --algorithm:        algorithm to order images in the sprite: square (default), vertical, hortizontal, diagonal, vertical-right, horizontal-bottom
+--png8:                 generate grascale image(s)
+-c, --crop:             crop unnecessary transparent spaces
+--max-width:            image max width in the sprite
+--max-height:           image max height in the sprite
+--resize-algorithm:     resize algorithm are nearesr, triangle, gaussian, lanczos3, catmullrom (default)";
+
 pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
     use lexopt::prelude::*;
 
@@ -42,7 +75,7 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
             // The option `--retina` is only a shortcut for `--ratios=2,1`.
             Long("retina") => args.ratios = Some("2,1".to_owned()),
             Long("force") => args.force = true,
-            Long("follow_links") => args.follow_links = true,
+            Long("follow-links") => args.follow_links = true,
             Long("watch") => args.watch = true,
             Short('q') | Long("quiet") => args.quiet = true,
             Short('r') | Long("recursive") => args.recursive = true,
@@ -52,7 +85,7 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
             }
 
             Short('h') | Long("help") => {
-                println!("Usage: hello [-n|--number=NUM] [--shout] THING");
+                println!("{}", HELP_MSG);
                 std::process::exit(0);
             }
             _ => return Err(arg.unexpected()),

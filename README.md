@@ -7,7 +7,7 @@ This library and program is based on [glue](http://glue.readthedocs.org/), a Pyt
 **Why use sprites?**
 
 It is faster 🚀: there is less to load. In an application or a game, it avoids to continually fetch new images by displaying
-some part(s) of it. For the web, it avoids to perform multiple HTTP requests and loading them separatedly.
+some part(s) of it. For the web, it avoids to perform multiple HTTP requests and loading them separately.
 
 It can be smaller than the sum of the size of all images. But it is not always the case.
 

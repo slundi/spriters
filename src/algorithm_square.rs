@@ -41,7 +41,7 @@ impl SquareGraph {
 
     /// Split the node to allocate a new one of this size.
     ///
-    /// `node`: Node to be splitted.
+    /// `node`: Node to be split.
     /// `width`: New node width.
     /// `height`: New node height.
     fn split(&mut self, node_index: NodeIndex, width: u32, height: u32) {
