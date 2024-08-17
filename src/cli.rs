@@ -92,7 +92,5 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
         }
     }
 
-    Ok(Config {
-        ..Default::default()
-    })
+    Ok(args)
 }

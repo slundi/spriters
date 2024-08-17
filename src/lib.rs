@@ -545,13 +545,30 @@ impl Sprite {
                             self.config.max_width,
                             self.config.max_height,
                         );
-                        images.push(ImageAndPosition {
+                        let iap = ImageAndPosition {
                             image: img,
                             computed_width: d.0,
                             computed_height: d.1,
                             ..Default::default()
-                        });
-                        info!("\t Adding: {}", entry.path().display());
+                        };
+                        if self.config.crop {
+                            info!(
+                                "\t Adding: {} ({}x{} -> {}x{})",
+                                entry.path().display(),
+                                img2.width(),
+                                img2.height(),
+                                iap.computed_width,
+                                iap.computed_height
+                            );
+                        } else {
+                            info!(
+                                "\t Adding: {} ({}x{})",
+                                entry.path().display(),
+                                iap.computed_width,
+                                iap.computed_height
+                            );
+                        }
+                        images.push(iap);
                     }
                     Err(err) => error!("Cannot open image: {}", err),
                 };
@@ -760,7 +777,10 @@ impl Manager {
                                 continue;
                             }
                         }
-                        info!("Creating sprite: {}", p.file_stem().unwrap().to_string_lossy());
+                        info!(
+                            "Creating sprite: {}",
+                            p.file_stem().unwrap().to_string_lossy()
+                        );
                         self.sprites.push(Sprite::new(config, p));
                     }
                     Err(_) => continue,
@@ -768,7 +788,10 @@ impl Manager {
             }
         } else {
             let p = PathBuf::from(&config.source);
-            info!("Creating sprite: {}", p.file_stem().unwrap().to_string_lossy());
+            info!(
+                "Creating sprite: {}",
+                p.file_stem().unwrap().to_string_lossy()
+            );
             self.sprites.push(Sprite::new(config, p));
         }
         if self.sprites.is_empty() {
@@ -809,7 +832,7 @@ pub fn crop(image: &mut DynamicImage, color: Option<u32>) {
         }
         for y in 0..image.height() - 1 {
             let pixel = image.get_pixel(x, y);
-            if pixel != image.get_pixel(x, y - 1)
+            if pixel != image.get_pixel(x, if y > 0 { y - 1 } else { 0 })
                 || !is_color_or_transparent(&pixel, crop_alpha, croppable_color)
             {
                 y_matrix[y as usize] = false;
@@ -824,7 +847,7 @@ pub fn crop(image: &mut DynamicImage, color: Option<u32>) {
         }
         for x in 0..image.width() - 1 {
             let pixel = image.get_pixel(x, y);
-            if pixel != image.get_pixel(x - 1, y)
+            if pixel != image.get_pixel(if x > 0 { x - 1 } else { 0 }, y)
                 || !is_color_or_transparent(&pixel, crop_alpha, croppable_color)
             {
                 x_matrix[x as usize] = false;
@@ -865,6 +888,15 @@ pub fn crop(image: &mut DynamicImage, color: Option<u32>) {
             break;
         }
     }
+    info!(
+        "\t\t{}x{}, left={}, top={}, right={}, bottom={}",
+        image.width(),
+        image.height(),
+        left,
+        top,
+        right,
+        bottom
+    );
     image.crop_imm(
         left,
         top,
@@ -970,5 +1002,24 @@ mod tests {
         assert_eq!(get_dimensions_from_max(10, 20, Some(10), Some(10)), (5, 10));
         assert_eq!(get_dimensions_from_max(10, 20, Some(2), Some(10)), (2, 4));
         assert_eq!(get_dimensions_from_max(10, 20, Some(5), Some(5)), (2, 5));
+    }
+
+    #[test]
+    fn test_crop() {
+        let img = image::open("tests/images/europe/no.png").unwrap();
+        assert_eq!(img.width(), 120);
+        assert_eq!(img.height(), 100);
+
+        // crop transparency
+        let mut img2 = img.clone();
+        crop(&mut img2, None);
+        assert_eq!(img2.width(), 100);
+        assert_eq!(img2.height(), 73);
+
+        // crop white... will be same size
+        let mut img2 = img.clone();
+        crop(&mut img2, None);
+        assert_eq!(img2.width(), 120);
+        assert_eq!(img2.height(), 100);
     }
 }
