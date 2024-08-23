@@ -23,6 +23,8 @@ To install the CLI, you need to [install rust](https://www.rust-lang.org/tools/i
 
 ## Roadmap
 
-- [ ] port the **glue** CLI in this library/CLI
-- [ ] support other output image format
-- [ ] make it available on crates.io
+- [ ] ✂️ crop image
+- [ ] 📏 resize images with max width and/or height
+- [ ] 📄 support other output image format
+- [ ] 📦 make it available on crates.io
+- [ ] 🖥 multi-thread processing per sprite when in project mode and for crop and resize operations per file

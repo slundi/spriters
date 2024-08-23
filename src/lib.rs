@@ -816,10 +816,10 @@ pub fn add(left: usize, right: usize) -> usize {
 
 /// Crop an image. When no color is provided, it crops white or transparent areas (when alpha channel is available).
 pub fn crop(image: &mut DynamicImage, color: Option<u32>) {
-    let mut croppable_color: u32 = 0xffffff00; // default is white
+    let mut cropable_color: u32 = 0xffffff00; // default is white
     let mut crop_alpha = false;
     if let Some(c) = color {
-        croppable_color = c;
+        cropable_color = c;
     } else {
         crop_alpha = image.color().has_alpha();
     }
@@ -833,7 +833,7 @@ pub fn crop(image: &mut DynamicImage, color: Option<u32>) {
         for y in 0..image.height() - 1 {
             let pixel = image.get_pixel(x, y);
             if pixel != image.get_pixel(x, if y > 0 { y - 1 } else { 0 })
-                || !is_color_or_transparent(&pixel, crop_alpha, croppable_color)
+                || !is_color_or_transparent(&pixel, crop_alpha, cropable_color)
             {
                 y_matrix[y as usize] = false;
                 break;
@@ -848,7 +848,7 @@ pub fn crop(image: &mut DynamicImage, color: Option<u32>) {
         for x in 0..image.width() - 1 {
             let pixel = image.get_pixel(x, y);
             if pixel != image.get_pixel(if x > 0 { x - 1 } else { 0 }, y)
-                || !is_color_or_transparent(&pixel, crop_alpha, croppable_color)
+                || !is_color_or_transparent(&pixel, crop_alpha, cropable_color)
             {
                 x_matrix[x as usize] = false;
                 break;
