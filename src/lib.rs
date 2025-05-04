@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fmt,
     path::{Path, PathBuf},
     str::FromStr,
@@ -337,6 +338,8 @@ pub struct Config {
     ///     └── rss.png
     /// ```
     pub project: bool,
+    /// Disallow duplicate sprite
+    pub no_duplicate: bool,
 }
 impl Config {
     /// Check mandatory arguments and some values
@@ -403,6 +406,7 @@ impl Default for Config {
             no_img: false,
             no_css: false,
             project: false,
+            no_duplicate: false,
         }
     }
 }
@@ -478,6 +482,7 @@ impl Sprite {
     ///
     /// The list of images will be ordered using the desired ordering algorithm. The default is 'Maxside'.
     fn discover_images(&self) {
+        let mut files: HashMap<(u64, u64), String> = HashMap::new();
         let mut images: Vec<ImageAndPosition> = Vec::new();
         for entry in WalkDir::new(std::path::Path::new(&self.config.source))
             .follow_links(self.config.follow_links)
@@ -513,6 +518,22 @@ impl Sprite {
             ) {
                 match image::open(entry.path()) {
                     Ok(img) => {
+                        // check unicity
+                        let path = String::from(entry.path().to_string_lossy());
+                        let size = std::fs::metadata(entry.path()).unwrap().len();
+                        let hash = twox_hash::XxHash64::oneshot(
+                            713705,
+                            &std::fs::read(entry.path()).unwrap(),
+                        );
+                        if let Some(path2) = files.get(&(size, hash)) {
+                            if self.config.no_duplicate {
+                                error!("{} and {} are identical", path, path2);
+                                std::process::exit(1);
+                            }
+                            warn!("{} and {} are identical", path, path2);
+                        }
+                        files.insert((size, hash), path);
+
                         let mut img2 = img.clone();
                         // Perform pre-processing operations when applicable
                         // cropping
@@ -533,7 +554,7 @@ impl Sprite {
                             computed_height: d.1,
                             ..Default::default()
                         };
-                        
+
                         info!(
                             "\t Adding: {} ({}x{} -> {}x{})",
                             entry.path().display(),

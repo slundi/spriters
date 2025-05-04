@@ -31,3 +31,7 @@ To install the CLI, you need to [install rust](https://www.rust-lang.org/tools/i
 - [ ] 📦 make it available on crates.io
 - [ ] 🖥 multi-thread processing per sprite when in project mode and for crop and resize operations per file
 - [x] 👁 remove watcher because it can be achieved with other tool like [fswatch](https://github.com/emcrisostomo/fswatch) or [eagle-eye](https://github.com/aag/eagle-eye) or [watchman](https://github.com/facebook/watchman) ...
+- [ ] 🟰 check for duplicate images:
+  - [x] warn user about duplicate files
+  - [x] add option to fail or not when a duplicate is found
+  - [ ] map multiple name for a same sprite

@@ -107,6 +107,7 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
             Long("separator") => {
                 args.separator = parser.value()?.parse()?;
             }
+            Long("no-duplicate") => args.no_duplicate = true,
             _ => return Err(arg.unexpected()),
         }
     }
