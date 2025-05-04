@@ -36,6 +36,7 @@ notify = "8.0"
 walkdir = "2"
 log = "0.4"
 stderrlog = "0.6"
+url = "2.5"
 
 [workspace.metadata.cargo-machete]
 ignored = []

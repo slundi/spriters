@@ -1,5 +1,5 @@
 use image::imageops::FilterType;
-use spriters::Config;
+use spriters::{Algorithm, Config};
 
 const HELP_MSG: &str = "spriters [OPTIONS] [SOURCE_DIR] [OUTPUT_DIR]
 
@@ -42,7 +42,23 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
     let mut parser = lexopt::Parser::from_env();
     while let Some(arg) = parser.next()? {
         match arg {
-            Short('a') | Long("algorithm") => todo!(),
+            Short('a') | Long("algorithm") => {
+                let algo: String = parser.value()?.parse()?;
+                match algo.to_lowercase().as_str() {
+                    "square" => args.algorithm = Algorithm::Square,
+                    "vertical" => args.algorithm = Algorithm::Vertical,
+                    "hortizontal" => args.algorithm = Algorithm::Hortizontal,
+                    "diagonal" => args.algorithm = Algorithm::Vertical,
+                    "verticalright" | "vertical-right" => args.algorithm = Algorithm::VerticalRight,
+                    "horizontalbottom" | "horizontal-bottom" => {
+                        args.algorithm = Algorithm::HorizontalBottom
+                    }
+                    _ => {
+                        eprintln!("Unknown algorithm");
+                        std::process::exit(0);
+                    }
+                }
+            }
             Short('c') | Long("crop") => args.crop = true,
             Long("max-width") => args.max_width = Some(parser.value()?.parse()?),
             Long("max-height") => args.max_height = Some(parser.value()?.parse()?),
@@ -80,10 +96,11 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
             Short('q') | Long("quiet") => args.quiet = true,
             Short('r') | Long("recursive") => args.recursive = true,
             Short('u') | Long("url") => {
-                // args.url = parser.value().expect("Cannot get URL").parse().expect("Error while getting URL")
-                todo!();
+                args.url = Some(String::from(
+                    parser.value()?.to_os_string().to_str().unwrap(),
+                ));
+                url::Url::parse(&args.url.clone().unwrap()).unwrap();
             }
-
             Short('h') | Long("help") => {
                 println!("{}", HELP_MSG);
                 std::process::exit(0);
