@@ -13,7 +13,9 @@ It can be smaller than the sum of the size of all images. But it is not always t
 
 ## Features
 
-- Various image format supported, details are [here](https://crates.io/crates/image)
+- 🚀 Fast, because it is written in Rust
+- 🖼 Various image format supported, details are [here](https://crates.io/crates/image)
+- ✂️ Crop images from alpha or a given color
 
 ## Usage
 
