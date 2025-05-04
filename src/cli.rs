@@ -92,7 +92,6 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
             Long("retina") => args.ratios = Some("2,1".to_owned()),
             Long("force") => args.force = true,
             Long("follow-links") => args.follow_links = true,
-            Long("watch") => args.watch = true,
             Short('q') | Long("quiet") => args.quiet = true,
             Short('r') | Long("recursive") => args.recursive = true,
             Short('u') | Long("url") => {

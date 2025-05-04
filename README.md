@@ -23,8 +23,9 @@ To install the CLI, you need to [install rust](https://www.rust-lang.org/tools/i
 
 ## Roadmap
 
-- [ ] ✂️ crop image
+- [x] ✂️ crop image
 - [ ] 📏 resize images with max width and/or height
 - [ ] 📄 support other output image format
 - [ ] 📦 make it available on crates.io
 - [ ] 🖥 multi-thread processing per sprite when in project mode and for crop and resize operations per file
+- [x] 👁 remove watcher because it can be achieved with other tool like [fswatch](https://github.com/emcrisostomo/fswatch) or [eagle-eye](https://github.com/aag/eagle-eye) or [watchman](https://github.com/facebook/watchman) ...

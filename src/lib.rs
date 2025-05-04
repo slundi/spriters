@@ -273,9 +273,6 @@ pub struct Config {
     pub source: std::path::PathBuf,
     /// Specity output directory
     pub output: std::path::PathBuf,
-    /// While you are developing a site it could be quite frustrating running **spriters** once and another every time you change a source image or a filename.
-    /// `--watch` will allow you to keep **spriters** running in the background and it’ll rebuild the sprite every time it detects changes on the source directory.
-    pub watch: bool,
     // output format
     /// Using the `--cocos2d` option, **Spriters** will generate both a sprite image and a xml metadata file compatible with cocos2d.
     pub cocos2d: bool,
@@ -391,7 +388,6 @@ impl Default for Config {
             url: None,
             source: std::env::current_dir().unwrap(),
             output: std::env::current_dir().unwrap(),
-            watch: false,
             cocos2d: false,
             json: false,
             html: false,
