@@ -534,6 +534,7 @@ impl Sprite {
                         }
                         files.insert((size, hash), path);
 
+                        let dimensions = (img.width(), img.height());
                         let mut img2 = img.clone();
                         // Perform pre-processing operations when applicable
                         // cropping
@@ -558,8 +559,8 @@ impl Sprite {
                         info!(
                             "\t Adding: {} ({}x{} -> {}x{})",
                             entry.path().display(),
-                            img2.width(),
-                            img2.height(),
+                            dimensions.0,
+                            dimensions.1,
                             iap.computed_width,
                             iap.computed_height
                         );
@@ -892,7 +893,7 @@ pub fn crop(image: DynamicImage, color: Option<u32>) -> DynamicImage {
             bottom += 1;
         }
     }
-    info!(
+    debug!(
         "\t\t{}x{}, left={}, top={}, right={}, bottom={} => {}x{}",
         image.width(),
         image.height(),
