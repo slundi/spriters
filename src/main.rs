@@ -32,9 +32,10 @@ fn main() -> Result<(), lexopt::Error> {
     }
     let mut manager = spriters::Manager {
         project: config.project,
+        config,
         ..Default::default()
     };
-    manager.find_sprites(&config);
-    // manager.save(&config);
+    manager.find_sprites();
+    manager.save();
     Ok(())
 }

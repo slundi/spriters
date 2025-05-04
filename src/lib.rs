@@ -537,7 +537,7 @@ impl Sprite {
                     Ok(img) => {
                         let mut img2 = img.clone();
                         if self.config.crop {
-                            crop(&mut img2, None);
+                            img2 = crop(img2, None);
                         }
                         let d = get_dimensions_from_max(
                             img2.width(),
@@ -755,13 +755,14 @@ pub fn get_greatet_quality(a: &ColorType, b: &ColorType) -> ColorType {
 #[derive(Debug, Default)]
 pub struct Manager {
     pub project: bool,
+    pub config: Config,
     pub sprites: Vec<Sprite>,
 }
 
 impl Manager {
-    pub fn find_sprites(&mut self, config: &Config) {
+    pub fn find_sprites(&mut self) {
         if self.project {
-            for entry in std::fs::read_dir(std::path::Path::new(&config.source.clone()))
+            for entry in std::fs::read_dir(std::path::Path::new(&self.config.source.clone()))
                 .expect("Source does not exists or permissions are insufficient or it is a file")
             {
                 match entry {
@@ -769,7 +770,7 @@ impl Manager {
                         // Only process folders and ignore filenames starting with '.'
                         // Ignore symlinks if necessary
                         let p = de.path();
-                        if !p.is_dir() || (p.is_symlink() && !config.follow_links) {
+                        if !p.is_dir() || (p.is_symlink() && !self.config.follow_links) {
                             continue;
                         }
                         if let Some(name) = p.file_name() {
@@ -781,18 +782,18 @@ impl Manager {
                             "Creating sprite: {}",
                             p.file_stem().unwrap().to_string_lossy()
                         );
-                        self.sprites.push(Sprite::new(config, p));
+                        self.sprites.push(Sprite::new(&self.config, p));
                     }
                     Err(_) => continue,
                 }
             }
         } else {
-            let p = PathBuf::from(&config.source);
+            let p = PathBuf::from(&self.config.source);
             info!(
                 "Creating sprite: {}",
                 p.file_stem().unwrap().to_string_lossy()
             );
-            self.sprites.push(Sprite::new(config, p));
+            self.sprites.push(Sprite::new(&self.config, p));
         }
         if self.sprites.is_empty() {
             error!("Input folder does not have images.");
@@ -800,117 +801,124 @@ impl Manager {
     }
 
     /// Save all sprites inside this manager.
-    pub fn save(&self, config: &Config) {
+    pub fn save(&self) {
         // TODO: pre-processing (crop, resize, ...): async/thread pool
         // TODO: process: build image(s): async/thread pool in project mode?
         // TODO: generate description file (CSS, ...): async/thread pool for each format?
         for sprite in self.sprites.iter() {
-            crate::output::generate_files(config, sprite);
+            crate::output::generate_files(&self.config, sprite);
         }
     }
 }
 
+#[inline]
 pub fn add(left: usize, right: usize) -> usize {
     left + right
 }
 
 /// Crop an image. When no color is provided, it crops white or transparent areas (when alpha channel is available).
-pub fn crop(image: &mut DynamicImage, color: Option<u32>) {
-    let mut cropable_color: u32 = 0xffffff00; // default is white
+pub fn crop(image: DynamicImage, color: Option<u32>) -> DynamicImage {
+    let mut cropable_color: u32 = 0xffffffff; // default is white
     let mut crop_alpha = false;
     if let Some(c) = color {
         cropable_color = c;
     } else {
         crop_alpha = image.color().has_alpha();
     }
-    let mut x_matrix: Vec<bool> = vec![true; image.width() as usize];
-    let mut y_matrix: Vec<bool> = vec![true; image.height() as usize];
-    // detect top/bottom
-    for x in 0..image.width() {
-        if image.height() == 1 {
-            continue;
-        }
-        for y in 0..image.height() - 1 {
-            let pixel = image.get_pixel(x, y);
-            if pixel != image.get_pixel(x, if y > 0 { y - 1 } else { 0 })
-                || !is_color_or_transparent(&pixel, crop_alpha, cropable_color)
-            {
-                y_matrix[y as usize] = false;
-                break;
-            }
-        }
-    }
-    // detect left/right
-    for y in 0..image.height() {
-        if image.width() == 1 {
-            continue;
-        }
-        for x in 0..image.width() - 1 {
-            let pixel = image.get_pixel(x, y);
-            if pixel != image.get_pixel(if x > 0 { x - 1 } else { 0 }, y)
-                || !is_color_or_transparent(&pixel, crop_alpha, cropable_color)
-            {
-                x_matrix[x as usize] = false;
-                break;
-            }
-        }
-    }
-    // find croppable areas
-    let mut top: u32 = 0;
-    let mut bottom: u32 = 0;
+
     let mut left: u32 = 0;
     let mut right: u32 = 0;
-    for i in 0..x_matrix.len() - 1 {
-        if x_matrix[i] && x_matrix[i] == x_matrix[i + 1] {
+    let mut top: u32 = 0;
+    let mut bottom: u32 = 0;
+
+    // detect left/right
+    let mut stop = false;
+    if image.width() > 1 {
+        // left
+        for x in 0..image.width() {
+            for y in 0..image.height() {
+                let pixel = image.get_pixel(x, y);
+                if !is_color_or_transparent(pixel, crop_alpha, cropable_color) {
+                    stop = true;
+                    break;
+                }
+            }
+            if stop {
+                stop = false;
+                break;
+            }
             left += 1;
-        } else {
-            break;
         }
-    }
-    for i in x_matrix.len()..1 {
-        if x_matrix[i] && x_matrix[i] == x_matrix[i - 1] {
+        // right
+        for x in (0..image.width()).rev() {
+            for y in 0..image.height() {
+                let pixel = image.get_pixel(x, y);
+                if !is_color_or_transparent(pixel, crop_alpha, cropable_color) {
+                    stop = true;
+                    break;
+                }
+            }
+            if stop {
+                stop = false;
+                break;
+            }
             right += 1;
-        } else {
-            break;
         }
     }
-    for i in 0..y_matrix.len() - 1 {
-        if y_matrix[i] && y_matrix[i] == y_matrix[i + 1] {
+    // detect top/bottom
+    if image.height() > 1 {
+        // top
+        for y in 0..image.height() {
+            for x in 0..image.width() {
+                let pixel = image.get_pixel(x, y);
+                if !is_color_or_transparent(pixel, crop_alpha, cropable_color) {
+                    stop = true;
+                    break;
+                }
+            }
+            if stop {
+                stop = false;
+                break;
+            }
             top += 1;
-        } else {
-            break;
         }
-    }
-    for i in y_matrix.len()..1 {
-        if y_matrix[i] && y_matrix[i] == y_matrix[i - 1] {
+        // bottom
+        for y in 0..image.height() {
+            for x in (0..image.width()).rev() {
+                let pixel = image.get_pixel(x, y);
+                if !is_color_or_transparent(pixel, crop_alpha, cropable_color) {
+                    stop = true;
+                    break;
+                }
+            }
+            if stop {
+                break;
+            }
             bottom += 1;
-        } else {
-            break;
         }
     }
     info!(
-        "\t\t{}x{}, left={}, top={}, right={}, bottom={}",
+        "\t\t{}x{}, left={}, top={}, right={}, bottom={} => {}x{}",
         image.width(),
         image.height(),
         left,
         top,
         right,
-        bottom
+        bottom,
+        image.width() - left - right,
+        image.height() - top - bottom,
     );
     image.crop_imm(
         left,
         top,
         image.width() - left - right,
         image.height() - top - bottom,
-    );
+    )
 }
 
-fn is_color_or_transparent(pixel: &image::Rgba<u8>, crop_alpha: bool, color: u32) -> bool {
+fn is_color_or_transparent(pixel: image::Rgba<u8>, crop_alpha: bool, color: u32) -> bool {
     if crop_alpha {
-        if pixel.0[3] < 255 {
-            return false;
-        }
-        return true;
+        return pixel.0[3] == 0;
     }
     u32::from_be_bytes(pixel.0) == color
 }
@@ -949,28 +957,38 @@ mod tests {
     #[test]
     fn test_is_croppable_color() {
         // not croppable color
+        // transparent one
         assert!(!is_color_or_transparent(
-            &image::Rgba::from([128u8, 128, 128, 0]),
+            image::Rgba::from([128u8, 128, 128, 0]),
             false,
             0xffffff00
         ));
+        // full opacity
+        assert!(!is_color_or_transparent(
+            image::Rgba::from([128u8, 128, 128, 255]),
+            false,
+            0xffffff00
+        ));
+
         // transparent but not set
         assert!(!is_color_or_transparent(
-            &image::Rgba::from([128u8, 128, 128, 255]),
+            image::Rgba::from([128u8, 128, 128, 0]),
             false,
             0xffffff00
         ));
+
         // transparent cropable
         assert!(is_color_or_transparent(
-            &image::Rgba::from([128u8, 128, 128, 255]),
+            image::Rgba::from([128u8, 128, 128, 0]),
             true,
             0xffffff00
         ));
+
         // croppable color no alpha
         assert!(is_color_or_transparent(
-            &image::Rgba::from([255u8, 255, 255, 0]),
+            image::Rgba::from([255u8, 255, 255, 255]),
             false,
-            0xffffff00
+            0xffffffff
         ));
     }
 
@@ -1012,13 +1030,13 @@ mod tests {
 
         // crop transparency
         let mut img2 = img.clone();
-        crop(&mut img2, None);
+        img2 = crop(img2, None);
         assert_eq!(img2.width(), 100);
-        assert_eq!(img2.height(), 73);
+        assert_eq!(img2.height(), 74);
 
         // crop white... will be same size
         let mut img2 = img.clone();
-        crop(&mut img2, None);
+        img2 = crop(img2, Some(0xffffffff));
         assert_eq!(img2.width(), 120);
         assert_eq!(img2.height(), 100);
     }
