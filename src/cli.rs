@@ -105,6 +105,9 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
                 println!("{}", HELP_MSG);
                 std::process::exit(0);
             }
+            Long("separator") => {
+                args.separator = parser.value()?.parse()?;
+            }
             _ => return Err(arg.unexpected()),
         }
     }

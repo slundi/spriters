@@ -240,7 +240,7 @@ pub struct Config {
     /// `$ spriters source output --separator=_`.
     ///
     /// If you want to use camelCase instead of a separator, choose camelcase as separator. `$ spriters source output --separator=camelcase`
-    pub separator: String, // TODO: impl Default
+    pub separator: String,
     /// This flag will make **spriters** suppress all console output.
     pub quiet: bool,
     /// Read directories recursively and add all the images to the same sprite. Example structure:
@@ -385,7 +385,7 @@ impl Default for Config {
             follow_links: false,
             namespace: None,
             sprite_namespace: None,
-            separator: String::with_capacity(0),
+            separator: String::from("-"),
             quiet: false,
             recursive: false,
             url: None,
