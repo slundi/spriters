@@ -512,29 +512,15 @@ impl Sprite {
                     | "mj2"
             ) {
                 match image::open(entry.path()) {
-                    // Perform pre-processing operations when applicable
-                    // 1. crop
-                    // 2. resize depending on max-width and max-height
-                    // pub fn pre_process(&self, config: &Config) {
-                    //     for s in self.sprites.iter() {
-                    //         for i in s.images.iter() {
-                    //             if config.crop {
-                    //                 crop(&mut i.image, None);
-                    //             }
-                    //             if let Some(mw) = config.max_width {
-                    //                 todo!();
-                    //             }
-                    //             if let Some(mh) = config.max_height {
-                    //                 todo!();
-                    //             }
-                    //         }
-                    //     }
-                    // }
                     Ok(img) => {
                         let mut img2 = img.clone();
+                        // Perform pre-processing operations when applicable
+                        // cropping
                         if self.config.crop {
                             img2 = crop(img2, None);
                         }
+
+                        // resize depending on max-width and max-height
                         let d = get_dimensions_from_max(
                             img2.width(),
                             img2.height(),
@@ -547,23 +533,15 @@ impl Sprite {
                             computed_height: d.1,
                             ..Default::default()
                         };
-                        if self.config.crop {
-                            info!(
-                                "\t Adding: {} ({}x{} -> {}x{})",
-                                entry.path().display(),
-                                img2.width(),
-                                img2.height(),
-                                iap.computed_width,
-                                iap.computed_height
-                            );
-                        } else {
-                            info!(
-                                "\t Adding: {} ({}x{})",
-                                entry.path().display(),
-                                iap.computed_width,
-                                iap.computed_height
-                            );
-                        }
+                        
+                        info!(
+                            "\t Adding: {} ({}x{} -> {}x{})",
+                            entry.path().display(),
+                            img2.width(),
+                            img2.height(),
+                            iap.computed_width,
+                            iap.computed_height
+                        );
                         images.push(iap);
                     }
                     Err(err) => error!("Cannot open image: {}", err),
