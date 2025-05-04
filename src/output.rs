@@ -1,4 +1,4 @@
-use rand::{distributions::Alphanumeric, Rng};
+use rand::{distr::Alphanumeric, Rng};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 
@@ -23,7 +23,7 @@ fn get_cache_buster(enabled: bool, filename: bool) -> String {
     let mut cache_buster: String = String::with_capacity(7);
     if enabled {
         cache_buster.push(if filename { '_' } else { '?' });
-        let hash: String = rand::thread_rng()
+        let hash: String = rand::rng()
             .sample_iter(&Alphanumeric)
             .take(6)
             .map(char::from)
