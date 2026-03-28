@@ -125,6 +125,7 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
                 args.sprite_namespace = Some(parser.value()?.to_string_lossy().to_string());
             }
             Long("no-duplicate") => args.no_duplicate = true,
+            Long("watch") => args.watch = true,
             _ => return Err(arg.unexpected()),
         }
     }

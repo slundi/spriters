@@ -340,6 +340,8 @@ pub struct Config {
     pub project: bool,
     /// Disallow duplicate sprite
     pub no_duplicate: bool,
+    /// Watch source directory for changes and regenerate sprites automatically
+    pub watch: bool,
 }
 impl Config {
     /// Check mandatory arguments and some values
@@ -407,6 +409,7 @@ impl Default for Config {
             no_css: false,
             project: false,
             no_duplicate: false,
+            watch: false,
         }
     }
 }
