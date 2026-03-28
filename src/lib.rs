@@ -366,6 +366,24 @@ impl Config {
                 value: self.output.clone().into_os_string(),
             });
         }
+        if let Some(mw) = self.max_width {
+            if mw == 0 {
+                error!("max-width must be greater than 0");
+                return Err(lexopt::Error::UnexpectedValue {
+                    option: "max-width".to_owned(),
+                    value: "0".into(),
+                });
+            }
+        }
+        if let Some(mh) = self.max_height {
+            if mh == 0 {
+                error!("max-height must be greater than 0");
+                return Err(lexopt::Error::UnexpectedValue {
+                    option: "max-height".to_owned(),
+                    value: "0".into(),
+                });
+            }
+        }
         Ok(())
     }
 }
