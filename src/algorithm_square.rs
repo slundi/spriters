@@ -271,7 +271,7 @@ mod tests {
         assert!(node.should_grow_down(5));
         assert!(node.should_grow_down(8));
         assert!(node.should_grow_down(10));
-        assert!(!node.should_grow_down(10));
+        assert!(!node.should_grow_down(11));
     }
 
     #[test]
