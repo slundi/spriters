@@ -22,6 +22,9 @@ Output options:
 --cocos2d:              generate Cocos2d XML compatible files
 -l, --less:             generate LESS dynamic  stylesheet
 --scss:                 generate SCSS dynamic stylesheet
+--css-template:         custom Jinja template for CSS output
+--less-template:        custom Jinja template for LESS output
+--scss-template:        custom Jinja template for SCSS output
 --no-css:               do not generate CSS files
 --no-img:               do not generate image file
 --css:                  custom output directory for CSS files
@@ -112,6 +115,15 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
             Long("cocos2d") => args.cocos2d = true,
             Short('l') | Long("less") => args.less = true,
             Long("scss") => args.scss = true,
+            Long("css-template") => {
+                args.css_template = Some(std::path::PathBuf::from(parser.value()?.to_string_lossy().to_string()));
+            }
+            Long("less-template") => {
+                args.less_template = Some(std::path::PathBuf::from(parser.value()?.to_string_lossy().to_string()));
+            }
+            Long("scss-template") => {
+                args.scss_template = Some(std::path::PathBuf::from(parser.value()?.to_string_lossy().to_string()));
+            }
             Long("no-css") => args.no_css = true,
             Long("no-img") => args.no_img = true,
             Long("css") => {
