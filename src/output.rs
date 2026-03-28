@@ -115,32 +115,64 @@ fn implode_image_label(config: &Config, sprite: &Sprite) -> String {
 }
 
 fn generate_css(config: &Config, sprite: &Sprite) {
-    let mut f = BufWriter::new(File::create(&sprite.path).expect("Unable to create file"));
     let name = sprite.path.file_name().unwrap().to_string_lossy();
+    let output_path = config.output.join(format!("{}.css", name));
+    let mut f = BufWriter::new(File::create(&output_path).expect("Unable to create CSS file"));
+    let sprite_url = get_sprite_url(config, sprite);
+    let (width, height) = sprite.dimensions();
+
+    // Write the shared class for all images
     let _ = writeln!(
         &mut f,
-        ".{name} {{\tbackground-image: url('{filename}'); background-repeat: no-repeat;\n}}",
-        name = name,
-        filename = get_sprite_url(config, sprite),
+        ".{list} {{\n  background-image: url('{url}');\n  background-repeat: no-repeat;\n}}",
+        list = implode_image_label(config, sprite).replace(",", ", ."),
+        url = sprite_url,
     );
+
+    // Write individual image classes
     for img in sprite.images.iter() {
-        // write!(&mut f, ".{}{} {{\n", it.1.label, it.1.pseudo);
-        let _ = write!(&mut f, "\tbackground-position: {{ {x} ~ ('px' if {x}) }} {{ {y} ~ ('px' if {y}) }}; width: {w}px; height: {h}px;\n}}\n", x=img.x, y=img.y, w=img.computed_width, h=img.computed_height);
-        //sprite.path.as_ref()
+        let class_name = build_class_name(config, &name, &img.label());
+        let x = if img.x == 0 { String::from("0") } else { format!("-{}px", img.x) };
+        let y = if img.y == 0 { String::from("0") } else { format!("-{}px", img.y) };
+        let _ = writeln!(
+            &mut f,
+            "\n.{class} {{\n  background-position: {x} {y};\n  width: {w}px;\n  height: {h}px;\n}}",
+            class = class_name,
+            x = x,
+            y = y,
+            w = img.computed_width,
+            h = img.computed_height,
+        );
     }
-    for r in config.ratios.iter() {
-        let _ = writeln!(&mut f, "@media screen and (-webkit-min-device-pixel-ratio: {}), screen and (min--moz-device-pixel-ratio: {}), screen and (-o-min-device-pixel-ratio: {{ ratio.fraction }}), screen and (min-device-pixel-ratio: {}), screen and (min-resolution: {}dppx) {{", r, r, r, r);
-        for it in sprite.images.iter().enumerate() {
-            // write!(&mut f, "\t.{}{} {{\n", it.1.label, it.1.pseudo);
-            let _ = write!(
-                &mut f,
-                "\t\tbackground-image: url('{}.png'); -webkit-background-size: {}px {}px; background-size: {}px {}px;\n\t}}\n",
-                name,
-                it.1.x, it.1.y, it.1.computed_width, it.1.computed_height
-            );
+
+    // Write retina/ratio media queries if ratios are specified
+    if let Some(ref ratios_str) = config.ratios {
+        for ratio_str in ratios_str.split(',') {
+            if let Ok(r) = ratio_str.trim().parse::<f32>() {
+                if (r - 1.0).abs() < 0.001 {
+                    continue; // Skip 1x ratio, it's the default
+                }
+                let fraction = crate::util::nearest_fration(r);
+                let _ = writeln!(
+                    &mut f,
+                    "\n@media screen and (-webkit-min-device-pixel-ratio: {r}), screen and (min--moz-device-pixel-ratio: {r}), screen and (-o-min-device-pixel-ratio: {frac}), screen and (min-device-pixel-ratio: {r}), screen and (min-resolution: {r}dppx) {{",
+                    r = r,
+                    frac = fraction,
+                );
+                let _ = writeln!(
+                    &mut f,
+                    "  .{list} {{\n    background-image: url('{url}');\n    background-size: {w}px {h}px;\n  }}",
+                    list = implode_image_label(config, sprite).replace(",", ", ."),
+                    url = sprite_url,
+                    w = width,
+                    h = height,
+                );
+                let _ = writeln!(&mut f, "}}");
+            }
         }
-        let _ = write!(&mut f, "\t}}");
     }
+
+    log::info!("Generated CSS: {:?}", output_path);
 }
 
 fn generate_html(config: &Config, sprite: &Sprite) {
