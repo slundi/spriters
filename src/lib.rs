@@ -483,10 +483,12 @@ impl Sprite {
     /// The list of images will be ordered using the desired ordering algorithm. The default is 'Maxside'.
     fn discover_images(&mut self) {
         let mut files: HashMap<(u64, u64), String> = HashMap::new();
-        for entry in WalkDir::new(std::path::Path::new(&self.config.source))
-            .follow_links(self.config.follow_links)
-            .into_iter()
-            .filter_map(|e| e.ok())
+        let mut walker = WalkDir::new(std::path::Path::new(&self.config.source))
+            .follow_links(self.config.follow_links);
+        if !self.config.recursive {
+            walker = walker.max_depth(1);
+        }
+        for entry in walker.into_iter().filter_map(|e| e.ok())
         {
             let name = entry.file_name().to_string_lossy();
             let ext = entry.path().extension();
