@@ -1,5 +1,5 @@
 use crate::{
-    util::{absolute_length, horizontal_spacing, vertical_spacing},
+    util::{absolute_length, Horizontal_spacing, vertical_spacing},
     Algorithm, Sprite,
 };
 
@@ -21,14 +21,14 @@ impl Algorithm {
             );
         }
     }
-    pub fn horizontal(sprite: &mut Sprite) {
+    pub fn Horizontal(sprite: &mut Sprite) {
         let mut x = 0u32;
         for image in sprite.images.iter_mut() {
             image.y = 0;
             image.x = x;
             x += absolute_length(
                 image.image.width(),
-                horizontal_spacing(
+                Horizontal_spacing(
                     sprite.padding.left,
                     sprite.padding.right,
                     sprite.margin.left,
@@ -65,7 +65,7 @@ impl Algorithm {
             );
         }
     }
-    pub fn horizontal_bottom(sprite: &mut Sprite) {
+    pub fn Horizontal_bottom(sprite: &mut Sprite) {
         if sprite.images.is_empty() {
             return;
         }
@@ -82,7 +82,7 @@ impl Algorithm {
             image.x = x;
             x += absolute_length(
                 image.image.width(),
-                horizontal_spacing(
+                Horizontal_spacing(
                     sprite.padding.left,
                     sprite.padding.right,
                     sprite.margin.left,
@@ -100,7 +100,7 @@ impl Algorithm {
             image.y = y;
             x += absolute_length(
                 image.image.width(),
-                horizontal_spacing(
+                Horizontal_spacing(
                     sprite.padding.left,
                     sprite.padding.right,
                     sprite.margin.left,
@@ -174,16 +174,16 @@ mod tests {
     }
 
     #[test]
-    fn test_horizontal_layout() {
+    fn test_Horizontal_layout() {
         let mut sprite = create_test_sprite_with_images(vec![(10, 20), (15, 25), (8, 30)]);
-        Algorithm::horizontal(&mut sprite);
+        Algorithm::Horizontal(&mut sprite);
 
         // All images should have y = 0
         assert_eq!(sprite.images[0].y, 0);
         assert_eq!(sprite.images[1].y, 0);
         assert_eq!(sprite.images[2].y, 0);
 
-        // X positions should stack horizontally
+        // X positions should stack Horizontally
         assert_eq!(sprite.images[0].x, 0);
         assert_eq!(sprite.images[1].x, 10);
         assert_eq!(sprite.images[2].x, 25);
@@ -224,9 +224,9 @@ mod tests {
     }
 
     #[test]
-    fn test_horizontal_bottom_layout() {
+    fn test_Horizontal_bottom_layout() {
         let mut sprite = create_test_sprite_with_images(vec![(10, 20), (15, 25), (8, 30)]);
-        Algorithm::horizontal_bottom(&mut sprite);
+        Algorithm::Horizontal_bottom(&mut sprite);
 
         // Images should be aligned to the bottom edge
         let max_height = 30; // tallest is 30
@@ -236,7 +236,7 @@ mod tests {
         assert_eq!(sprite.images[1].y, max_height - 25);
         assert_eq!(sprite.images[2].y, max_height - 30);
 
-        // X positions should stack horizontally
+        // X positions should stack Horizontally
         assert_eq!(sprite.images[0].x, 0);
         assert_eq!(sprite.images[1].x, 10);
         assert_eq!(sprite.images[2].x, 25);
@@ -250,9 +250,9 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_images_horizontal() {
+    fn test_empty_images_Horizontal() {
         let mut sprite = create_test_sprite_with_images(vec![]);
-        Algorithm::horizontal(&mut sprite);
+        Algorithm::Horizontal(&mut sprite);
         assert!(sprite.images.is_empty());
     }
 
@@ -264,9 +264,9 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_images_horizontal_bottom() {
+    fn test_empty_images_Horizontal_bottom() {
         let mut sprite = create_test_sprite_with_images(vec![]);
-        Algorithm::horizontal_bottom(&mut sprite);
+        Algorithm::Horizontal_bottom(&mut sprite);
         assert!(sprite.images.is_empty());
     }
 

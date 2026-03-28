@@ -1,5 +1,5 @@
 use crate::{
-    util::{absolute_length, horizontal_spacing, vertical_spacing},
+    util::{absolute_length, Horizontal_spacing, vertical_spacing},
     Sprite,
 };
 
@@ -177,7 +177,7 @@ pub(crate) fn process(sprite: &mut Sprite) {
     for image in sprite.images.iter_mut() {
         let absolute_width = absolute_length(
             image.image.width(),
-            horizontal_spacing(
+            Horizontal_spacing(
                 sprite.padding.left,
                 sprite.padding.right,
                 sprite.margin.left,
