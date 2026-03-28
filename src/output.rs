@@ -176,7 +176,9 @@ fn generate_css(config: &Config, sprite: &Sprite) {
 }
 
 fn generate_html(config: &Config, sprite: &Sprite) {
-    let mut f = BufWriter::new(File::create(&sprite.path).expect("Unable to create file"));
+    let name = sprite.path.file_name().unwrap().to_string_lossy();
+    let output_path = config.output.join(format!("{}.html", name));
+    let mut f = BufWriter::new(File::create(&output_path).expect("Unable to create HTML file"));
     let n = sprite.images.len();
     let _ = writeln!(&mut f, "<html>
     <head><title>Spriters Test Html</title>
@@ -188,7 +190,7 @@ fn generate_html(config: &Config, sprite: &Sprite) {
     <thead><tr>
         <th>CSS Class</th>
         <th>Result</th>
-    </tr></thead><tbody>", config.output.to_string_lossy(), n);
+    </tr></thead><tbody>", name, n);
     for image in sprite.images.iter() {
         let _ = writeln!(
             &mut f,
@@ -197,8 +199,9 @@ fn generate_html(config: &Config, sprite: &Sprite) {
         );
     }
     let _ = write!(&mut f, "</tbody></table>
-    <footer>Generated using <a href=\"https://codeberg.org/slundi/spriters\">Spriters v<%= version %></a></footer>
-    </body></html>");
+    <footer>Generated using <a href=\"https://codeberg.org/slundi/spriters\">Spriters v{}</a></footer>
+    </body></html>", SPRITERS_VERSION);
+    log::info!("Generated HTML: {:?}", output_path);
 }
 const _LESS_TEMPLATE: &str = "<% for image in &images { %>.<%= image.label %><%= image.pseudo %><%- if !image.last %>,\n<% } %><% } %>{
     background-image:url('<%= sprite_path %'); background-repeat:no-repeat;
@@ -260,27 +263,31 @@ fn generate_less_old(config: &Config, sprite: &Sprite) {
 }
 
 fn generate_less(config: &Config, sprite: &Sprite) {
-    let mut f = BufWriter::new(File::create(&sprite.path).expect("Unable to create file"));
     let name = sprite.path.file_name().unwrap().to_string_lossy();
+    let output_path = config.output.join(format!("{}.less", name));
+    let mut f = BufWriter::new(File::create(&output_path).expect("Unable to create LESS file"));
     let sprite_url = get_sprite_url(config, sprite);
     let _ = writeln!(
         f,
-        ".{list} {{background-image: url('{url}');background-repeat: no-repeat;}}",
-        list = implode_image_label(config, sprite).replace(",", ",."),
+        ".{list} {{\n  background-image: url('{url}');\n  background-repeat: no-repeat;\n}}",
+        list = implode_image_label(config, sprite).replace(",", ", ."),
         url = sprite_url,
     );
     for img in sprite.images.iter() {
         let class_name = build_class_name(config, &name, &img.label());
+        let x = if img.x == 0 { String::from("0") } else { format!("-{}px", img.x) };
+        let y = if img.y == 0 { String::from("0") } else { format!("-{}px", img.y) };
         let _ = writeln!(
             f,
-            ".{class}{{background-position: {x} {y}; width: {w}px; height: {h}px;}}",
+            "\n.{class} {{\n  background-position: {x} {y};\n  width: {w}px;\n  height: {h}px;\n}}",
             class = class_name,
-            x = img.x,
-            y = img.y,
+            x = x,
+            y = y,
             w = img.computed_width,
             h = img.computed_height,
         );
     }
+    log::info!("Generated LESS: {:?}", output_path);
 }
 
 fn generate_scss(config: &Config, sprite: &Sprite) {
@@ -379,9 +386,12 @@ fn generate_coco2d(config: &Config, sprite: &Sprite) {
 }
 
 fn generate_json(config: &Config, sprite: &Sprite) {
-    let mut f = BufWriter::new(File::create(&sprite.path).expect("Unable to create file"));
     let name = sprite.path.file_name().unwrap().to_string_lossy();
+    let output_path = config.output.join(format!("{}.json", name));
+    let mut f = BufWriter::new(File::create(&output_path).expect("Unable to create JSON file"));
     let n = sprite.images.len();
+    let (width, height) = sprite.dimensions();
+    let sprite_url = get_sprite_url(config, sprite);
     let _ = writeln!(f, "{{\"frames\":[");
     for (index, img) in sprite.images.iter().enumerate() {
         let _ = writeln!(
@@ -397,11 +407,12 @@ fn generate_json(config: &Config, sprite: &Sprite) {
     }
     let _ = writeln!(
         f,
-        "],\n\"meta\":{{\"width\": {w}, \"height\": {h}, \"sprite_filename\": \"{name}\", \"sprite_path\": \"{name}\"}}\n}}",
-        w = 0, // TODO:
-        h = 0,
-        // TODO: image hash?
+        "],\n\"meta\":{{\"width\": {w}, \"height\": {h}, \"sprite_filename\": \"{name}\", \"sprite_url\": \"{url}\"}}\n}}",
+        w = width,
+        h = height,
+        url = sprite_url,
     );
+    log::info!("Generated JSON: {:?}", output_path);
 }
 
 fn generate_sprite_image(config: &Config, sprite: &Sprite) {
