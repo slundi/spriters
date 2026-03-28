@@ -10,27 +10,27 @@ pub struct Spacing {
     pub left: u32,
 }
 impl FromStr for Spacing {
-    type Err = ();
+    type Err = std::num::ParseIntError;
     fn from_str(s: &str) -> Result<Spacing, Self::Err> {
-        let data: Vec<&str> = s.split([',', ' '].as_ref()).collect();
+        let data: Vec<&str> = s.split([',', ' '].as_ref()).filter(|x| !x.is_empty()).collect();
         if data.len() == 4 {
             Ok(Spacing {
-                top: data[0].parse().unwrap(),
-                right: data[1].parse().unwrap(),
-                bottom: data[2].parse().unwrap(),
-                left: data[3].parse().unwrap(),
+                top: data[0].parse()?,
+                right: data[1].parse()?,
+                bottom: data[2].parse()?,
+                left: data[3].parse()?,
             })
         } else if data.len() == 3 {
-            let horizontal: u32 = data[1].parse().unwrap();
+            let horizontal: u32 = data[1].parse()?;
             Ok(Spacing {
-                top: data[0].parse().unwrap(),
+                top: data[0].parse()?,
                 right: horizontal,
-                bottom: data[2].parse().unwrap(),
+                bottom: data[2].parse()?,
                 left: horizontal,
             })
         } else if data.len() == 2 {
-            let vertical: u32 = data[0].parse().unwrap();
-            let horizontal: u32 = data[1].parse().unwrap();
+            let vertical: u32 = data[0].parse()?;
+            let horizontal: u32 = data[1].parse()?;
             Ok(Spacing {
                 top: vertical,
                 right: horizontal,
@@ -38,7 +38,7 @@ impl FromStr for Spacing {
                 left: horizontal,
             })
         } else {
-            let value: u32 = s.parse().unwrap();
+            let value: u32 = s.trim().parse()?;
             Ok(Spacing {
                 left: value,
                 right: value,
@@ -62,11 +62,12 @@ impl ops::Add<Spacing> for Spacing {
 }
 impl Spacing {
     pub fn from(raw: Option<String>) -> Spacing {
-        let mut result: Spacing = Spacing::default();
-        if let Some(value) = raw {
-            result = Spacing::from_str(&value).unwrap();
+        match raw {
+            Some(value) => Spacing::from_str(&value).unwrap_or_else(|e| {
+                panic!("Invalid spacing value '{}': {}", value, e)
+            }),
+            None => Spacing::default(),
         }
-        result
     }
 }
 
