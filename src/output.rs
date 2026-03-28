@@ -1,9 +1,12 @@
 use image::{GenericImage, RgbaImage};
 use rand::{distr::Alphanumeric, RngExt};
 use std::fs::File;
-use std::io::{BufWriter, Write};
+use std::io::{BufReader, BufWriter, Read, Write};
+use std::path::PathBuf;
 
 use crate::{Config, Sprite};
+
+const SPRITERS_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const CSS_PSEUDO_CLASSES: [&str; 10] = [
     "link",
@@ -355,9 +358,115 @@ fn generate_sprite_image(config: &Config, sprite: &Sprite) {
     }
 }
 
+/// Get the path to the metadata file for a sprite
+fn get_meta_path(config: &Config, sprite: &Sprite) -> PathBuf {
+    let name = sprite.path.file_name().unwrap().to_string_lossy();
+    config.output.join(format!(".{}.spriters", name))
+}
+
+/// Compute a hash of all inputs that affect sprite generation
+fn compute_sprite_hash(config: &Config, sprite: &Sprite) -> u64 {
+    use std::hash::{Hash, Hasher};
+    use twox_hash::XxHash64;
+
+    let mut hasher = XxHash64::with_seed(0);
+
+    // Hash version
+    SPRITERS_VERSION.hash(&mut hasher);
+
+    // Hash relevant config options
+    config.png8.hash(&mut hasher);
+    config.crop.hash(&mut hasher);
+    config.max_width.hash(&mut hasher);
+    config.max_height.hash(&mut hasher);
+    config.padding.hash(&mut hasher);
+    config.margin.hash(&mut hasher);
+    config.ratios.hash(&mut hasher);
+
+    // Hash each source image path and content
+    for img in &sprite.images {
+        img.path.hash(&mut hasher);
+        // Hash the image dimensions and position
+        img.computed_width.hash(&mut hasher);
+        img.computed_height.hash(&mut hasher);
+    }
+
+    hasher.finish()
+}
+
+/// Check if sprite needs regeneration based on cached metadata
+fn should_regenerate(config: &Config, sprite: &Sprite) -> bool {
+    if config.force {
+        log::debug!("Force flag set, regenerating sprite");
+        return true;
+    }
+
+    let meta_path = get_meta_path(config, sprite);
+    let sprite_path = config.output.join(format!(
+        "{}.png",
+        sprite.path.file_name().unwrap_or_default().to_string_lossy()
+    ));
+
+    // If sprite doesn't exist, regenerate
+    if !sprite_path.exists() {
+        log::debug!("Sprite file doesn't exist, generating");
+        return true;
+    }
+
+    // If meta file doesn't exist, regenerate
+    if !meta_path.exists() {
+        log::debug!("Metadata file doesn't exist, regenerating");
+        return true;
+    }
+
+    // Read stored hash from metadata file
+    let stored_hash: Option<u64> = File::open(&meta_path)
+        .ok()
+        .and_then(|f| {
+            let mut reader = BufReader::new(f);
+            let mut contents = String::new();
+            reader.read_to_string(&mut contents).ok()?;
+            contents.trim().parse().ok()
+        });
+
+    match stored_hash {
+        Some(hash) => {
+            let current_hash = compute_sprite_hash(config, sprite);
+            if hash == current_hash {
+                log::info!("Sprite is up to date, skipping generation");
+                false
+            } else {
+                log::debug!("Hash mismatch, regenerating sprite");
+                true
+            }
+        }
+        None => {
+            log::debug!("Could not read metadata, regenerating");
+            true
+        }
+    }
+}
+
+/// Save the sprite hash to metadata file
+fn save_metadata(config: &Config, sprite: &Sprite) {
+    let meta_path = get_meta_path(config, sprite);
+    let hash = compute_sprite_hash(config, sprite);
+
+    if let Ok(mut file) = File::create(&meta_path) {
+        let _ = writeln!(file, "{}", hash);
+    }
+}
+
 pub fn generate_files(config: &Config, sprite: &Sprite) {
+    // Check if sprite needs regeneration (unless generating only metadata files)
+    if !config.no_img && !should_regenerate(config, sprite) {
+        return;
+    }
+
     if !config.no_img {
         generate_sprite_image(config, sprite);
+        // Save metadata after successful image generation
+        save_metadata(config, sprite);
     }
     if !config.no_css {
         generate_css(config, sprite);

@@ -14,6 +14,7 @@ General options:
 --project:              generate a sprite per working directory sub folder
 --watch:                watch working directory for changes (run in background)
 --follow-links:         follow symbolic links
+--force:                force regeneration even if sprite is up to date
 
 Output options:
 --html:                 generate an HTML page
