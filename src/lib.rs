@@ -455,9 +455,14 @@ impl Sprite {
         // ratios: list & sort them
         if let Some(ratios) = config.ratios.clone() {
             for value in ratios.split(',') {
-                result
-                    .ratios
-                    .push(value.trim().parse::<f32>().expect("Invalid ratio"));
+                let ratio: f32 = value.trim().parse().expect("Invalid ratio: not a number");
+                if !ratio.is_finite() || ratio <= 0.0 {
+                    panic!(
+                        "Invalid ratio '{}': must be a positive finite number",
+                        value.trim()
+                    );
+                }
+                result.ratios.push(ratio);
             }
             result.ratios.sort_by(|a, b| a.total_cmp(b));
         } else {
