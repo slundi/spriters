@@ -94,6 +94,12 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
             Long("follow-links") => args.follow_links = true,
             Short('q') | Long("quiet") => args.quiet = true,
             Short('r') | Long("recursive") => args.recursive = true,
+            Short('i') | Long("input") => {
+                args.source = std::path::PathBuf::from(parser.value()?.to_string_lossy().to_string());
+            }
+            Short('o') | Long("output") => {
+                args.output = std::path::PathBuf::from(parser.value()?.to_string_lossy().to_string());
+            }
             Short('u') | Long("url") => {
                 args.url = Some(String::from(
                     parser.value()?.to_os_string().to_str().unwrap(),
