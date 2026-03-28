@@ -201,7 +201,45 @@ fn generate_less(config: &Config, sprite: &Sprite) {
     }
 }
 
-fn generate_coco2d(config: &Config, sprite: &Sprite) {
+fn generate_scss(config: &Config, sprite: &Sprite) {
+    let name = sprite.path.file_name().unwrap().to_string_lossy();
+    let output_path = config.output.join(format!("{}.scss", name));
+    let mut f = BufWriter::new(File::create(&output_path).expect("Unable to create SCSS file"));
+    let (width, height) = sprite.dimensions();
+
+    // Generate a mixin for the sprite base
+    let _ = writeln!(
+        f,
+        "@mixin {name}-sprite {{\n  background-image: url('{name}.png');\n  background-repeat: no-repeat;\n  background-size: {w}px {h}px;\n}}",
+        name = name,
+        w = width,
+        h = height,
+    );
+
+    // Generate the shared class
+    let _ = writeln!(
+        f,
+        "\n.{list} {{\n  @include {name}-sprite;\n}}",
+        list = implode_image_label(sprite).replace(",", ",."),
+        name = name,
+    );
+
+    // Generate individual image classes
+    for img in sprite.images.iter() {
+        let _ = writeln!(
+            f,
+            "\n.sprite-{name}-{label} {{\n  background-position: -{x}px -{y}px;\n  width: {w}px;\n  height: {h}px;\n}}",
+            label = img.label(),
+            name = name,
+            x = img.x,
+            y = img.y,
+            w = img.computed_width,
+            h = img.computed_height,
+        );
+    }
+}
+
+fn generate_coco2d(_config: &Config, _sprite: &Sprite) {
     todo!();
 }
 
@@ -272,9 +310,9 @@ pub fn generate_files(config: &Config, sprite: &Sprite) {
     if config.less {
         generate_less(config, sprite);
     }
-    // if config.scss {
-    //     generate_scss(config, sprite);
-    // }
+    if config.scss {
+        generate_scss(config, sprite);
+    }
     if config.cocos2d {
         generate_coco2d(config, sprite);
     }
