@@ -60,7 +60,7 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
                     }
                     _ => {
                         eprintln!("Unknown algorithm");
-                        std::process::exit(0);
+                        std::process::exit(1);
                     }
                 }
             }
