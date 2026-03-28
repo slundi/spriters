@@ -25,6 +25,9 @@ Output options:
 --no-img:               do not generate image file
 --cachebuster:          when generating CSS, add image hash in the end of the filename
 --cachebuster-filename: when generating CSS, add image hash before the extension in the filename
+--separator:            separator for CSS class names (default: '-')
+--namespace:            global namespace for CSS classes (default: 'sprite')
+--sprite-namespace:     sprite-specific namespace, use %(sprite)s for sprite name
 
 Image processing options:
 -a, --algorithm:        algorithm to order images in the sprite: square (default), vertical, hortizontal, diagonal, vertical-right, horizontal-bottom
@@ -112,6 +115,12 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
             }
             Long("separator") => {
                 args.separator = parser.value()?.parse()?;
+            }
+            Long("namespace") => {
+                args.namespace = Some(parser.value()?.to_string_lossy().to_string());
+            }
+            Long("sprite-namespace") => {
+                args.sprite_namespace = Some(parser.value()?.to_string_lossy().to_string());
             }
             Long("no-duplicate") => args.no_duplicate = true,
             _ => return Err(arg.unexpected()),

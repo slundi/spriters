@@ -55,12 +55,44 @@ fn get_filename_depending_on_cache_buster(config: &Config, sprite: &Sprite) -> S
     )
 }
 
-fn implode_image_label(sprite: &Sprite) -> String {
+/// Build a CSS class name based on config settings (namespace, sprite_namespace, separator).
+/// Default pattern: `sprite-{sprite_name}-{image_label}`
+fn build_class_name(config: &Config, sprite_name: &str, image_label: &str) -> String {
+    let sep = &config.separator;
+
+    // Determine namespace (default: "sprite")
+    let namespace = config.namespace.as_deref().unwrap_or("sprite");
+
+    // Determine sprite namespace (default: sprite name, supports %(sprite)s placeholder)
+    let sprite_ns = match &config.sprite_namespace {
+        Some(sn) => sn.replace("%(sprite)s", sprite_name),
+        None => sprite_name.to_string(),
+    };
+
+    // Build the class name
+    let mut class_name = String::new();
+    if !namespace.is_empty() {
+        class_name.push_str(namespace);
+        if !sprite_ns.is_empty() || !image_label.is_empty() {
+            class_name.push_str(sep);
+        }
+    }
+    if !sprite_ns.is_empty() {
+        class_name.push_str(&sprite_ns);
+        if !image_label.is_empty() {
+            class_name.push_str(sep);
+        }
+    }
+    class_name.push_str(image_label);
+
+    class_name
+}
+
+fn implode_image_label(config: &Config, sprite: &Sprite) -> String {
+    let sprite_name = sprite.path.file_name().unwrap().to_string_lossy();
     let mut labels: Vec<String> = Vec::with_capacity(sprite.images.len());
     for img in sprite.images.iter() {
-        let mut label = String::from("sprite-");
-        label.push_str(&img.label());
-        labels.push(label);
+        labels.push(build_class_name(config, &sprite_name, &img.label()));
     }
     labels.join(",")
 }
@@ -152,17 +184,17 @@ fn generate_less_old(config: &Config, sprite: &Sprite) {
         background-image:url('{name}.png');
     }}
 }}",
-        list = implode_image_label(sprite),
+        list = implode_image_label(config, sprite),
         name = name,
         w = 0, // TODO: sprite.get_width(),
         h = 0, //sprite.get_height(),
     );
     for img in sprite.images.iter() {
+        let class_name = build_class_name(config, &name, &img.label());
         let _ = writeln!(
             f,
-            ".sprite-{name}-{label}{{background-position: {x} {y}; width: {w}px; height: {h}px;}}",
-            label = img.label(),
-            name = name,
+            ".{class}{{background-position: {x} {y}; width: {w}px; height: {h}px;}}",
+            class = class_name,
             x = img.x,
             y = img.y,
             w = img.computed_width,
@@ -183,16 +215,16 @@ fn generate_less(config: &Config, sprite: &Sprite) {
     let name = sprite.path.file_name().unwrap().to_string_lossy();
     let _ = writeln!(
         f,
-        "{list} {{background-image: url('{name}');background-repeat: no-repeat;}}",
-        list = implode_image_label(sprite),
+        ".{list} {{background-image: url('{name}');background-repeat: no-repeat;}}",
+        list = implode_image_label(config, sprite).replace(",", ",."),
         name = name,
     );
     for img in sprite.images.iter() {
+        let class_name = build_class_name(config, &name, &img.label());
         let _ = writeln!(
             f,
-            ".sprite-{name}-{label}{{background-position: {x} {y}; width: {w}px; height: {h}px;}}",
-            label = img.label(),
-            name = name,
+            ".{class}{{background-position: {x} {y}; width: {w}px; height: {h}px;}}",
+            class = class_name,
             x = img.x,
             y = img.y,
             w = img.computed_width,
@@ -220,17 +252,17 @@ fn generate_scss(config: &Config, sprite: &Sprite) {
     let _ = writeln!(
         f,
         "\n.{list} {{\n  @include {name}-sprite;\n}}",
-        list = implode_image_label(sprite).replace(",", ",."),
+        list = implode_image_label(config, sprite).replace(",", ",."),
         name = name,
     );
 
     // Generate individual image classes
     for img in sprite.images.iter() {
+        let class_name = build_class_name(config, &name, &img.label());
         let _ = writeln!(
             f,
-            "\n.sprite-{name}-{label} {{\n  background-position: -{x}px -{y}px;\n  width: {w}px;\n  height: {h}px;\n}}",
-            label = img.label(),
-            name = name,
+            "\n.{class} {{\n  background-position: -{x}px -{y}px;\n  width: {w}px;\n  height: {h}px;\n}}",
+            class = class_name,
             x = img.x,
             y = img.y,
             w = img.computed_width,
