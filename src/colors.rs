@@ -230,7 +230,7 @@ fn luminance(r: u8, g: u8, b: u8) -> u8 {
 /// closer to y than to z.
 fn distance((xr, xg, xb): (u8, u8, u8), y: u32) -> u32 {
     let (yr, yg, yb) = to_triple(y);
-    // See <https://www.compuphase.com/cmetric.htm> though we’re doing a few
+    // See <https://www.compuphase.com/cmetric.htm> though we're doing a few
     // things to avoid some of the calculations.  We can do that since we only
     // care about some properties of the metric.
     let r_sum = (xr as i32) + (yr as i32);
@@ -239,4 +239,134 @@ fn distance((xr, xg, xb): (u8, u8, u8), y: u32) -> u32 {
     let b = (xb as i32) - (yb as i32);
     let d = (1024 + r_sum) * r * r + 2048 * g * g + (1534 - r_sum) * b * b;
     d as u32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_to_triple() {
+        assert_eq!(to_triple(0x000000), (0, 0, 0));
+        assert_eq!(to_triple(0xffffff), (255, 255, 255));
+        assert_eq!(to_triple(0xff0000), (255, 0, 0));
+        assert_eq!(to_triple(0x00ff00), (0, 255, 0));
+        assert_eq!(to_triple(0x0000ff), (0, 0, 255));
+        assert_eq!(to_triple(0x123456), (0x12, 0x34, 0x56));
+    }
+
+    #[test]
+    fn test_luminance() {
+        // Black
+        assert_eq!(luminance(0, 0, 0), 0);
+        // White (should be close to 255)
+        let white_lum = luminance(255, 255, 255);
+        assert!(white_lum >= 254, "White luminance should be near 255, got {}", white_lum);
+        // Green contributes most to luminance
+        let green_lum = luminance(0, 255, 0);
+        let red_lum = luminance(255, 0, 0);
+        let blue_lum = luminance(0, 0, 255);
+        assert!(green_lum > red_lum, "Green should have higher luminance than red");
+        assert!(red_lum > blue_lum, "Red should have higher luminance than blue");
+    }
+
+    #[test]
+    fn test_distance() {
+        // Same color should have zero distance
+        assert_eq!(distance((0, 0, 0), 0x000000), 0);
+        assert_eq!(distance((255, 255, 255), 0xffffff), 0);
+        assert_eq!(distance((128, 64, 32), 0x804020), 0);
+
+        // Different colors should have non-zero distance
+        assert!(distance((0, 0, 0), 0xffffff) > 0);
+        assert!(distance((255, 0, 0), 0x00ff00) > 0);
+    }
+
+    #[test]
+    fn test_cube_thresholds() {
+        // Test boundary values
+        assert_eq!(cube_thresholds(0, 38, 115, 155, 196, 235), (0, 0));
+        assert_eq!(cube_thresholds(37, 38, 115, 155, 196, 235), (0, 0));
+        assert_eq!(cube_thresholds(38, 38, 115, 155, 196, 235), (1, 95));
+        assert_eq!(cube_thresholds(114, 38, 115, 155, 196, 235), (1, 95));
+        assert_eq!(cube_thresholds(115, 38, 115, 155, 196, 235), (2, 135));
+        assert_eq!(cube_thresholds(255, 38, 115, 155, 196, 235), (5, 255));
+    }
+
+    #[test]
+    fn test_cube_index_colors() {
+        // Test cube_index_red
+        let (idx, val) = cube_index_red(0);
+        assert_eq!(idx, 16); // 0 * 36 + 16
+        assert_eq!(val, 0 << 16);
+
+        let (idx, val) = cube_index_red(255);
+        assert_eq!(idx, 5 * 36 + 16);
+        assert_eq!(val, 255 << 16);
+
+        // Test cube_index_green
+        let (idx, val) = cube_index_green(0);
+        assert_eq!(idx, 0);
+        assert_eq!(val, 0 << 8);
+
+        let (idx, val) = cube_index_green(255);
+        assert_eq!(idx, 5 * 6);
+        assert_eq!(val, 255 << 8);
+
+        // Test cube_index_blue
+        let (idx, val) = cube_index_blue(0);
+        assert_eq!(idx, 0);
+        assert_eq!(val, 0);
+
+        let (idx, val) = cube_index_blue(255);
+        assert_eq!(idx, 5);
+        assert_eq!(val, 255);
+    }
+
+    #[test]
+    fn test_cube_index() {
+        // Black
+        let (idx, rgb) = cube_index(0, 0, 0);
+        assert_eq!(idx, 16); // 0 + 0 + 16
+        assert_eq!(rgb, 0x000000);
+
+        // White
+        let (idx, rgb) = cube_index(255, 255, 255);
+        assert_eq!(idx, 231); // 5*36 + 5*6 + 5 + 16 = 180 + 30 + 5 + 16
+        assert_eq!(rgb, 0xffffff);
+    }
+
+    #[test]
+    fn test_ansi256_from_rgb() {
+        // Black should map to index 16 (first color in 6x6x6 cube)
+        let idx = ansi256_from_rgb(0x000000);
+        assert_eq!(idx, 16);
+
+        // White should map to index 231
+        let idx = ansi256_from_rgb(0xffffff);
+        assert_eq!(idx, 231);
+
+        // Grey values should map to greyscale ramp
+        let grey_idx = ansi256_from_rgb(0x808080);
+        assert!(grey_idx >= 232 || grey_idx < 16 || (grey_idx >= 16 && grey_idx <= 231),
+            "Grey should map to valid ANSI index");
+    }
+
+    #[test]
+    fn test_ansi_colours_lookup() {
+        // Verify some known values in the ANSI palette
+        assert_eq!(ANSI_COLOURS[0], 0x000000); // Black
+        assert_eq!(ANSI_COLOURS[15], 0xffffff); // White
+        assert_eq!(ANSI_COLOURS[16], 0x000000); // Start of 6x6x6 cube
+    }
+
+    #[test]
+    fn test_ansi256_from_grey_lookup() {
+        // First few entries should map to black (16)
+        assert_eq!(ANSI256_FROM_GREY[0], 16);
+        assert_eq!(ANSI256_FROM_GREY[4], 16);
+
+        // Last entries should map to white (231)
+        assert_eq!(ANSI256_FROM_GREY[255], 231);
+    }
 }

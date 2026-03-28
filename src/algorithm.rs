@@ -121,6 +121,118 @@ impl Algorithm {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::{Config, ImageAndPosition, Sprite};
+    use image::DynamicImage;
+
+    fn create_test_sprite_with_images(sizes: Vec<(u32, u32)>) -> Sprite {
+        let config = Config::default();
+        let mut sprite = Sprite {
+            config: config.clone(),
+            path: std::path::PathBuf::from("test"),
+            ratios: vec![1.0],
+            images: Vec::new(),
+            margin: crate::util::Spacing::default(),
+            padding: crate::util::Spacing::default(),
+        };
+
+        for (i, (w, h)) in sizes.iter().enumerate() {
+            let img = DynamicImage::new_rgba8(*w, *h);
+            sprite.images.push(ImageAndPosition {
+                path: format!("test{}.png", i),
+                image: img,
+                x: 0,
+                y: 0,
+                computed_width: *w,
+                computed_height: *h,
+            });
+        }
+
+        sprite
+    }
+
     #[test]
-    fn test_foo_bar() {}
+    fn test_vertical_layout() {
+        let mut sprite = create_test_sprite_with_images(vec![(10, 20), (15, 25), (8, 30)]);
+        Algorithm::vertical(&mut sprite);
+
+        // All images should have x = 0
+        assert_eq!(sprite.images[0].x, 0);
+        assert_eq!(sprite.images[1].x, 0);
+        assert_eq!(sprite.images[2].x, 0);
+
+        // Y positions should stack vertically
+        assert_eq!(sprite.images[0].y, 0);
+        assert_eq!(sprite.images[1].y, 20);
+        assert_eq!(sprite.images[2].y, 45);
+    }
+
+    #[test]
+    fn test_horizontal_layout() {
+        let mut sprite = create_test_sprite_with_images(vec![(10, 20), (15, 25), (8, 30)]);
+        Algorithm::horizontal(&mut sprite);
+
+        // All images should have y = 0
+        assert_eq!(sprite.images[0].y, 0);
+        assert_eq!(sprite.images[1].y, 0);
+        assert_eq!(sprite.images[2].y, 0);
+
+        // X positions should stack horizontally
+        assert_eq!(sprite.images[0].x, 0);
+        assert_eq!(sprite.images[1].x, 10);
+        assert_eq!(sprite.images[2].x, 25);
+    }
+
+    #[test]
+    fn test_diagonal_layout() {
+        let mut sprite = create_test_sprite_with_images(vec![(10, 20), (15, 25)]);
+        Algorithm::diagonal(&mut sprite);
+
+        // First image at origin
+        assert_eq!(sprite.images[0].x, 0);
+        assert_eq!(sprite.images[0].y, 0);
+
+        // Second image offset diagonally
+        assert_eq!(sprite.images[1].x, 10);
+        assert_eq!(sprite.images[1].y, 20);
+    }
+
+    #[test]
+    fn test_vertical_right_layout() {
+        // Note: vertical_right uses max_by_key on height but gets width from that image
+        // Using images where the tallest is also the widest to avoid overflow
+        let mut sprite = create_test_sprite_with_images(vec![(10, 20), (15, 30), (8, 25)]);
+        Algorithm::vertical_right(&mut sprite);
+
+        // The image with max height (30) has width 15, so max_width = 15
+
+        // Images should be offset from right
+        assert_eq!(sprite.images[0].x, 15 - 10); // 5
+        assert_eq!(sprite.images[1].x, 15 - 15); // 0
+        assert_eq!(sprite.images[2].x, 15 - 8);  // 7
+
+        // Y positions should stack vertically
+        assert_eq!(sprite.images[0].y, 0);
+        assert_eq!(sprite.images[1].y, 20);
+        assert_eq!(sprite.images[2].y, 50);
+    }
+
+    #[test]
+    fn test_horizontal_bottom_layout() {
+        let mut sprite = create_test_sprite_with_images(vec![(10, 20), (15, 25), (8, 30)]);
+        Algorithm::horizontal_bottom(&mut sprite);
+
+        // Images should be aligned to the bottom edge
+        let max_height = 30; // tallest is 30
+
+        // Images should be offset from bottom
+        assert_eq!(sprite.images[0].y, max_height - 20);
+        assert_eq!(sprite.images[1].y, max_height - 25);
+        assert_eq!(sprite.images[2].y, max_height - 30);
+
+        // X positions should stack horizontally
+        assert_eq!(sprite.images[0].x, 0);
+        assert_eq!(sprite.images[1].x, 10);
+        assert_eq!(sprite.images[2].x, 25);
+    }
 }

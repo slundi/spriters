@@ -1057,4 +1057,137 @@ mod tests {
         assert_eq!(img2.width(), 120);
         assert_eq!(img2.height(), 100);
     }
+
+    #[test]
+    fn test_image_and_position_label() {
+        let iap = ImageAndPosition {
+            path: String::from("/path/to/my_image.png"),
+            image: DynamicImage::new_rgba8(10, 10),
+            x: 0,
+            y: 0,
+            computed_width: 10,
+            computed_height: 10,
+        };
+        assert_eq!(iap.label(), "my-image");
+
+        // Test with spaces and special characters
+        let iap2 = ImageAndPosition {
+            path: String::from("/path/to/My Image File.png"),
+            image: DynamicImage::new_rgba8(10, 10),
+            x: 0,
+            y: 0,
+            computed_width: 10,
+            computed_height: 10,
+        };
+        assert_eq!(iap2.label(), "my-image-file");
+
+        // Test with underscores
+        let iap3 = ImageAndPosition {
+            path: String::from("icon_arrow_left.png"),
+            image: DynamicImage::new_rgba8(10, 10),
+            x: 0,
+            y: 0,
+            computed_width: 10,
+            computed_height: 10,
+        };
+        assert_eq!(iap3.label(), "icon-arrow-left");
+    }
+
+    #[test]
+    fn test_sprite_dimensions() {
+        let config = Config::default();
+        let mut sprite = Sprite {
+            config: config.clone(),
+            path: PathBuf::from("test"),
+            ratios: vec![1.0],
+            images: Vec::new(),
+            margin: util::Spacing::default(),
+            padding: util::Spacing::default(),
+        };
+
+        // Empty sprite should have zero dimensions
+        assert_eq!(sprite.dimensions(), (0, 0));
+
+        // Add an image at origin
+        sprite.images.push(ImageAndPosition {
+            path: String::from("test1.png"),
+            image: DynamicImage::new_rgba8(50, 30),
+            x: 0,
+            y: 0,
+            computed_width: 50,
+            computed_height: 30,
+        });
+        assert_eq!(sprite.dimensions(), (50, 30));
+
+        // Add another image that extends the bounds
+        sprite.images.push(ImageAndPosition {
+            path: String::from("test2.png"),
+            image: DynamicImage::new_rgba8(40, 40),
+            x: 60,
+            y: 20,
+            computed_width: 40,
+            computed_height: 40,
+        });
+        // Width should be 60 + 40 = 100, Height should be 20 + 40 = 60
+        assert_eq!(sprite.dimensions(), (100, 60));
+    }
+
+    #[test]
+    fn test_ordering_display() {
+        assert_eq!(format!("{}", Ordering::Maxside), "maxside");
+        assert_eq!(format!("{}", Ordering::MaxsideReverse), "-maxside");
+        assert_eq!(format!("{}", Ordering::Width), "width");
+        assert_eq!(format!("{}", Ordering::WidthReverse), "-width");
+        assert_eq!(format!("{}", Ordering::Height), "height");
+        assert_eq!(format!("{}", Ordering::HeightReverse), "-height");
+        assert_eq!(format!("{}", Ordering::Area), "area");
+        assert_eq!(format!("{}", Ordering::AreaReverse), "-area");
+        assert_eq!(format!("{}", Ordering::Filename), "filename");
+        assert_eq!(format!("{}", Ordering::FilenameReverse), "-filename");
+    }
+
+    #[test]
+    fn test_ordering_from_str() {
+        assert_eq!(Ordering::from_str("maxside"), Ok(Ordering::Maxside));
+        assert_eq!(Ordering::from_str("MAXSIDE"), Ok(Ordering::Maxside));
+        assert_eq!(Ordering::from_str("-maxside"), Ok(Ordering::MaxsideReverse));
+        assert_eq!(Ordering::from_str("width"), Ok(Ordering::Width));
+        assert_eq!(Ordering::from_str("-width"), Ok(Ordering::WidthReverse));
+        assert_eq!(Ordering::from_str("invalid"), Err(()));
+    }
+
+    #[test]
+    fn test_ordering_is_reverse() {
+        assert!(!Ordering::Maxside.is_reverse());
+        assert!(Ordering::MaxsideReverse.is_reverse());
+        assert!(!Ordering::Width.is_reverse());
+        assert!(Ordering::WidthReverse.is_reverse());
+        assert!(!Ordering::Height.is_reverse());
+        assert!(Ordering::HeightReverse.is_reverse());
+        assert!(!Ordering::Area.is_reverse());
+        assert!(Ordering::AreaReverse.is_reverse());
+        assert!(!Ordering::Filename.is_reverse());
+        assert!(Ordering::FilenameReverse.is_reverse());
+    }
+
+    #[test]
+    fn test_config_default() {
+        let config = Config::default();
+        assert!(!config.crop);
+        assert!(!config.cachebuster);
+        assert!(!config.force);
+        assert!(!config.recursive);
+        assert!(!config.project);
+        assert_eq!(config.separator, "-");
+        assert!(config.namespace.is_none());
+        assert!(config.max_width.is_none());
+        assert!(config.max_height.is_none());
+    }
+
+    #[test]
+    fn test_add_function() {
+        assert_eq!(add(2, 3), 5);
+        assert_eq!(add(0, 0), 0);
+        assert_eq!(add(100, 200), 300);
+    }
 }

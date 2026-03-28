@@ -181,4 +181,73 @@ mod tests {
         assert_eq!(horizontal_spacing(5, 5, 2, 2), 14);
         assert_eq!(vertical_spacing(1, 1, 2, 2), 6);
     }
+
+    #[test]
+    fn test_spacing_add() {
+        let a = Spacing {
+            top: 1,
+            right: 2,
+            bottom: 3,
+            left: 4,
+        };
+        let b = Spacing {
+            top: 10,
+            right: 20,
+            bottom: 30,
+            left: 40,
+        };
+        let result = a + b;
+        assert_eq!(
+            result,
+            Spacing {
+                top: 11,
+                right: 22,
+                bottom: 33,
+                left: 44
+            }
+        );
+
+        // Test with zero
+        let zero = Spacing::default();
+        assert_eq!(a + zero, a);
+    }
+
+    #[test]
+    fn test_absolute_length() {
+        // No spacing, ratio 1.0
+        assert_eq!(absolute_length(100, 0, 1.0), 100);
+
+        // With spacing, ratio 1.0
+        assert_eq!(absolute_length(100, 10, 1.0), 110);
+
+        // No spacing, ratio 2.0
+        assert_eq!(absolute_length(100, 0, 2.0), 100);
+
+        // With spacing, ratio 2.0 (spacing is multiplied by ratio)
+        assert_eq!(absolute_length(100, 10, 2.0), 120);
+
+        // With spacing, ratio 0.5
+        assert_eq!(absolute_length(100, 10, 0.5), 105);
+    }
+
+    #[test]
+    fn test_spacing_from_str() {
+        use std::str::FromStr;
+
+        // Single value
+        let s = Spacing::from_str("10").unwrap();
+        assert_eq!(s, Spacing { top: 10, right: 10, bottom: 10, left: 10 });
+
+        // Two values (vertical, horizontal)
+        let s = Spacing::from_str("5 10").unwrap();
+        assert_eq!(s, Spacing { top: 5, right: 10, bottom: 5, left: 10 });
+
+        // Three values (top, horizontal, bottom)
+        let s = Spacing::from_str("1 2 3").unwrap();
+        assert_eq!(s, Spacing { top: 1, right: 2, bottom: 3, left: 2 });
+
+        // Four values (top, right, bottom, left)
+        let s = Spacing::from_str("1 2 3 4").unwrap();
+        assert_eq!(s, Spacing { top: 1, right: 2, bottom: 3, left: 4 });
+    }
 }

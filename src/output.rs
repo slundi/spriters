@@ -541,7 +541,7 @@ pub fn generate_files(config: &Config, sprite: &Sprite) {
 
 #[cfg(test)]
 mod tests {
-    use super::get_cache_buster;
+    use super::*;
 
     #[test]
     fn test_cache_buster() {
@@ -555,5 +555,56 @@ mod tests {
         let cb = get_cache_buster(true, true);
         assert_eq!(cb.chars().count(), 7);
         assert!(cb.starts_with('_'));
+    }
+
+    #[test]
+    fn test_build_class_name() {
+        let mut config = Config::default();
+
+        // Default namespace "sprite" with sprite name and image label
+        let class_name = build_class_name(&config, "icons", "arrow");
+        assert_eq!(class_name, "sprite-icons-arrow");
+
+        // Custom namespace
+        config.namespace = Some("my-ns".to_string());
+        let class_name = build_class_name(&config, "icons", "arrow");
+        assert_eq!(class_name, "my-ns-icons-arrow");
+
+        // Empty namespace
+        config.namespace = Some("".to_string());
+        let class_name = build_class_name(&config, "icons", "arrow");
+        assert_eq!(class_name, "icons-arrow");
+
+        // Custom sprite namespace
+        config.namespace = Some("sprite".to_string());
+        config.sprite_namespace = Some("custom".to_string());
+        let class_name = build_class_name(&config, "icons", "arrow");
+        assert_eq!(class_name, "sprite-custom-arrow");
+
+        // Sprite namespace with placeholder
+        config.sprite_namespace = Some("%(sprite)s-extra".to_string());
+        let class_name = build_class_name(&config, "icons", "arrow");
+        assert_eq!(class_name, "sprite-icons-extra-arrow");
+
+        // Custom separator
+        config.sprite_namespace = None;
+        config.separator = "_".to_string();
+        let class_name = build_class_name(&config, "icons", "arrow");
+        assert_eq!(class_name, "sprite_icons_arrow");
+
+        // Empty sprite namespace and image label
+        config.separator = "-".to_string();
+        config.sprite_namespace = Some("".to_string());
+        let class_name = build_class_name(&config, "icons", "");
+        assert_eq!(class_name, "sprite");
+    }
+
+    #[test]
+    fn test_css_pseudo_classes_constant() {
+        // Verify known pseudo classes are present
+        assert!(CSS_PSEUDO_CLASSES.contains(&"hover"));
+        assert!(CSS_PSEUDO_CLASSES.contains(&"active"));
+        assert!(CSS_PSEUDO_CLASSES.contains(&"focus"));
+        assert_eq!(CSS_PSEUDO_CLASSES.len(), 10);
     }
 }

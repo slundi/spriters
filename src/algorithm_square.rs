@@ -333,4 +333,109 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn test_node_grow() {
+        let mut node = SquareNode {
+            x: 5,
+            y: 10,
+            width: 20,
+            height: 30,
+            used: false,
+            right: None,
+            down: None,
+        };
+
+        node.grow(10, 15);
+
+        assert!(node.used);
+        assert_eq!(node.x, 0);
+        assert_eq!(node.y, 0);
+        assert_eq!(node.width, 30);
+        assert_eq!(node.height, 45);
+    }
+
+    #[test]
+    fn test_graph_find() {
+        let mut g = SquareGraph::default();
+
+        // Add root node
+        g.add_node(SquareNode {
+            width: 100,
+            height: 100,
+            ..Default::default()
+        });
+
+        // Split the root
+        g.split(0, 50, 50);
+
+        // Should find a node that fits
+        let found = g.find(0, 40, 40);
+        assert!(found.is_some());
+
+        // Root node is now used, so find should search children
+        assert!(g.nodes[0].used);
+    }
+
+    #[test]
+    fn test_graph_grow_down() {
+        let mut g = SquareGraph::default();
+
+        // Add a wide root node (should prefer growing down)
+        g.add_node(SquareNode {
+            width: 100,
+            height: 50,
+            ..Default::default()
+        });
+
+        // This should grow down because width >= height + new_height
+        let result = g.grow(0, 30, 30);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_graph_grow_right() {
+        let mut g = SquareGraph::default();
+
+        // Add a tall root node (should prefer growing right)
+        g.add_node(SquareNode {
+            width: 50,
+            height: 100,
+            ..Default::default()
+        });
+
+        // This should grow right because height >= width + new_width
+        let result = g.grow(0, 30, 30);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_process_single_image() {
+        use crate::{Config, ImageAndPosition, Sprite};
+        use image::DynamicImage;
+
+        let config = Config::default();
+        let mut sprite = Sprite {
+            config: config.clone(),
+            path: std::path::PathBuf::from("test"),
+            ratios: vec![1.0],
+            images: vec![ImageAndPosition {
+                path: String::from("test.png"),
+                image: DynamicImage::new_rgba8(50, 30),
+                x: 0,
+                y: 0,
+                computed_width: 50,
+                computed_height: 30,
+            }],
+            margin: crate::util::Spacing::default(),
+            padding: crate::util::Spacing::default(),
+        };
+
+        process(&mut sprite);
+
+        // Single image should be at origin
+        assert_eq!(sprite.images[0].x, 0);
+        assert_eq!(sprite.images[0].y, 0);
+    }
+
 }
