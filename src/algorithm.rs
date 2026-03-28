@@ -39,6 +39,9 @@ impl Algorithm {
         }
     }
     pub fn vertical_right(sprite: &mut Sprite) {
+        if sprite.images.is_empty() {
+            return;
+        }
         let max_width = sprite
             .images
             .iter()
@@ -63,6 +66,9 @@ impl Algorithm {
         }
     }
     pub fn horizontal_bottom(sprite: &mut Sprite) {
+        if sprite.images.is_empty() {
+            return;
+        }
         let max_height = sprite
             .images
             .iter()
@@ -234,5 +240,47 @@ mod tests {
         assert_eq!(sprite.images[0].x, 0);
         assert_eq!(sprite.images[1].x, 10);
         assert_eq!(sprite.images[2].x, 25);
+    }
+
+    #[test]
+    fn test_empty_images_vertical() {
+        let mut sprite = create_test_sprite_with_images(vec![]);
+        Algorithm::vertical(&mut sprite);
+        assert!(sprite.images.is_empty());
+    }
+
+    #[test]
+    fn test_empty_images_horizontal() {
+        let mut sprite = create_test_sprite_with_images(vec![]);
+        Algorithm::horizontal(&mut sprite);
+        assert!(sprite.images.is_empty());
+    }
+
+    #[test]
+    fn test_empty_images_vertical_right() {
+        let mut sprite = create_test_sprite_with_images(vec![]);
+        Algorithm::vertical_right(&mut sprite);
+        assert!(sprite.images.is_empty());
+    }
+
+    #[test]
+    fn test_empty_images_horizontal_bottom() {
+        let mut sprite = create_test_sprite_with_images(vec![]);
+        Algorithm::horizontal_bottom(&mut sprite);
+        assert!(sprite.images.is_empty());
+    }
+
+    #[test]
+    fn test_empty_images_diagonal() {
+        let mut sprite = create_test_sprite_with_images(vec![]);
+        Algorithm::diagonal(&mut sprite);
+        assert!(sprite.images.is_empty());
+    }
+
+    #[test]
+    fn test_empty_images_square() {
+        let mut sprite = create_test_sprite_with_images(vec![]);
+        Algorithm::square(&mut sprite);
+        assert!(sprite.images.is_empty());
     }
 }

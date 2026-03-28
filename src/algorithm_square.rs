@@ -160,6 +160,9 @@ struct SquareNode {
 }
 
 pub(crate) fn process(sprite: &mut Sprite) {
+    if sprite.images.is_empty() {
+        return;
+    }
     let mut graph = SquareGraph {
         nodes: Vec::with_capacity(sprite.images.len() * 2),
     };
@@ -438,4 +441,22 @@ mod tests {
         assert_eq!(sprite.images[0].y, 0);
     }
 
+    #[test]
+    fn test_process_empty_images() {
+        use crate::{Config, Sprite};
+
+        let config = Config::default();
+        let mut sprite = Sprite {
+            config: config.clone(),
+            path: std::path::PathBuf::from("test"),
+            ratios: vec![1.0],
+            images: vec![],
+            margin: crate::util::Spacing::default(),
+            padding: crate::util::Spacing::default(),
+        };
+
+        // Should not panic on empty images
+        process(&mut sprite);
+        assert!(sprite.images.is_empty());
+    }
 }
