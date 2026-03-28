@@ -33,7 +33,7 @@ impl SquareGraph {
             if result.is_none() {
                 result = self.find(node.down.unwrap(), width, height);
             }
-        } else if node.width >= width || node.height >= height {
+        } else if node.width >= width && node.height >= height {
             return Some(node_index);
         }
         result
