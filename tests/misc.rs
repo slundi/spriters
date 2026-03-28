@@ -11,9 +11,9 @@ fn test_ordering_to_display() {
     assert_eq!(Ordering::Height.to_string(), "height");
     assert_eq!(Ordering::HeightReverse.to_string(), "-height");
     assert_eq!(Ordering::Area.to_string(), "area");
-    assert_eq!(Ordering::Area.to_string(), "-area");
+    assert_eq!(Ordering::AreaReverse.to_string(), "-area");
     assert_eq!(Ordering::Filename.to_string(), "filename");
-    assert_eq!(Ordering::Filename.to_string(), "-filename");
+    assert_eq!(Ordering::FilenameReverse.to_string(), "-filename");
 }
 
 #[test]
