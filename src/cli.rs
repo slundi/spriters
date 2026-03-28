@@ -24,6 +24,8 @@ Output options:
 --scss:                 generate SCSS dynamic stylesheet
 --no-css:               do not generate CSS files
 --no-img:               do not generate image file
+--css:                  custom output directory for CSS files
+--img:                  custom output directory for image files
 --cachebuster:          when generating CSS, add image hash in the end of the filename
 --cachebuster-filename: when generating CSS, add image hash before the extension in the filename
 --separator:            separator for CSS class names (default: '-')
@@ -112,6 +114,12 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
             Long("scss") => args.scss = true,
             Long("no-css") => args.no_css = true,
             Long("no-img") => args.no_img = true,
+            Long("css") => {
+                args.css = Some(std::path::PathBuf::from(parser.value()?.to_string_lossy().to_string()));
+            }
+            Long("img") => {
+                args.img = Some(std::path::PathBuf::from(parser.value()?.to_string_lossy().to_string()));
+            }
             Long("png8") => args.png8 = true,
             // The option `--retina` is only a shortcut for `--ratios=2,1`.
             Long("retina") => args.ratios = Some("2,1".to_owned()),
