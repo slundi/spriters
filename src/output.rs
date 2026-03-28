@@ -1,3 +1,4 @@
+use image::{GenericImage, RgbaImage};
 use rand::{distr::Alphanumeric, Rng};
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -218,7 +219,7 @@ fn generate_json(config: &Config, sprite: &Sprite) {
             y = img.y,
             w = img.computed_width,
             h = img.computed_height,
-            coma = if index + 1 < n { ""} else { "," },
+            coma = if index + 1 < n { "," } else { "" },
         );
     }
     let _ = writeln!(
@@ -230,9 +231,37 @@ fn generate_json(config: &Config, sprite: &Sprite) {
     );
 }
 
+fn generate_sprite_image(config: &Config, sprite: &Sprite) {
+    let (width, height) = sprite.dimensions();
+    if width == 0 || height == 0 {
+        log::warn!("Sprite has zero dimensions, skipping image generation");
+        return;
+    }
+
+    let mut canvas = RgbaImage::new(width, height);
+
+    for img in sprite.images.iter() {
+        let rgba_img = img.image.to_rgba8();
+        if let Err(e) = canvas.copy_from(&rgba_img, img.x, img.y) {
+            log::error!("Failed to copy image {} to sprite: {}", img.path, e);
+        }
+    }
+
+    let output_path = config.output.join(format!(
+        "{}.png",
+        sprite.path.file_name().unwrap_or_default().to_string_lossy()
+    ));
+
+    if let Err(e) = canvas.save(&output_path) {
+        log::error!("Failed to save sprite image to {:?}: {}", output_path, e);
+    } else {
+        log::info!("Generated sprite: {:?} ({}x{})", output_path, width, height);
+    }
+}
+
 pub fn generate_files(config: &Config, sprite: &Sprite) {
     if !config.no_img {
-        todo!();
+        generate_sprite_image(config, sprite);
     }
     if !config.no_css {
         generate_css(config, sprite);

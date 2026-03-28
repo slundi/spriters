@@ -459,7 +459,7 @@ impl Sprite {
             result.ratios.push(1f32);
         }
         result.discover_images();
-        // result.process();
+        result.process();
         result
     }
 
@@ -481,9 +481,8 @@ impl Sprite {
     /// If the folder doesn't contain any valid image it will exit with an error message.
     ///
     /// The list of images will be ordered using the desired ordering algorithm. The default is 'Maxside'.
-    fn discover_images(&self) {
+    fn discover_images(&mut self) {
         let mut files: HashMap<(u64, u64), String> = HashMap::new();
-        let mut images: Vec<ImageAndPosition> = Vec::new();
         for entry in WalkDir::new(std::path::Path::new(&self.config.source))
             .follow_links(self.config.follow_links)
             .into_iter()
@@ -499,7 +498,8 @@ impl Sprite {
                 ext.as_str(),
                 "jpg"
                     | "jpeg"
-                    | "jpe .jif"
+                    | "jpe"
+                    | "jif"
                     | "jfif"
                     | "jfi"
                     | "png"
@@ -532,7 +532,7 @@ impl Sprite {
                             }
                             warn!("{} and {} are identical", path, path2);
                         }
-                        files.insert((size, hash), path);
+                        files.insert((size, hash), path.clone());
 
                         let dimensions = (img.width(), img.height());
                         let mut img2 = img.clone();
@@ -550,7 +550,8 @@ impl Sprite {
                             self.config.max_height,
                         );
                         let iap = ImageAndPosition {
-                            image: img,
+                            path: path.clone(),
+                            image: img2,
                             computed_width: d.0,
                             computed_height: d.1,
                             ..Default::default()
@@ -564,21 +565,21 @@ impl Sprite {
                             iap.computed_width,
                             iap.computed_height
                         );
-                        images.push(iap);
+                        self.images.push(iap);
                     }
                     Err(err) => error!("Cannot open image: {}", err),
                 };
             } // else { continue; }
         }
-        if images.is_empty() {
+        if self.images.is_empty() {
             error!("No images were found in the source directory");
         }
-        self.sort_images(&mut images);
+        self.sort_images();
     }
 
     /// Sort images depending on the `config.ordering` value.
-    fn sort_images(&self, images: &mut [ImageAndPosition]) {
-        images.sort_by(|a, b| match self.config.ordering {
+    fn sort_images(&mut self) {
+        self.images.sort_by(|a, b| match self.config.ordering {
             Ordering::Maxside | Ordering::MaxsideReverse => absolute_length(
                 b.image.height(),
                 vertical_spacing(
@@ -707,7 +708,7 @@ impl Sprite {
                 .cmp(Path::new(&a.path).file_name().unwrap()),
         });
         if self.config.ordering.is_reverse() {
-            images.reverse();
+            self.images.reverse();
         }
     }
 
@@ -717,6 +718,17 @@ impl Sprite {
             current = get_greatet_quality(&current, &i.image.color());
         }
         current
+    }
+
+    /// Calculate the sprite dimensions based on positioned images.
+    pub fn dimensions(&self) -> (u32, u32) {
+        let mut width: u32 = 0;
+        let mut height: u32 = 0;
+        for img in self.images.iter() {
+            width = width.max(img.x + img.computed_width);
+            height = height.max(img.y + img.computed_height);
+        }
+        (width, height)
     }
 }
 

@@ -48,7 +48,7 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
                     "square" => args.algorithm = Algorithm::Square,
                     "vertical" => args.algorithm = Algorithm::Vertical,
                     "hortizontal" => args.algorithm = Algorithm::Hortizontal,
-                    "diagonal" => args.algorithm = Algorithm::Vertical,
+                    "diagonal" => args.algorithm = Algorithm::Diagonal,
                     "verticalright" | "vertical-right" => args.algorithm = Algorithm::VerticalRight,
                     "horizontalbottom" | "horizontal-bottom" => {
                         args.algorithm = Algorithm::HorizontalBottom
