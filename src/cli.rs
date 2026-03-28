@@ -28,6 +28,7 @@ Output options:
 --separator:            separator for CSS class names (default: '-')
 --namespace:            global namespace for CSS classes (default: 'sprite')
 --sprite-namespace:     sprite-specific namespace, use %(sprite)s for sprite name
+-u, --url:              base URL for sprite images in CSS (e.g., https://cdn.example.com/sprites)
 
 Image processing options:
 -a, --algorithm:        algorithm to order images in the sprite: square (default), vertical, hortizontal, diagonal, vertical-right, horizontal-bottom

@@ -34,25 +34,39 @@ fn get_cache_buster(enabled: bool, filename: bool) -> String {
     cache_buster
 }
 
-/// Get the filename, if there is cache buster, filename will change: if `config.cachebuster_filename = true` the cache buster
-/// is in the filename like `icons_p3c54d.png` otherwise it is a a query param like `icons.png?p3c54d`
-fn get_filename_depending_on_cache_buster(config: &Config, sprite: &Sprite) -> String {
+/// Get the sprite image URL for use in CSS.
+/// - If `config.url` is set, uses that as base URL
+/// - Handles cache buster in filename or as query param
+fn get_sprite_url(config: &Config, sprite: &Sprite) -> String {
     let name = sprite.path.file_name().unwrap().to_string_lossy();
     let cache_buster = get_cache_buster(config.cachebuster, config.cachebuster_filename);
-    format!(
+
+    let filename = format!(
         "{name}{cbf}.png{cbq}",
         name = name,
         cbf = if config.cachebuster_filename {
             cache_buster.clone()
         } else {
-            String::with_capacity(0)
+            String::new()
         },
-        cbq = if config.cachebuster {
+        cbq = if config.cachebuster && !config.cachebuster_filename {
             cache_buster
         } else {
-            String::with_capacity(0)
+            String::new()
         }
-    )
+    );
+
+    // If custom URL is provided, join it with the filename
+    match &config.url {
+        Some(base_url) => {
+            if base_url.ends_with('/') {
+                format!("{}{}", base_url, filename)
+            } else {
+                format!("{}/{}", base_url, filename)
+            }
+        }
+        None => filename,
+    }
 }
 
 /// Build a CSS class name based on config settings (namespace, sprite_namespace, separator).
@@ -104,7 +118,7 @@ fn generate_css(config: &Config, sprite: &Sprite) {
         &mut f,
         ".{name} {{\tbackground-image: url('{filename}'); background-repeat: no-repeat;\n}}",
         name = name,
-        filename = get_filename_depending_on_cache_buster(config, sprite),
+        filename = get_sprite_url(config, sprite),
     );
     for img in sprite.images.iter() {
         // write!(&mut f, ".{}{} {{\n", it.1.label, it.1.pseudo);
@@ -213,11 +227,12 @@ fn generate_less_old(config: &Config, sprite: &Sprite) {
 fn generate_less(config: &Config, sprite: &Sprite) {
     let mut f = BufWriter::new(File::create(&sprite.path).expect("Unable to create file"));
     let name = sprite.path.file_name().unwrap().to_string_lossy();
+    let sprite_url = get_sprite_url(config, sprite);
     let _ = writeln!(
         f,
-        ".{list} {{background-image: url('{name}');background-repeat: no-repeat;}}",
+        ".{list} {{background-image: url('{url}');background-repeat: no-repeat;}}",
         list = implode_image_label(config, sprite).replace(",", ",."),
-        name = name,
+        url = sprite_url,
     );
     for img in sprite.images.iter() {
         let class_name = build_class_name(config, &name, &img.label());
@@ -238,12 +253,14 @@ fn generate_scss(config: &Config, sprite: &Sprite) {
     let output_path = config.output.join(format!("{}.scss", name));
     let mut f = BufWriter::new(File::create(&output_path).expect("Unable to create SCSS file"));
     let (width, height) = sprite.dimensions();
+    let sprite_url = get_sprite_url(config, sprite);
 
     // Generate a mixin for the sprite base
     let _ = writeln!(
         f,
-        "@mixin {name}-sprite {{\n  background-image: url('{name}.png');\n  background-repeat: no-repeat;\n  background-size: {w}px {h}px;\n}}",
+        "@mixin {name}-sprite {{\n  background-image: url('{url}');\n  background-repeat: no-repeat;\n  background-size: {w}px {h}px;\n}}",
         name = name,
+        url = sprite_url,
         w = width,
         h = height,
     );
