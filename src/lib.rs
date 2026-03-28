@@ -448,6 +448,8 @@ impl Sprite {
         let mut result = Sprite {
             config: config.clone(),
             path,
+            margin: Spacing::from(config.margin.clone()),
+            padding: Spacing::from(config.padding.clone()),
             ..Default::default()
         };
         // ratios: list & sort them
