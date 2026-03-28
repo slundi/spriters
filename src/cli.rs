@@ -41,6 +41,8 @@ Image processing options:
 -a, --algorithm:        algorithm to order images in the sprite: square (default), vertical, horizontal, diagonal, vertical-right, horizontal-bottom
 --ordering:             sort order for images: maxside (default), width, height, area, filename. Prefix with '-' for reverse (e.g., -maxside)
 --png8:                 generate grascale image(s)
+--ratios:               generate sprites at multiple ratios for different DPIs (e.g., '2,1' or '2,1.5,1')
+--retina:               shortcut for --ratios=2,1
 -c, --crop:             crop unnecessary transparent spaces
 --max-width:            image max width in the sprite
 --max-height:           image max height in the sprite
@@ -133,6 +135,9 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
                 args.img = Some(std::path::PathBuf::from(parser.value()?.to_string_lossy().to_string()));
             }
             Long("png8") => args.png8 = true,
+            Long("ratios") => {
+                args.ratios = Some(parser.value()?.to_string_lossy().to_string());
+            }
             // The option `--retina` is only a shortcut for `--ratios=2,1`.
             Long("retina") => args.ratios = Some("2,1".to_owned()),
             Long("force") => args.force = true,
