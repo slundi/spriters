@@ -21,21 +21,21 @@ impl FromStr for Spacing {
                 left: data[3].parse()?,
             })
         } else if data.len() == 3 {
-            let Horizontal: u32 = data[1].parse()?;
+            let horizontal: u32 = data[1].parse()?;
             Ok(Spacing {
                 top: data[0].parse()?,
-                right: Horizontal,
+                right: horizontal,
                 bottom: data[2].parse()?,
-                left: Horizontal,
+                left: horizontal,
             })
         } else if data.len() == 2 {
             let vertical: u32 = data[0].parse()?;
-            let Horizontal: u32 = data[1].parse()?;
+            let horizontal: u32 = data[1].parse()?;
             Ok(Spacing {
                 top: vertical,
-                right: Horizontal,
+                right: horizontal,
                 bottom: vertical,
-                left: Horizontal,
+                left: horizontal,
             })
         } else {
             let value: u32 = s.trim().parse()?;
@@ -71,9 +71,9 @@ impl Spacing {
     }
 }
 
-/// Return the Horizontal padding and margin for an image.
+/// Return the horizontal padding and margin for an image.
 #[inline]
-pub fn Horizontal_spacing(
+pub fn horizontal_spacing(
     padding_left: u32,
     padding_right: u32,
     margin_left: u32,
@@ -94,8 +94,8 @@ pub fn vertical_spacing(
 }
 
 /// Return the total length (width or height) of the image taking count of the margin, padding and ratio.
-pub fn absolute_length(length: u32, Horizontal_spacing: u32, ratio: f32) -> u32 {
-    round_up(length.to_f32().unwrap() + Horizontal_spacing.to_f32().unwrap() * ratio)
+pub fn absolute_length(length: u32, spacing: u32, ratio: f32) -> u32 {
+    round_up(length.to_f32().unwrap() + spacing.to_f32().unwrap() * ratio)
 }
 
 #[inline]
@@ -179,7 +179,7 @@ mod tests {
         );
         assert_eq!(Spacing::from(None), Spacing::default());
 
-        assert_eq!(Horizontal_spacing(5, 5, 2, 2), 14);
+        assert_eq!(horizontal_spacing(5, 5, 2, 2), 14);
         assert_eq!(vertical_spacing(1, 1, 2, 2), 6);
     }
 
@@ -239,11 +239,11 @@ mod tests {
         let s = Spacing::from_str("10").unwrap();
         assert_eq!(s, Spacing { top: 10, right: 10, bottom: 10, left: 10 });
 
-        // Two values (vertical, Horizontal)
+        // Two values (vertical, horizontal)
         let s = Spacing::from_str("5 10").unwrap();
         assert_eq!(s, Spacing { top: 5, right: 10, bottom: 5, left: 10 });
 
-        // Three values (top, Horizontal, bottom)
+        // Three values (top, horizontal, bottom)
         let s = Spacing::from_str("1 2 3").unwrap();
         assert_eq!(s, Spacing { top: 1, right: 2, bottom: 3, left: 2 });
 

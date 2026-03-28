@@ -38,7 +38,7 @@ Output options:
 -u, --url:              base URL for sprite images in CSS (e.g., https://cdn.example.com/sprites)
 
 Image processing options:
--a, --algorithm:        algorithm to order images in the sprite: square (default), vertical, Horizontal, diagonal, vertical-right, Horizontal-bottom
+-a, --algorithm:        algorithm to order images in the sprite: square (default), vertical, horizontal, diagonal, vertical-right, horizontal-bottom
 --ordering:             sort order for images: maxside (default), width, height, area, filename. Prefix with '-' for reverse (e.g., -maxside)
 --png8:                 generate grascale image(s)
 --ratios:               generate sprites at multiple ratios for different DPIs (e.g., '2,1' or '2,1.5,1')
@@ -63,10 +63,10 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
                 match algo.to_lowercase().as_str() {
                     "square" => args.algorithm = Algorithm::Square,
                     "vertical" => args.algorithm = Algorithm::Vertical,
-                    "Horizontal" => args.algorithm = Algorithm::Horizontal,
+                    "horizontal" => args.algorithm = Algorithm::Horizontal,
                     "diagonal" => args.algorithm = Algorithm::Diagonal,
                     "verticalright" | "vertical-right" => args.algorithm = Algorithm::VerticalRight,
-                    "Horizontalbottom" | "Horizontal-bottom" => {
+                    "horizontalbottom" | "horizontal-bottom" => {
                         args.algorithm = Algorithm::HorizontalBottom
                     }
                     _ => {

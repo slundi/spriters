@@ -7,7 +7,7 @@ use std::{
 
 use image::{ColorType, DynamicImage, GenericImageView};
 use log::*;
-use util::{absolute_length, Horizontal_spacing, vertical_spacing, Spacing};
+use util::{absolute_length, horizontal_spacing, vertical_spacing, Spacing};
 use walkdir::WalkDir;
 
 pub mod algorithm;
@@ -101,7 +101,7 @@ impl FromStr for Ordering {
 }
 
 /// Used to order the images before adding them to the canvas can be tuned. By default the algorithm is `Square``,
-/// but in some situations using another ordering like vertical or Horizontal could be useful depending on the kind of images you are spriting.
+/// but in some situations using another ordering like vertical or horizontal could be useful depending on the kind of images you are spriting.
 #[derive(Debug, Clone, Copy, Default)]
 #[repr(u8)]
 pub enum Algorithm {
@@ -496,10 +496,10 @@ impl Sprite {
         match self.config.algorithm {
             Algorithm::Square => Algorithm::square(self),
             Algorithm::Vertical => Algorithm::vertical(self),
-            Algorithm::Horizontal => Algorithm::Horizontal(self),
+            Algorithm::Horizontal => Algorithm::horizontal(self),
             Algorithm::Diagonal => Algorithm::diagonal(self),
             Algorithm::VerticalRight => Algorithm::vertical_right(self),
-            Algorithm::HorizontalBottom => Algorithm::Horizontal_bottom(self),
+            Algorithm::HorizontalBottom => Algorithm::horizontal_bottom(self),
         }
     }
     /// Discover images: it return all valid images within a folder.
@@ -626,7 +626,7 @@ impl Sprite {
             )
             .max(absolute_length(
                 b.image.width(),
-                Horizontal_spacing(
+                horizontal_spacing(
                     self.padding.left,
                     self.padding.right,
                     self.margin.left,
@@ -647,7 +647,7 @@ impl Sprite {
                 )
                 .max(absolute_length(
                     a.image.width(),
-                    Horizontal_spacing(
+                    horizontal_spacing(
                         self.padding.left,
                         self.padding.right,
                         self.margin.left,
@@ -678,7 +678,7 @@ impl Sprite {
             )),
             Ordering::Width | Ordering::WidthReverse => absolute_length(
                 b.image.width(),
-                Horizontal_spacing(
+                horizontal_spacing(
                     self.padding.left,
                     self.padding.right,
                     self.margin.left,
@@ -688,7 +688,7 @@ impl Sprite {
             )
             .cmp(&absolute_length(
                 a.image.width(),
-                Horizontal_spacing(
+                horizontal_spacing(
                     self.padding.left,
                     self.padding.right,
                     self.margin.left,
@@ -698,7 +698,7 @@ impl Sprite {
             )),
             Ordering::Area | Ordering::AreaReverse => (absolute_length(
                 b.image.width(),
-                Horizontal_spacing(
+                horizontal_spacing(
                     self.padding.left,
                     self.padding.right,
                     self.margin.left,
@@ -718,7 +718,7 @@ impl Sprite {
             .cmp(
                 &(absolute_length(
                     a.image.width(),
-                    Horizontal_spacing(
+                    horizontal_spacing(
                         self.padding.left,
                         self.padding.right,
                         self.margin.left,
