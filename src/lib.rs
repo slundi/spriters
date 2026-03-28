@@ -551,6 +551,10 @@ impl Sprite {
                             self.config.max_width,
                             self.config.max_height,
                         );
+                        // Actually resize the image if dimensions changed
+                        if d.0 != img2.width() || d.1 != img2.height() {
+                            img2 = img2.resize_exact(d.0, d.1, self.config.resize_algorithm);
+                        }
                         let iap = ImageAndPosition {
                             path: path.clone(),
                             image: img2,
