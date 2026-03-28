@@ -38,7 +38,9 @@ Image processing options:
 -c, --crop:             crop unnecessary transparent spaces
 --max-width:            image max width in the sprite
 --max-height:           image max height in the sprite
---resize-algorithm:     resize algorithm are nearesr, triangle, gaussian, lanczos3, catmullrom (default)";
+--resize-algorithm:     resize algorithm are nearesr, triangle, gaussian, lanczos3, catmullrom (default)
+-p, --padding:          padding around each image (included in dimensions). Formats: 10, '5 10', '1 2 3 4'
+-m, --margin:           margin around each image (not included in dimensions). Formats: 10, '5 10', '1 2 3 4'";
 
 pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
     use lexopt::prelude::*;
@@ -78,6 +80,12 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
             }
             Long("max-width") => args.max_width = Some(parser.value()?.parse()?),
             Long("max-height") => args.max_height = Some(parser.value()?.parse()?),
+            Short('p') | Long("padding") => {
+                args.padding = Some(parser.value()?.to_string_lossy().to_string());
+            }
+            Short('m') | Long("margin") => {
+                args.margin = Some(parser.value()?.to_string_lossy().to_string());
+            }
             Long("resize-algorithm") => {
                 let fa: String = parser.value()?.parse()?;
                 match fa.to_lowercase().as_str() {
