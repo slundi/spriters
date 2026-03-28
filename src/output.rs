@@ -339,10 +339,19 @@ fn generate_sprite_image(config: &Config, sprite: &Sprite) {
         sprite.path.file_name().unwrap_or_default().to_string_lossy()
     ));
 
-    if let Err(e) = canvas.save(&output_path) {
+    // Convert to grayscale if png8 is enabled
+    let save_result = if config.png8 {
+        let grayscale = image::DynamicImage::ImageRgba8(canvas).to_luma8();
+        grayscale.save(&output_path)
+    } else {
+        canvas.save(&output_path)
+    };
+
+    if let Err(e) = save_result {
         log::error!("Failed to save sprite image to {:?}: {}", output_path, e);
     } else {
-        log::info!("Generated sprite: {:?} ({}x{})", output_path, width, height);
+        let mode = if config.png8 { "grayscale" } else { "RGBA" };
+        log::info!("Generated sprite: {:?} ({}x{}, {})", output_path, width, height, mode);
     }
 }
 
