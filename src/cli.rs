@@ -29,6 +29,7 @@ Output options:
 --separator:            separator for CSS class names (default: '-')
 --namespace:            global namespace for CSS classes (default: 'sprite')
 --sprite-namespace:     sprite-specific namespace, use %(sprite)s for sprite name
+--pseudo-class-separator: separator in filenames for pseudo-classes (e.g., '__' makes button__hover.png use :hover)
 -u, --url:              base URL for sprite images in CSS (e.g., https://cdn.example.com/sprites)
 
 Image processing options:
@@ -142,6 +143,9 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
             }
             Long("sprite-namespace") => {
                 args.sprite_namespace = Some(parser.value()?.to_string_lossy().to_string());
+            }
+            Long("pseudo-class-separator") => {
+                args.pseudo_class_separator = Some(parser.value()?.to_string_lossy().to_string());
             }
             Long("no-duplicate") => args.no_duplicate = true,
             Long("watch") => args.watch = true,
