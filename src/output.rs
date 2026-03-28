@@ -291,8 +291,59 @@ fn generate_scss(config: &Config, sprite: &Sprite) {
     }
 }
 
-fn generate_coco2d(_config: &Config, _sprite: &Sprite) {
-    todo!();
+fn generate_coco2d(config: &Config, sprite: &Sprite) {
+    let name = sprite.path.file_name().unwrap().to_string_lossy();
+    let output_path = config.output.join(format!("{}.plist", name));
+    let mut f = BufWriter::new(File::create(&output_path).expect("Unable to create Cocos2d plist file"));
+    let (width, height) = sprite.dimensions();
+    let sprite_url = get_sprite_url(config, sprite);
+
+    // Write plist header
+    let _ = writeln!(f, r#"<?xml version="1.0" encoding="UTF-8"?>"#);
+    let _ = writeln!(f, r#"<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">"#);
+    let _ = writeln!(f, r#"<plist version="1.0">"#);
+    let _ = writeln!(f, "<dict>");
+
+    // Write frames
+    let _ = writeln!(f, "    <key>frames</key>");
+    let _ = writeln!(f, "    <dict>");
+
+    for img in sprite.images.iter() {
+        let _ = writeln!(f, "        <key>{}</key>", img.label());
+        let _ = writeln!(f, "        <dict>");
+        let _ = writeln!(f, "            <key>frame</key>");
+        let _ = writeln!(f, "            <string>{{{{{},{}}},{{{},{}}}}}</string>",
+            img.x, img.y, img.computed_width, img.computed_height);
+        let _ = writeln!(f, "            <key>offset</key>");
+        let _ = writeln!(f, "            <string>{{0,0}}</string>");
+        let _ = writeln!(f, "            <key>rotated</key>");
+        let _ = writeln!(f, "            <false/>");
+        let _ = writeln!(f, "            <key>sourceColorRect</key>");
+        let _ = writeln!(f, "            <string>{{{{0,0}},{{{},{}}}}}</string>",
+            img.computed_width, img.computed_height);
+        let _ = writeln!(f, "            <key>sourceSize</key>");
+        let _ = writeln!(f, "            <string>{{{},{}}}</string>",
+            img.computed_width, img.computed_height);
+        let _ = writeln!(f, "        </dict>");
+    }
+
+    let _ = writeln!(f, "    </dict>");
+
+    // Write metadata
+    let _ = writeln!(f, "    <key>metadata</key>");
+    let _ = writeln!(f, "    <dict>");
+    let _ = writeln!(f, "        <key>format</key>");
+    let _ = writeln!(f, "        <integer>2</integer>");
+    let _ = writeln!(f, "        <key>size</key>");
+    let _ = writeln!(f, "        <string>{{{},{}}}</string>", width, height);
+    let _ = writeln!(f, "        <key>textureFileName</key>");
+    let _ = writeln!(f, "        <string>{}</string>", sprite_url);
+    let _ = writeln!(f, "    </dict>");
+
+    let _ = writeln!(f, "</dict>");
+    let _ = writeln!(f, "</plist>");
+
+    log::info!("Generated Cocos2d plist: {:?}", output_path);
 }
 
 fn generate_json(config: &Config, sprite: &Sprite) {
