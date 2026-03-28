@@ -111,7 +111,7 @@ pub enum Algorithm {
     /// The vertical one allocates the images vertically aligning them to the left of the sprite.
     Vertical,
     /// The vertical-right one allocates the images vertically aligning them to the right of the sprite.
-    Hortizontal,
+    Horizontal,
     /// The horizontal one allocates the images aligning them to the top of the sprite.
     Diagonal,
     /// The horizontal-bottom one allocates the images aligning them to the bottom of the sprite.
@@ -135,9 +135,9 @@ pub struct Config {
     /// Usually designers add some unnecessary transparent space around the images because it is easier for them to work with a larger
     /// canvas. **spriters** can optimize our sprite by croping all the unnecessary transparent spaces that the original images could have.
     pub crop: bool,
-    /// If the width of the image is gratear than the given value, the image will be resized before making the sprite
+    /// If the width of the image is greater than the given value, the image will be resized before making the sprite
     pub max_width: Option<u32>,
-    /// If the height of the image is gratear than the given value, the image will be resized before making the sprite
+    /// If the height of the image is greater than the given value, the image will be resized before making the sprite
     pub max_height: Option<u32>,
     pub resize_algorithm: image::imageops::FilterType,
     /// If you want to spread the images around the sprite but you don’t want to count this space as image width/height (as happens using
@@ -473,7 +473,7 @@ impl Sprite {
         match self.config.algorithm {
             Algorithm::Square => Algorithm::square(self),
             Algorithm::Vertical => Algorithm::vertical(self),
-            Algorithm::Hortizontal => Algorithm::horizontal(self),
+            Algorithm::Horizontal => Algorithm::horizontal(self),
             Algorithm::Diagonal => Algorithm::diagonal(self),
             Algorithm::VerticalRight => Algorithm::vertical_right(self),
             Algorithm::HorizontalBottom => Algorithm::horizontal_bottom(self),
@@ -726,7 +726,7 @@ impl Sprite {
     fn get_max_color_type(&self) -> ColorType {
         let mut current = ColorType::L8;
         for i in self.images.iter() {
-            current = get_greatet_quality(&current, &i.image.color());
+            current = get_greatest_quality(&current, &i.image.color());
         }
         current
     }
@@ -757,7 +757,7 @@ const SORTED_COLOR_TYPES: [ColorType; 10] = [
     ColorType::Rgba32F,
 ];
 
-pub fn get_greatet_quality(a: &ColorType, b: &ColorType) -> ColorType {
+pub fn get_greatest_quality(a: &ColorType, b: &ColorType) -> ColorType {
     let mut index_a = 0usize;
     let mut index_b = 0usize;
     for c in SORTED_COLOR_TYPES.iter().enumerate() {
@@ -1014,15 +1014,15 @@ mod tests {
     #[test]
     fn test_greatest_quality() {
         assert_eq!(
-            get_greatet_quality(&ColorType::L8, &ColorType::Rgb16),
+            get_greatest_quality(&ColorType::L8, &ColorType::Rgb16),
             ColorType::Rgb16
         );
         assert_eq!(
-            get_greatet_quality(&ColorType::La8, &ColorType::La8),
+            get_greatest_quality(&ColorType::La8, &ColorType::La8),
             ColorType::La8
         );
         assert_eq!(
-            get_greatet_quality(&ColorType::Rgba32F, &ColorType::Rgb16),
+            get_greatest_quality(&ColorType::Rgba32F, &ColorType::Rgb16),
             ColorType::Rgba32F
         );
     }
