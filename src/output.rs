@@ -1,5 +1,5 @@
 use image::{GenericImage, RgbaImage};
-use rand::{distr::Alphanumeric, Rng};
+use rand::{distr::Alphanumeric, RngExt};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 
