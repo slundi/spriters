@@ -459,7 +459,7 @@ impl Sprite {
                     .ratios
                     .push(value.trim().parse::<f32>().expect("Invalid ratio"));
             }
-            result.ratios.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            result.ratios.sort_by(|a, b| a.total_cmp(b));
         } else {
             result.ratios.push(1f32);
         }
