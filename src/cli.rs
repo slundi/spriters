@@ -1,5 +1,5 @@
 use image::imageops::FilterType;
-use spriters::{Algorithm, Config};
+use spriters::{Algorithm, Config, Ordering};
 
 const HELP_MSG: &str = "spriters [OPTIONS] [SOURCE_DIR] [OUTPUT_DIR]
 
@@ -33,6 +33,7 @@ Output options:
 
 Image processing options:
 -a, --algorithm:        algorithm to order images in the sprite: square (default), vertical, horizontal, diagonal, vertical-right, horizontal-bottom
+--ordering:             sort order for images: maxside (default), width, height, area, filename. Prefix with '-' for reverse (e.g., -maxside)
 --png8:                 generate grascale image(s)
 -c, --crop:             crop unnecessary transparent spaces
 --max-width:            image max width in the sprite
@@ -65,6 +66,16 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
                 }
             }
             Short('c') | Long("crop") => args.crop = true,
+            Long("ordering") => {
+                let ord: String = parser.value()?.parse()?;
+                match ord.parse::<Ordering>() {
+                    Ok(o) => args.ordering = o,
+                    Err(_) => {
+                        eprintln!("Unknown ordering: {}. Valid options: maxside, width, height, area, filename (prefix with '-' for reverse)", ord);
+                        std::process::exit(1);
+                    }
+                }
+            }
             Long("max-width") => args.max_width = Some(parser.value()?.parse()?),
             Long("max-height") => args.max_height = Some(parser.value()?.parse()?),
             Long("resize-algorithm") => {
