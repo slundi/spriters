@@ -381,3 +381,180 @@ fn test_parallel_project_mode_content() {
         }
     });
 }
+
+// ─── Phase 3.1: resize images ────────────────────────────────────────────────
+
+// Helpers: parse all "w":{n} values from a JSON array-format sprite descriptor.
+fn parse_widths_from_json(json: &str) -> Vec<u32> {
+    let mut widths = Vec::new();
+    for part in json.split("\"w\":") {
+        if let Some(num) = part
+            .split_once(|c: char| !c.is_ascii_digit())
+            .map(|(n, _)| n)
+        {
+            if let Ok(v) = num.parse::<u32>() {
+                widths.push(v);
+            }
+        }
+    }
+    widths
+}
+
+fn parse_heights_from_json(json: &str) -> Vec<u32> {
+    let mut heights = Vec::new();
+    for part in json.split("\"h\":") {
+        if let Some(num) = part
+            .split_once(|c: char| !c.is_ascii_digit())
+            .map(|(n, _)| n)
+        {
+            if let Ok(v) = num.parse::<u32>() {
+                heights.push(v);
+            }
+        }
+    }
+    heights
+}
+
+// 3.1 — max-width clamps all images that exceed the limit.
+#[test]
+fn test_max_width() {
+    with_tmp_dir(|out| {
+        let mut config = make_config("tests/images/america", out);
+        config.json = true;
+        config.max_width = Some(80);
+        run_manager(config);
+
+        let json = std::fs::read_to_string(format!("{}/america.json", out)).unwrap();
+        let widths = parse_widths_from_json(&json);
+        assert!(!widths.is_empty(), "JSON must contain width values");
+        for w in &widths {
+            assert!(*w <= 80, "every image width must be <= 80, got {}", w);
+        }
+    });
+}
+
+// 3.1 — max-height clamps all images that exceed the limit.
+#[test]
+fn test_max_height() {
+    with_tmp_dir(|out| {
+        let mut config = make_config("tests/images/america", out);
+        config.json = true;
+        config.max_height = Some(40);
+        run_manager(config);
+
+        let json = std::fs::read_to_string(format!("{}/america.json", out)).unwrap();
+        let heights = parse_heights_from_json(&json);
+        assert!(!heights.is_empty(), "JSON must contain height values");
+        for h in &heights {
+            assert!(*h <= 40, "every image height must be <= 40, got {}", h);
+        }
+    });
+}
+
+// 3.1 — at ratio 2 the effective ceiling doubles, so a 200px image is within --max-width=100.
+#[test]
+fn test_max_width_ratio_aware() {
+    with_tmp_dir(|out| {
+        // us.png is 250px wide
+        // With max-width=100 and no ratio (1×): 250 > 100 → resized to 100
+        // With max-width=100 and ratio=2×: effective max = 200, 250 > 200 → resized to 200
+        let mut config_1x = make_config("tests/images/america", out);
+        config_1x.json = true;
+        config_1x.max_width = Some(100);
+        run_manager(config_1x);
+
+        let json_1x = std::fs::read_to_string(format!("{}/america.json", out)).unwrap();
+        let widths_1x = parse_widths_from_json(&json_1x);
+        assert!(
+            widths_1x.iter().all(|&w| w <= 100),
+            "at 1× ratio all widths must be <= 100"
+        );
+    });
+
+    with_tmp_dir(|out| {
+        let mut config_2x = make_config("tests/images/america", out);
+        config_2x.json = true;
+        config_2x.max_width = Some(100);
+        config_2x.ratios = Some("2,1".to_string()); // highest ratio = 2.0
+        run_manager(config_2x);
+
+        let json_2x = std::fs::read_to_string(format!("{}/america.json", out)).unwrap();
+        let widths_2x = parse_widths_from_json(&json_2x);
+        // effective max = 200; us.png (250px) → 200px; ca.png (100px) → unchanged
+        assert!(
+            widths_2x.iter().all(|&w| w <= 200),
+            "at 2× ratio all widths must be <= 200"
+        );
+        // us.png must be wider at 2× than at 1× (200 vs 100)
+        let max_1x = {
+            let mut c = make_config("tests/images/america", out);
+            c.json = true;
+            c.max_width = Some(100);
+            let mut m = spriters::Manager {
+                project: false,
+                config: c.clone(),
+                ..Default::default()
+            };
+            m.find_sprites();
+            m.sprites[0]
+                .images
+                .iter()
+                .map(|i| i.computed_width)
+                .max()
+                .unwrap_or(0)
+        };
+        let max_2x = widths_2x.iter().copied().max().unwrap_or(0);
+        assert!(
+            max_2x > max_1x,
+            "at 2× ratio images should be larger (max_2x={} > max_1x={})",
+            max_2x,
+            max_1x
+        );
+    });
+}
+
+// 3.1 — resize happens before crop (no.png has a transparent border: 120×100 → crops to 100×74).
+// With max-width=60 the image is first resized (120→60), then the smaller transparent border removed.
+#[test]
+fn test_resize_before_crop() {
+    with_tmp_dir(|out| {
+        // Crop only — no resize: should produce 100×74
+        let mut config_crop = make_config("tests/images/europe", out);
+        config_crop.json = true;
+        config_crop.crop = true;
+        run_manager(config_crop);
+        let json_crop = std::fs::read_to_string(format!("{}/europe.json", out)).unwrap();
+        let widths_crop = parse_widths_from_json(&json_crop);
+        // no.png crops from 120×100 to 100×74; its width in the output must be 100
+        assert!(
+            widths_crop.contains(&100),
+            "crop-only: no.png should appear as 100px wide"
+        );
+    });
+
+    with_tmp_dir(|out| {
+        // Resize to max-width=60, then crop.
+        // no.png: resize 120→60 (scale 0.5), h = 100*0.5 = 50 → then crop transparent border.
+        // The cropped width must be < 60 (transparent border removed) AND <= 60 (max enforced).
+        let mut config_both = make_config("tests/images/europe", out);
+        config_both.json = true;
+        config_both.max_width = Some(60);
+        config_both.crop = true;
+        run_manager(config_both);
+        let json_both = std::fs::read_to_string(format!("{}/europe.json", out)).unwrap();
+        let widths_both = parse_widths_from_json(&json_both);
+        for w in &widths_both {
+            assert!(
+                *w <= 60,
+                "resize-then-crop: no image may exceed max-width=60, got {}",
+                w
+            );
+        }
+        // With resize-before-crop, no.png should NOT appear as 100px wide
+        // (it was shrunk to 60px before cropping, so its final width < 100)
+        assert!(
+            !widths_both.contains(&100),
+            "resize-before-crop: no.png must not be 100px wide after resize to 60"
+        );
+    });
+}

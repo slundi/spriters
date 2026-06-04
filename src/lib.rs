@@ -572,32 +572,45 @@ impl Sprite {
             }
         }
 
-        // Phase 2 (parallel): decode, crop, and resize each image independently.
+        // Phase 2 (parallel): decode, resize, then crop each image independently.
+        // Resize happens before crop so that max-width/height apply to the full image
+        // (including any transparent border), and crop removes the leftover padding after.
         let config = &self.config;
+        // The highest ratio represents the source resolution (e.g., 2.0 for --ratios=2,1).
+        // max-width/height are specified in 1× units; scale up accordingly.
+        let display_ratio = self.ratios.last().copied().unwrap_or(1.0);
         self.images = candidates
             .into_par_iter()
             .filter_map(|(path, bytes)| match image::load_from_memory(&bytes) {
                 Ok(img) => {
-                    let dimensions = (img.width(), img.height());
-                    let mut img2 = if config.crop { crop(img, None) } else { img };
+                    let original = (img.width(), img.height());
+                    // 1. Resize (ratio-aware)
                     let d = get_dimensions_from_max(
-                        img2.width(),
-                        img2.height(),
+                        img.width(),
+                        img.height(),
                         config.max_width,
                         config.max_height,
+                        display_ratio,
                     );
-                    if d.0 != img2.width() || d.1 != img2.height() {
-                        img2 = img2.resize_exact(d.0, d.1, config.resize_algorithm);
+                    let mut img2 = if d.0 != img.width() || d.1 != img.height() {
+                        img.resize_exact(d.0, d.1, config.resize_algorithm)
+                    } else {
+                        img
+                    };
+                    // 2. Crop after resize
+                    if config.crop {
+                        img2 = crop(img2, None);
                     }
+                    let (final_w, final_h) = (img2.width(), img2.height());
                     info!(
                         "\t Adding: {} ({}x{} -> {}x{})",
-                        path, dimensions.0, dimensions.1, d.0, d.1
+                        path, original.0, original.1, final_w, final_h
                     );
                     Some(ImageAndPosition {
                         path,
                         image: img2,
-                        computed_width: d.0,
-                        computed_height: d.1,
+                        computed_width: final_w,
+                        computed_height: final_h,
                         ..Default::default()
                     })
                 }
@@ -1000,31 +1013,37 @@ fn is_color_or_transparent(pixel: image::Rgba<u8>, crop_alpha: bool, color: u32)
     u32::from_be_bytes(pixel.0) == color
 }
 
-/// Get the `(width, height)` tuple after the computation of the new image size depending on max width an height.
+/// Get the `(width, height)` tuple after applying max-width/max-height constraints.
+///
+/// `display_ratio` scales the limits: at ratio 2 the source is already 2× so the
+/// effective ceiling is `max_width * display_ratio` (and similarly for height).
+/// Pass `1.0` when ratios are not in use.
 fn get_dimensions_from_max(
     width: u32,
     height: u32,
     max_width: Option<u32>,
     max_height: Option<u32>,
+    display_ratio: f32,
 ) -> (u32, u32) {
-    let mut dimensions = (width as f64, height as f64);
-    let mut ratio;
+    let r = display_ratio as f64;
+    let mut dims = (width as f64, height as f64);
     if let Some(mw) = max_width {
-        if mw < width {
-            ratio = (mw as f64) / (width as f64);
-            dimensions.0 = mw as f64;
-            dimensions.1 = (height as f64) * ratio;
+        let effective = (mw as f64 * r) as u32;
+        if effective < width {
+            let scale = effective as f64 / width as f64;
+            dims.0 = effective as f64;
+            dims.1 = height as f64 * scale;
         }
     }
     if let Some(mh) = max_height {
-        let mhf64 = mh as f64;
-        if mhf64 < dimensions.1 {
-            ratio = mhf64 / dimensions.1;
-            dimensions.1 = mhf64;
-            dimensions.0 *= ratio;
+        let effective = mh as f64 * r;
+        if effective < dims.1 {
+            let scale = effective / dims.1;
+            dims.1 = effective;
+            dims.0 *= scale;
         }
     }
-    (dimensions.0 as u32, dimensions.1 as u32)
+    (dims.0 as u32, dims.1 as u32)
 }
 
 #[cfg(test)]
@@ -1087,16 +1106,65 @@ mod tests {
 
     #[test]
     fn test_max_dimensions() {
-        assert_eq!(get_dimensions_from_max(10, 20, None, None), (10, 20));
-        assert_eq!(get_dimensions_from_max(10, 20, Some(5), None), (5, 10));
-        assert_eq!(get_dimensions_from_max(10, 20, Some(15), None), (10, 20));
-        assert_eq!(get_dimensions_from_max(10, 20, None, Some(10)), (5, 10));
-        assert_eq!(get_dimensions_from_max(10, 20, None, Some(40)), (10, 20));
-        assert_eq!(get_dimensions_from_max(10, 20, Some(5), Some(10)), (5, 10));
-        assert_eq!(get_dimensions_from_max(10, 20, Some(5), Some(15)), (5, 10));
-        assert_eq!(get_dimensions_from_max(10, 20, Some(10), Some(10)), (5, 10));
-        assert_eq!(get_dimensions_from_max(10, 20, Some(2), Some(10)), (2, 4));
-        assert_eq!(get_dimensions_from_max(10, 20, Some(5), Some(5)), (2, 5));
+        // ratio 1.0 — identical to pre-ratio behaviour
+        assert_eq!(get_dimensions_from_max(10, 20, None, None, 1.0), (10, 20));
+        assert_eq!(get_dimensions_from_max(10, 20, Some(5), None, 1.0), (5, 10));
+        assert_eq!(
+            get_dimensions_from_max(10, 20, Some(15), None, 1.0),
+            (10, 20)
+        );
+        assert_eq!(
+            get_dimensions_from_max(10, 20, None, Some(10), 1.0),
+            (5, 10)
+        );
+        assert_eq!(
+            get_dimensions_from_max(10, 20, None, Some(40), 1.0),
+            (10, 20)
+        );
+        assert_eq!(
+            get_dimensions_from_max(10, 20, Some(5), Some(10), 1.0),
+            (5, 10)
+        );
+        assert_eq!(
+            get_dimensions_from_max(10, 20, Some(5), Some(15), 1.0),
+            (5, 10)
+        );
+        assert_eq!(
+            get_dimensions_from_max(10, 20, Some(10), Some(10), 1.0),
+            (5, 10)
+        );
+        assert_eq!(
+            get_dimensions_from_max(10, 20, Some(2), Some(10), 1.0),
+            (2, 4)
+        );
+        assert_eq!(
+            get_dimensions_from_max(10, 20, Some(5), Some(5), 1.0),
+            (2, 5)
+        );
+    }
+
+    #[test]
+    fn test_max_dimensions_ratio_aware() {
+        // ratio 2.0: effective max = limit * 2, so a 400px image is within a 200px limit at 2×
+        assert_eq!(
+            get_dimensions_from_max(400, 300, Some(200), None, 2.0),
+            (400, 300)
+        );
+        // 500px > 200*2=400 → resize to 400; height = 300 * (400/500) = 240
+        assert_eq!(
+            get_dimensions_from_max(500, 300, Some(200), None, 2.0),
+            (400, 240)
+        );
+        // max-height only: 600px > 100*2=200 → resize; width = 400 * (200/600) = 133
+        assert_eq!(
+            get_dimensions_from_max(400, 600, None, Some(100), 2.0),
+            (133, 200)
+        );
+        // ratio 1.5: effective max = 100*1.5=150; 200 > 150 → resize to 150; h = 100*(150/200)=75
+        assert_eq!(
+            get_dimensions_from_max(200, 100, Some(100), None, 1.5),
+            (150, 75)
+        );
     }
 
     #[test]
