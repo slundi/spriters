@@ -1013,3 +1013,146 @@ fn test_reproducible_json() {
     std::fs::remove_dir_all(&out1).ok();
     std::fs::remove_dir_all(&out2).ok();
 }
+
+// ─── Phase 3.3: SVG source support ───────────────────────────────────────────
+
+fn make_svg_dir(extras: &[(&str, &str)]) -> std::path::PathBuf {
+    use std::sync::atomic::{AtomicUsize, Ordering as AOrdering};
+    static C: AtomicUsize = AtomicUsize::new(0);
+    let dir = std::env::temp_dir().join(format!(
+        "spriters_svg_{}_{}",
+        std::process::id(),
+        C.fetch_add(1, AOrdering::SeqCst)
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::copy("tests/images/test.svg", dir.join("test.svg")).unwrap();
+    for (src, dst) in extras {
+        std::fs::copy(src, dir.join(dst)).unwrap();
+    }
+    dir
+}
+
+// 3.3 — SVG is discovered and produces a JSON entry.
+#[test]
+fn test_svg_discovered() {
+    let src = make_svg_dir(&[]);
+    with_tmp_dir(|out| {
+        let mut config = make_config(src.to_str().unwrap(), out);
+        config.json = true;
+        run_manager(config);
+        let stem = src.file_name().unwrap().to_string_lossy().to_string();
+        let json = std::fs::read_to_string(format!("{}/{}.json", out, stem)).unwrap();
+        assert!(
+            json.contains("\"test\""),
+            "SVG label 'test' must appear in JSON"
+        );
+    });
+    std::fs::remove_dir_all(&src).ok();
+}
+
+// 3.3 — test.svg is 64×48px; sprite must reflect that natural size.
+#[test]
+fn test_svg_natural_dimensions() {
+    let src = make_svg_dir(&[]);
+    with_tmp_dir(|out| {
+        let mut config = make_config(src.to_str().unwrap(), out);
+        config.json = true;
+        run_manager(config);
+        let stem = src.file_name().unwrap().to_string_lossy().to_string();
+        let json = std::fs::read_to_string(format!("{}/{}.json", out, stem)).unwrap();
+        assert!(
+            json.contains("\"w\":64"),
+            "SVG must rasterize to natural width 64; got: {}",
+            json
+        );
+        assert!(
+            json.contains("\"h\":48"),
+            "SVG must rasterize to natural height 48; got: {}",
+            json
+        );
+    });
+    std::fs::remove_dir_all(&src).ok();
+}
+
+// 3.3 — at --ratios=2,1 the SVG rasterizes at 2× natural size (128×96).
+#[test]
+fn test_svg_retina_doubles_size() {
+    let src = make_svg_dir(&[]);
+    with_tmp_dir(|out| {
+        let mut config = make_config(src.to_str().unwrap(), out);
+        config.json = true;
+        config.ratios = Some("2,1".to_string());
+        run_manager(config);
+        let stem = src.file_name().unwrap().to_string_lossy().to_string();
+        let json = std::fs::read_to_string(format!("{}/{}.json", out, stem)).unwrap();
+        assert!(
+            json.contains("\"w\":128"),
+            "SVG at 2× must be 128px wide; got: {}",
+            json
+        );
+        assert!(
+            json.contains("\"h\":96"),
+            "SVG at 2× must be 96px tall; got: {}",
+            json
+        );
+    });
+    std::fs::remove_dir_all(&src).ok();
+}
+
+// 3.3 — --max-width constrains SVG at rasterization time.
+#[test]
+fn test_svg_max_width() {
+    let src = make_svg_dir(&[]);
+    with_tmp_dir(|out| {
+        let mut config = make_config(src.to_str().unwrap(), out);
+        config.json = true;
+        config.max_width = Some(32);
+        run_manager(config);
+        let stem = src.file_name().unwrap().to_string_lossy().to_string();
+        let json = std::fs::read_to_string(format!("{}/{}.json", out, stem)).unwrap();
+        let widths = parse_widths_from_json(&json);
+        assert!(!widths.is_empty(), "must have width values");
+        for w in &widths {
+            assert!(*w <= 32, "max-width=32 must constrain SVG, got {}", w);
+        }
+    });
+    std::fs::remove_dir_all(&src).ok();
+}
+
+// 3.3 — SVG and raster images coexist in the same sprite.
+#[test]
+fn test_svg_mixed_with_raster() {
+    let src = make_svg_dir(&[("tests/images/america/ca.png", "ca.png")]);
+    with_tmp_dir(|out| {
+        let mut config = make_config(src.to_str().unwrap(), out);
+        config.json = true;
+        run_manager(config);
+        let stem = src.file_name().unwrap().to_string_lossy().to_string();
+        let json = std::fs::read_to_string(format!("{}/{}.json", out, stem)).unwrap();
+        assert!(json.contains("\"test\""), "SVG label must be in JSON");
+        assert!(json.contains("\"ca\""), "raster label must be in JSON");
+    });
+    std::fs::remove_dir_all(&src).ok();
+}
+
+// 3.3 — SVG participates in CSS output.
+#[test]
+fn test_svg_css_class() {
+    let src = make_svg_dir(&[]);
+    with_tmp_dir(|out| {
+        let mut config = make_config(src.to_str().unwrap(), out);
+        config.no_css = false;
+        run_manager(config);
+        let stem = src.file_name().unwrap().to_string_lossy().to_string();
+        let css = std::fs::read_to_string(format!("{}/{}.css", out, stem)).unwrap();
+        assert!(
+            css.contains("test"),
+            "CSS must contain 'test' class from test.svg"
+        );
+        assert!(
+            css.contains("background-position"),
+            "CSS must have background-position"
+        );
+    });
+    std::fs::remove_dir_all(&src).ok();
+}

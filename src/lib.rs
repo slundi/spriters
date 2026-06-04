@@ -618,53 +618,69 @@ impl Sprite {
         let display_ratio = self.ratios.last().copied().unwrap_or(1.0);
         self.images = candidates
             .into_par_iter()
-            .filter_map(|(path, bytes)| match image::load_from_memory(&bytes) {
-                Ok(img) => {
-                    let original = (img.width(), img.height());
-                    // 1. Resize (ratio-aware)
-                    let d = get_dimensions_from_max(
-                        img.width(),
-                        img.height(),
-                        config.max_width,
-                        config.max_height,
-                        display_ratio,
-                    );
-                    let mut img2 = if d.0 != img.width() || d.1 != img.height() {
-                        img.resize_exact(d.0, d.1, config.resize_algorithm)
-                    } else {
-                        img
-                    };
-                    // 2. Crop after resize
-                    if config.crop {
-                        img2 = crop(img2, None);
-                    }
-                    let (final_w, final_h) = (img2.width(), img2.height());
-                    let aliases = alias_map.get(&path).cloned().unwrap_or_default();
-                    info!(
-                        "\t Adding: {} ({}x{} -> {}x{}){}",
-                        path,
-                        original.0,
-                        original.1,
-                        final_w,
-                        final_h,
-                        if aliases.is_empty() {
-                            String::new()
+            .filter_map(|(path, bytes)| {
+                let is_svg = path.to_lowercase().ends_with(".svg");
+
+                // SVG: rasterized directly to the target size (no post-load resize needed).
+                // Raster: loaded then resized if max-width/height requires it.
+                let load_result: Result<DynamicImage, String> = if is_svg {
+                    rasterize_svg(&bytes, display_ratio, config.max_width, config.max_height)
+                } else {
+                    image::load_from_memory(&bytes).map_err(|e| e.to_string())
+                };
+
+                match load_result {
+                    Ok(img) => {
+                        let original = (img.width(), img.height());
+                        let mut img2 = if is_svg {
+                            img // SVG already rasterized at target size
                         } else {
-                            format!(" [aliases: {}]", aliases.len())
+                            // 1. Resize (ratio-aware)
+                            let d = get_dimensions_from_max(
+                                img.width(),
+                                img.height(),
+                                config.max_width,
+                                config.max_height,
+                                display_ratio,
+                            );
+                            if d.0 != img.width() || d.1 != img.height() {
+                                img.resize_exact(d.0, d.1, config.resize_algorithm)
+                            } else {
+                                img
+                            }
+                        };
+                        // 2. Crop after resize (applies to both SVG and raster)
+                        if config.crop {
+                            img2 = crop(img2, None);
                         }
-                    );
-                    Some(ImageAndPosition {
-                        path,
-                        image: img2,
-                        computed_width: final_w,
-                        computed_height: final_h,
-                        aliases,
-                        ..Default::default()
-                    })
-                }
-                Err(err) => {
-                    error!("Cannot open image: {}", err);
-                    None
+                        let (final_w, final_h) = (img2.width(), img2.height());
+                        let aliases = alias_map.get(&path).cloned().unwrap_or_default();
+                        info!(
+                            "\t Adding: {} ({}x{} -> {}x{}){}",
+                            path,
+                            original.0,
+                            original.1,
+                            final_w,
+                            final_h,
+                            if aliases.is_empty() {
+                                String::new()
+                            } else {
+                                format!(" [aliases: {}]", aliases.len())
+                            }
+                        );
+                        Some(ImageAndPosition {
+                            path,
+                            image: img2,
+                            computed_width: final_w,
+                            computed_height: final_h,
+                            aliases,
+                            ..Default::default()
+                        })
+                    }
+                    Err(err) => {
+                        error!("Cannot open image {}: {}", path, err);
+                        None
+                    }
                 }
             })
             .collect();
@@ -875,7 +891,58 @@ fn is_image_extension(ext: &str) -> bool {
             | "jpx"
             | "jpm"
             | "mj2"
+            | "svg"
     )
+}
+
+/// Rasterize an SVG at the appropriate pixel size.
+///
+/// The natural SVG size (in CSS px) is scaled by `display_ratio` for retina support,
+/// then further constrained by `max_width`/`max_height` if set.
+/// Returns a fully-decoded `DynamicImage` ready for the normal processing pipeline.
+fn rasterize_svg(
+    bytes: &[u8],
+    display_ratio: f32,
+    max_width: Option<u32>,
+    max_height: Option<u32>,
+) -> Result<DynamicImage, String> {
+    use resvg::{tiny_skia, usvg};
+
+    let tree = usvg::Tree::from_data(bytes, &usvg::Options::default())
+        .map_err(|e| format!("SVG parse error: {e}"))?;
+
+    let natural = tree.size().to_int_size();
+    let natural_w = natural.width();
+    let natural_h = natural.height();
+
+    // Scale natural size by display ratio so the rasterized image is crisp at the
+    // target DPI (e.g. 2× for --ratios=2,1).
+    let render_w = (natural_w as f32 * display_ratio).round() as u32;
+    let render_h = (natural_h as f32 * display_ratio).round() as u32;
+
+    // Apply max-dimension constraints at the scaled size.
+    let (target_w, target_h) =
+        get_dimensions_from_max(render_w, render_h, max_width, max_height, display_ratio);
+
+    if target_w == 0 || target_h == 0 {
+        return Err("SVG target dimensions are zero after constraints".to_string());
+    }
+
+    let mut pixmap = tiny_skia::Pixmap::new(target_w, target_h).ok_or("Failed to create pixmap")?;
+
+    let scale_x = target_w as f32 / natural_w as f32;
+    let scale_y = target_h as f32 / natural_h as f32;
+    resvg::render(
+        &tree,
+        tiny_skia::Transform::from_scale(scale_x, scale_y),
+        &mut pixmap.as_mut(),
+    );
+
+    // Encode to PNG so the image crate can decode it with straight alpha.
+    let png = pixmap
+        .encode_png()
+        .map_err(|e| format!("PNG encode error: {e}"))?;
+    image::load_from_memory(&png).map_err(|e| format!("Image load error: {e}"))
 }
 
 /// Crop an image. When no color is provided, it crops white or transparent areas (when alpha channel is available).
