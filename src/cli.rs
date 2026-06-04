@@ -1,5 +1,5 @@
 use image::imageops::FilterType;
-use spriters::{Algorithm, Config, JsonFormat, Ordering};
+use spriters::{Algorithm, Config, JsonFormat, Ordering, SpriteFormat};
 
 const HELP_MSG: &str = "spriters [OPTIONS] [SOURCE_DIR] [OUTPUT_DIR]
 
@@ -29,6 +29,7 @@ Output options:
 --scss-template:        custom Jinja template for SCSS output
 --no-css:               do not generate CSS files
 --no-img:               do not generate image file
+--format:               output image format: png (default), webp, avif
 --css:                  custom output directory for CSS files
 --img:                  custom output directory for image files
 --cachebuster:          when generating CSS, add image hash in the end of the filename
@@ -158,6 +159,14 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
                 args.img = Some(std::path::PathBuf::from(
                     parser.value()?.to_string_lossy().to_string(),
                 ));
+            }
+            Long("format") => {
+                let fmt: String = parser.value()?.parse()?;
+                args.sprite_format = match fmt.to_lowercase().as_str() {
+                    "webp" => SpriteFormat::WebP,
+                    "avif" => SpriteFormat::Avif,
+                    _ => SpriteFormat::Png,
+                };
             }
             Long("png8") => args.png8 = true,
             Long("ratios") => {

@@ -1,4 +1,4 @@
-use spriters::{Config, JsonFormat, Manager};
+use spriters::{Config, JsonFormat, Manager, SpriteFormat};
 use std::path::PathBuf;
 
 fn make_config(source: &str, output: &str) -> Config {
@@ -556,5 +556,126 @@ fn test_resize_before_crop() {
             !widths_both.contains(&100),
             "resize-before-crop: no.png must not be 100px wide after resize to 60"
         );
+    });
+}
+
+// ─── Phase 3.2: WebP and AVIF output ─────────────────────────────────────────
+
+fn sprite_file_exists_with_ext(dir: &str, stem: &str, ext: &str) -> bool {
+    std::path::Path::new(&format!("{}/{}.{}", dir, stem, ext)).exists()
+}
+
+// 3.2 — PNG is the default; existing behaviour unchanged.
+#[test]
+fn test_format_png_default() {
+    with_tmp_dir(|out| {
+        let mut config = make_config("tests/images/america", out);
+        config.no_img = false;
+        config.no_css = false;
+        config.sprite_format = SpriteFormat::Png;
+        run_manager(config);
+
+        assert!(
+            sprite_file_exists_with_ext(out, "america", "png"),
+            "default PNG output must exist"
+        );
+        // CSS must reference .png
+        let css = std::fs::read_to_string(format!("{}/america.css", out)).unwrap();
+        assert!(css.contains("america.png"), "CSS must reference .png");
+    });
+}
+
+// 3.2 — --format=webp produces a .webp sprite and CSS references the .webp URL.
+#[test]
+fn test_format_webp() {
+    with_tmp_dir(|out| {
+        let mut config = make_config("tests/images/america", out);
+        config.no_img = false;
+        config.no_css = false;
+        config.sprite_format = SpriteFormat::WebP;
+        run_manager(config);
+
+        assert!(
+            sprite_file_exists_with_ext(out, "america", "webp"),
+            "WebP output must exist"
+        );
+        assert!(
+            !sprite_file_exists_with_ext(out, "america", "png"),
+            "No PNG should be generated when format=webp"
+        );
+        let css = std::fs::read_to_string(format!("{}/america.css", out)).unwrap();
+        assert!(css.contains("america.webp"), "CSS must reference .webp URL");
+        assert!(!css.contains("america.png"), "CSS must not reference .png");
+    });
+}
+
+// 3.2 — --format=avif produces a .avif sprite and CSS references the .avif URL.
+#[test]
+fn test_format_avif() {
+    with_tmp_dir(|out| {
+        let mut config = make_config("tests/images/america", out);
+        config.no_img = false;
+        config.no_css = false;
+        config.sprite_format = SpriteFormat::Avif;
+        run_manager(config);
+
+        assert!(
+            sprite_file_exists_with_ext(out, "america", "avif"),
+            "AVIF output must exist"
+        );
+        assert!(
+            !sprite_file_exists_with_ext(out, "america", "png"),
+            "No PNG should be generated when format=avif"
+        );
+        let css = std::fs::read_to_string(format!("{}/america.css", out)).unwrap();
+        assert!(css.contains("america.avif"), "CSS must reference .avif URL");
+    });
+}
+
+// 3.2 — CAAT descriptor references the correct image format.
+#[test]
+fn test_caat_format_webp() {
+    with_tmp_dir(|out| {
+        let mut config = make_config("tests/images/america", out);
+        config.caat = true;
+        config.sprite_format = SpriteFormat::WebP;
+        run_manager(config);
+
+        let json = std::fs::read_to_string(format!("{}/america.caat.json", out)).unwrap();
+        assert!(
+            json.contains("america.webp"),
+            "CAAT meta must reference .webp filename"
+        );
+    });
+}
+
+// 3.2 — cachebuster-filename-only-sprites works with non-PNG formats.
+#[test]
+fn test_cachebuster_only_sprites_webp() {
+    with_tmp_dir(|out| {
+        let mut config = make_config("tests/images/america", out);
+        config.no_img = false;
+        config.no_css = false;
+        config.sprite_format = SpriteFormat::WebP;
+        config.cachebuster_filename_only_sprites = true;
+        run_manager(config);
+
+        let hashed = std::fs::read_dir(out)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .any(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                name.starts_with("america_") && name.ends_with(".webp")
+            });
+        assert!(hashed, "a hashed .webp sprite must exist");
+
+        // CSS must still reference clean filename (no hash)
+        let css = std::fs::read_to_string(format!("{}/america.css", out)).unwrap();
+        let url_line = css
+            .lines()
+            .find(|l| l.contains("background-image"))
+            .unwrap_or("");
+        assert!(!url_line.contains("america_"), "CSS URL must not be hashed");
+        assert!(url_line.contains("america.webp"), "CSS URL must use .webp");
     });
 }

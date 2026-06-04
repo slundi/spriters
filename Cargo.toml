@@ -27,7 +27,7 @@ name = "spriters"
 path = "src/main.rs"
 
 [dependencies]
-image = "0.25"
+image = { version = "0.25", features = ["avif"] }
 fraction = "0.15"
 slug = "0.1"
 rand = "0.10"

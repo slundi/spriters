@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
 
-use crate::{Config, JsonFormat, Sprite};
+use crate::{Config, JsonFormat, Sprite, SpriteFormat};
 
 const SPRITERS_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -44,9 +44,11 @@ fn get_sprite_url(config: &Config, sprite: &Sprite) -> String {
     let name = sprite.path.file_name().unwrap().to_string_lossy();
     let cache_buster = get_cache_buster(config.cachebuster, config.cachebuster_filename);
 
+    let ext = config.sprite_format.extension();
     let filename = format!(
-        "{name}{cbf}.png{cbq}",
+        "{name}{cbf}.{ext}{cbq}",
         name = name,
+        ext = ext,
         cbf = if config.cachebuster_filename {
             cache_buster.clone()
         } else {
@@ -472,7 +474,7 @@ fn generate_caat(config: &Config, sprite: &Sprite) {
     let mut f = BufWriter::new(File::create(&output_path).expect("Unable to create CAAT file"));
     let n = sprite.images.len();
     let (width, height) = sprite.dimensions();
-    let sprite_filename = format!("{}.png", name);
+    let sprite_filename = format!("{}.{}", name, config.sprite_format.extension());
     let hash = compute_sprite_hash(config, sprite);
 
     let _ = writeln!(f, "{{");
@@ -527,16 +529,17 @@ fn generate_sprite_image(config: &Config, sprite: &Sprite) {
         .file_name()
         .unwrap_or_default()
         .to_string_lossy();
+    let ext = config.sprite_format.extension();
     let filename = if config.cachebuster_filename_only_sprites {
         let hash = compute_sprite_hash(config, sprite);
-        format!("{stem}_{hash:x}.png")
+        format!("{stem}_{hash:x}.{ext}")
     } else {
-        format!("{stem}.png")
+        format!("{stem}.{ext}")
     };
     let output_path = config.output.join(filename);
 
-    // Convert to grayscale if png8 is enabled
-    let save_result = if config.png8 {
+    // png8 (grayscale) only applies to PNG; WebP and AVIF handle compression natively.
+    let save_result = if config.png8 && config.sprite_format == SpriteFormat::Png {
         let grayscale = image::DynamicImage::ImageRgba8(canvas).to_luma8();
         grayscale.save(&output_path)
     } else {
@@ -574,6 +577,7 @@ fn compute_sprite_hash(config: &Config, sprite: &Sprite) -> u64 {
     SPRITERS_VERSION.hash(&mut hasher);
 
     // Hash relevant config options
+    config.sprite_format.extension().hash(&mut hasher);
     config.png8.hash(&mut hasher);
     config.crop.hash(&mut hasher);
     config.max_width.hash(&mut hasher);
@@ -602,12 +606,13 @@ fn should_regenerate(config: &Config, sprite: &Sprite) -> bool {
 
     let meta_path = get_meta_path(config, sprite);
     let sprite_path = config.output.join(format!(
-        "{}.png",
+        "{}.{}",
         sprite
             .path
             .file_name()
             .unwrap_or_default()
-            .to_string_lossy()
+            .to_string_lossy(),
+        config.sprite_format.extension()
     ));
 
     // If sprite doesn't exist, regenerate

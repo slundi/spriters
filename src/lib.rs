@@ -12,6 +12,33 @@ pub enum JsonFormat {
     Hash,
 }
 
+/// Output image format for the generated sprite sheet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SpriteFormat {
+    #[default]
+    Png,
+    WebP,
+    Avif,
+}
+impl SpriteFormat {
+    /// File extension (without the leading dot).
+    pub fn extension(self) -> &'static str {
+        match self {
+            SpriteFormat::Png => "png",
+            SpriteFormat::WebP => "webp",
+            SpriteFormat::Avif => "avif",
+        }
+    }
+    /// The corresponding `image::ImageFormat` value used when saving.
+    pub fn image_format(self) -> image::ImageFormat {
+        match self {
+            SpriteFormat::Png => image::ImageFormat::Png,
+            SpriteFormat::WebP => image::ImageFormat::WebP,
+            SpriteFormat::Avif => image::ImageFormat::Avif,
+        }
+    }
+}
+
 use image::{ColorType, DynamicImage, GenericImageView};
 use log::*;
 use util::{absolute_length, horizontal_spacing, vertical_spacing, Spacing};
@@ -356,6 +383,8 @@ pub struct Config {
     pub caat: bool,
     /// Embed hash in sprite image filename but keep CSS filename unchanged
     pub cachebuster_filename_only_sprites: bool,
+    /// Output format for the sprite image (png, webp, avif)
+    pub sprite_format: SpriteFormat,
 }
 impl Config {
     /// Check mandatory arguments and some values
@@ -445,6 +474,7 @@ impl Default for Config {
             json_format: JsonFormat::Array,
             caat: false,
             cachebuster_filename_only_sprites: false,
+            sprite_format: SpriteFormat::Png,
         }
     }
 }

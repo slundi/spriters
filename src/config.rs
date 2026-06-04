@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use std::path::Path;
 
-use crate::{Algorithm, Config, JsonFormat, Ordering};
+use crate::{Algorithm, Config, JsonFormat, Ordering, SpriteFormat};
 
 /// TOML-deserializable config with all fields optional.
 /// Loaded from `spriters.toml` in the source directory.
@@ -27,6 +27,7 @@ pub struct FileConfig {
     pub url: Option<String>,
     pub json: Option<bool>,
     pub json_format: Option<String>,
+    pub sprite_format: Option<String>,
     pub caat: Option<bool>,
     pub html: Option<bool>,
     pub cocos2d: Option<bool>,
@@ -199,6 +200,9 @@ pub fn apply_env_vars(config: &mut Config) {
     if let Ok(v) = env::var("SPRITERS_PSEUDO_CLASS_SEPARATOR") {
         config.pseudo_class_separator = Some(v);
     }
+    if let Ok(v) = env::var("SPRITERS_FORMAT") {
+        config.sprite_format = parse_sprite_format(&v);
+    }
 }
 
 /// Overlay file config values onto config. Higher priority than env vars and CLI.
@@ -271,6 +275,9 @@ pub fn apply_file_config(config: &mut Config, fc: FileConfig) {
             JsonFormat::Array
         };
     }
+    if let Some(v) = fc.sprite_format {
+        config.sprite_format = parse_sprite_format(&v);
+    }
     if let Some(v) = fc.caat {
         config.caat = v;
     }
@@ -323,5 +330,13 @@ fn parse_bool(s: &str) -> Result<bool, ()> {
         "1" | "true" | "yes" | "on" => Ok(true),
         "0" | "false" | "no" | "off" => Ok(false),
         _ => Err(()),
+    }
+}
+
+pub(crate) fn parse_sprite_format(s: &str) -> SpriteFormat {
+    match s.to_lowercase().as_str() {
+        "webp" => SpriteFormat::WebP,
+        "avif" => SpriteFormat::Avif,
+        _ => SpriteFormat::Png,
     }
 }
