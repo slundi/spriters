@@ -3,18 +3,18 @@ name = "spriters"
 version = "0.1.0"
 authors = ["Sébastien LUNDI"]
 categories = [
-  "algorithms",
   "command-line-utilities",
-  "compression",
-  "game-development",
   "multimedia::images",
+  "algorithms",
+  "game-development",
+  "web-programming",
 ]
 edition = "2021"
-keywords = ["sprites"]
+keywords = ["sprites", "css-sprites", "sprite-sheet", "image-packing", "css"]
 license = "Apache-2.0"
 readme = "README.md"
 repository = "https://codeberg.org/slundi/spriters"
-description = "Generate sprites"
+description = "Fast CSS sprite generator — Rust reimplementation of Glue with SVG support, WebP/AVIF output, and multi-threaded processing"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
