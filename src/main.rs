@@ -36,7 +36,10 @@ fn main() -> Result<(), lexopt::Error> {
 
     // If watch mode is enabled, start watching for changes
     if config.watch {
-        info!("Watching for changes in {:?}... (Ctrl+C to stop)", config.source);
+        info!(
+            "Watching for changes in {:?}... (Ctrl+C to stop)",
+            config.source
+        );
 
         let (tx, rx) = channel();
 

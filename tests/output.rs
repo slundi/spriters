@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use spriters::{Config, JsonFormat, Manager};
+use std::path::PathBuf;
 
 fn make_config(source: &str, output: &str) -> Config {
     let mut config = Config::default();
@@ -45,8 +45,14 @@ fn test_json_array_format() {
         run_manager(config);
 
         let json = std::fs::read_to_string(format!("{}/america.json", out)).unwrap();
-        assert!(json.contains("\"frames\":[") || json.contains("\"frames\": ["), "array format must have 'frames' array");
-        assert!(json.contains("\"filename\""), "array items must have filename");
+        assert!(
+            json.contains("\"frames\":[") || json.contains("\"frames\": ["),
+            "array format must have 'frames' array"
+        );
+        assert!(
+            json.contains("\"filename\""),
+            "array items must have filename"
+        );
         assert!(json.contains("\"meta\""), "array format must have meta");
     });
 }
@@ -61,7 +67,10 @@ fn test_json_hash_format() {
 
         let json = std::fs::read_to_string(format!("{}/america.json", out)).unwrap();
         // Hash format: flat object {label: {x, y, w, h}}
-        assert!(!json.contains("\"frames\""), "hash format must not have 'frames' array wrapper");
+        assert!(
+            !json.contains("\"frames\""),
+            "hash format must not have 'frames' array wrapper"
+        );
         assert!(json.contains("\"x\""), "hash format must contain x");
         assert!(json.contains("\"y\""), "hash format must contain y");
         assert!(json.contains("\"w\""), "hash format must contain w");
@@ -94,7 +103,10 @@ fn test_caat_output_america() {
         run_manager(config);
 
         let path = format!("{}/america.caat.json", out);
-        assert!(std::path::Path::new(&path).exists(), "CAAT file should exist");
+        assert!(
+            std::path::Path::new(&path).exists(),
+            "CAAT file should exist"
+        );
 
         let json = std::fs::read_to_string(&path).unwrap();
         assert!(json.contains("\"sprites\""), "CAAT must have sprites key");
@@ -102,7 +114,10 @@ fn test_caat_output_america() {
         assert!(json.contains("\"width\""), "CAAT sprites must have width");
         assert!(json.contains("\"height\""), "CAAT sprites must have height");
         // Keys are original filenames (with extension)
-        assert!(json.contains("us.png") || json.contains("ca.png"), "CAAT keys must be original filenames");
+        assert!(
+            json.contains("us.png") || json.contains("ca.png"),
+            "CAAT keys must be original filenames"
+        );
     });
 }
 
@@ -114,7 +129,10 @@ fn test_caat_output_europe() {
         run_manager(config);
 
         let path = format!("{}/europe.caat.json", out);
-        assert!(std::path::Path::new(&path).exists(), "CAAT file should exist");
+        assert!(
+            std::path::Path::new(&path).exists(),
+            "CAAT file should exist"
+        );
 
         let json = std::fs::read_to_string(&path).unwrap();
         assert!(json.contains("\"sprites\""), "CAAT must have sprites key");
@@ -138,7 +156,10 @@ fn test_cachebuster_filename_only_sprites() {
 
         // Image file should have hash in name (not plain america.png)
         let plain_path = format!("{}/america.png", out);
-        assert!(!std::path::Path::new(&plain_path).exists(), "plain america.png must not exist");
+        assert!(
+            !std::path::Path::new(&plain_path).exists(),
+            "plain america.png must not exist"
+        );
 
         // A hashed file should exist
         let hashed = std::fs::read_dir(out)
@@ -153,10 +174,14 @@ fn test_cachebuster_filename_only_sprites() {
         // CSS must reference plain filename (no hash in URL)
         let css = std::fs::read_to_string(format!("{}/america.css", out)).unwrap();
         // CSS url must not contain '_' before '.png' (the hash pattern)
-        let url_line = css.lines()
+        let url_line = css
+            .lines()
             .find(|l| l.contains("background-image"))
             .unwrap_or("");
-        assert!(!url_line.contains("america_"), "CSS URL must not contain hashed image filename");
+        assert!(
+            !url_line.contains("america_"),
+            "CSS URL must not contain hashed image filename"
+        );
     });
 }
 
@@ -173,13 +198,17 @@ fn test_load_file_config_missing() {
 fn test_load_file_config_basic() {
     with_tmp_dir(|dir| {
         let toml_path = format!("{}/spriters.toml", dir);
-        std::fs::write(&toml_path, r#"
+        std::fs::write(
+            &toml_path,
+            r#"
 crop = true
 json = true
 json_format = "hash"
 namespace = "my-ns"
 separator = "_"
-"#).unwrap();
+"#,
+        )
+        .unwrap();
 
         let fc = spriters::config::load_file_config(std::path::Path::new(dir)).unwrap();
         assert_eq!(fc.crop, Some(true));
@@ -194,12 +223,16 @@ separator = "_"
 fn test_apply_file_config() {
     with_tmp_dir(|dir| {
         let toml_path = format!("{}/spriters.toml", dir);
-        std::fs::write(&toml_path, r#"
+        std::fs::write(
+            &toml_path,
+            r#"
 crop = true
 json_format = "hash"
 caat = true
 namespace = "toml-ns"
-"#).unwrap();
+"#,
+        )
+        .unwrap();
 
         let mut config = Config::default();
         // Simulate CLI set json_format to Array (should be overridden by file config)
@@ -209,7 +242,11 @@ namespace = "toml-ns"
         spriters::config::apply_file_config(&mut config, fc);
 
         assert!(config.crop);
-        assert_eq!(config.json_format, JsonFormat::Hash, "file config must override CLI");
+        assert_eq!(
+            config.json_format,
+            JsonFormat::Hash,
+            "file config must override CLI"
+        );
         assert!(config.caat);
         assert_eq!(config.namespace.as_deref(), Some("toml-ns"));
     });

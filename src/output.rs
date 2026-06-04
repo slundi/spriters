@@ -132,8 +132,16 @@ fn generate_css(config: &Config, sprite: &Sprite) {
     // Write individual image classes
     for img in sprite.images.iter() {
         let class_name = build_class_name(config, &name, &img.label());
-        let x = if img.x == 0 { String::from("0") } else { format!("-{}px", img.x) };
-        let y = if img.y == 0 { String::from("0") } else { format!("-{}px", img.y) };
+        let x = if img.x == 0 {
+            String::from("0")
+        } else {
+            format!("-{}px", img.x)
+        };
+        let y = if img.y == 0 {
+            String::from("0")
+        } else {
+            format!("-{}px", img.y)
+        };
         let _ = writeln!(
             &mut f,
             "\n.{class} {{\n  background-position: {x} {y};\n  width: {w}px;\n  height: {h}px;\n}}",
@@ -275,8 +283,16 @@ fn generate_less(config: &Config, sprite: &Sprite) {
     );
     for img in sprite.images.iter() {
         let class_name = build_class_name(config, &name, &img.label());
-        let x = if img.x == 0 { String::from("0") } else { format!("-{}px", img.x) };
-        let y = if img.y == 0 { String::from("0") } else { format!("-{}px", img.y) };
+        let x = if img.x == 0 {
+            String::from("0")
+        } else {
+            format!("-{}px", img.x)
+        };
+        let y = if img.y == 0 {
+            String::from("0")
+        } else {
+            format!("-{}px", img.y)
+        };
         let _ = writeln!(
             f,
             "\n.{class} {{\n  background-position: {x} {y};\n  width: {w}px;\n  height: {h}px;\n}}",
@@ -333,13 +349,17 @@ fn generate_scss(config: &Config, sprite: &Sprite) {
 fn generate_coco2d(config: &Config, sprite: &Sprite) {
     let name = sprite.path.file_name().unwrap().to_string_lossy();
     let output_path = config.output.join(format!("{}.plist", name));
-    let mut f = BufWriter::new(File::create(&output_path).expect("Unable to create Cocos2d plist file"));
+    let mut f =
+        BufWriter::new(File::create(&output_path).expect("Unable to create Cocos2d plist file"));
     let (width, height) = sprite.dimensions();
     let sprite_url = get_sprite_url(config, sprite);
 
     // Write plist header
     let _ = writeln!(f, r#"<?xml version="1.0" encoding="UTF-8"?>"#);
-    let _ = writeln!(f, r#"<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">"#);
+    let _ = writeln!(
+        f,
+        r#"<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">"#
+    );
     let _ = writeln!(f, r#"<plist version="1.0">"#);
     let _ = writeln!(f, "<dict>");
 
@@ -351,18 +371,27 @@ fn generate_coco2d(config: &Config, sprite: &Sprite) {
         let _ = writeln!(f, "        <key>{}</key>", img.label());
         let _ = writeln!(f, "        <dict>");
         let _ = writeln!(f, "            <key>frame</key>");
-        let _ = writeln!(f, "            <string>{{{{{},{}}},{{{},{}}}}}</string>",
-            img.x, img.y, img.computed_width, img.computed_height);
+        let _ = writeln!(
+            f,
+            "            <string>{{{{{},{}}},{{{},{}}}}}</string>",
+            img.x, img.y, img.computed_width, img.computed_height
+        );
         let _ = writeln!(f, "            <key>offset</key>");
         let _ = writeln!(f, "            <string>{{0,0}}</string>");
         let _ = writeln!(f, "            <key>rotated</key>");
         let _ = writeln!(f, "            <false/>");
         let _ = writeln!(f, "            <key>sourceColorRect</key>");
-        let _ = writeln!(f, "            <string>{{{{0,0}},{{{},{}}}}}</string>",
-            img.computed_width, img.computed_height);
+        let _ = writeln!(
+            f,
+            "            <string>{{{{0,0}},{{{},{}}}}}</string>",
+            img.computed_width, img.computed_height
+        );
         let _ = writeln!(f, "            <key>sourceSize</key>");
-        let _ = writeln!(f, "            <string>{{{},{}}}</string>",
-            img.computed_width, img.computed_height);
+        let _ = writeln!(
+            f,
+            "            <string>{{{},{}}}</string>",
+            img.computed_width, img.computed_height
+        );
         let _ = writeln!(f, "        </dict>");
     }
 
@@ -493,7 +522,11 @@ fn generate_sprite_image(config: &Config, sprite: &Sprite) {
         }
     }
 
-    let stem = sprite.path.file_name().unwrap_or_default().to_string_lossy();
+    let stem = sprite
+        .path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy();
     let filename = if config.cachebuster_filename_only_sprites {
         let hash = compute_sprite_hash(config, sprite);
         format!("{stem}_{hash:x}.png")
@@ -514,7 +547,13 @@ fn generate_sprite_image(config: &Config, sprite: &Sprite) {
         log::error!("Failed to save sprite image to {:?}: {}", output_path, e);
     } else {
         let mode = if config.png8 { "grayscale" } else { "RGBA" };
-        log::info!("Generated sprite: {:?} ({}x{}, {})", output_path, width, height, mode);
+        log::info!(
+            "Generated sprite: {:?} ({}x{}, {})",
+            output_path,
+            width,
+            height,
+            mode
+        );
     }
 }
 
@@ -564,7 +603,11 @@ fn should_regenerate(config: &Config, sprite: &Sprite) -> bool {
     let meta_path = get_meta_path(config, sprite);
     let sprite_path = config.output.join(format!(
         "{}.png",
-        sprite.path.file_name().unwrap_or_default().to_string_lossy()
+        sprite
+            .path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
     ));
 
     // If sprite doesn't exist, regenerate
@@ -580,14 +623,12 @@ fn should_regenerate(config: &Config, sprite: &Sprite) -> bool {
     }
 
     // Read stored hash from metadata file
-    let stored_hash: Option<u64> = File::open(&meta_path)
-        .ok()
-        .and_then(|f| {
-            let mut reader = BufReader::new(f);
-            let mut contents = String::new();
-            reader.read_to_string(&mut contents).ok()?;
-            contents.trim().parse().ok()
-        });
+    let stored_hash: Option<u64> = File::open(&meta_path).ok().and_then(|f| {
+        let mut reader = BufReader::new(f);
+        let mut contents = String::new();
+        reader.read_to_string(&mut contents).ok()?;
+        contents.trim().parse().ok()
+    });
 
     match stored_hash {
         Some(hash) => {

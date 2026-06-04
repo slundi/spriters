@@ -215,7 +215,7 @@ mod tests {
         // Images should be offset from right
         assert_eq!(sprite.images[0].x, 15 - 10); // 5
         assert_eq!(sprite.images[1].x, 15 - 15); // 0
-        assert_eq!(sprite.images[2].x, 15 - 8);  // 7
+        assert_eq!(sprite.images[2].x, 15 - 8); // 7
 
         // Y positions should stack vertically
         assert_eq!(sprite.images[0].y, 0);

@@ -110,7 +110,9 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
             Long("project") => args.project = true,
             Long("cachebuster") => args.cachebuster = true,
             Long("cachebuster-filename") => args.cachebuster_filename = true,
-            Long("cachebuster-filename-only-sprites") => args.cachebuster_filename_only_sprites = true,
+            Long("cachebuster-filename-only-sprites") => {
+                args.cachebuster_filename_only_sprites = true
+            }
             // Long("colors") => {
             //     match parser.value()?.to_ascii_lowercase() {
 
@@ -131,21 +133,31 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
             Short('l') | Long("less") => args.less = true,
             Long("scss") => args.scss = true,
             Long("css-template") => {
-                args.css_template = Some(std::path::PathBuf::from(parser.value()?.to_string_lossy().to_string()));
+                args.css_template = Some(std::path::PathBuf::from(
+                    parser.value()?.to_string_lossy().to_string(),
+                ));
             }
             Long("less-template") => {
-                args.less_template = Some(std::path::PathBuf::from(parser.value()?.to_string_lossy().to_string()));
+                args.less_template = Some(std::path::PathBuf::from(
+                    parser.value()?.to_string_lossy().to_string(),
+                ));
             }
             Long("scss-template") => {
-                args.scss_template = Some(std::path::PathBuf::from(parser.value()?.to_string_lossy().to_string()));
+                args.scss_template = Some(std::path::PathBuf::from(
+                    parser.value()?.to_string_lossy().to_string(),
+                ));
             }
             Long("no-css") => args.no_css = true,
             Long("no-img") => args.no_img = true,
             Long("css") => {
-                args.css = Some(std::path::PathBuf::from(parser.value()?.to_string_lossy().to_string()));
+                args.css = Some(std::path::PathBuf::from(
+                    parser.value()?.to_string_lossy().to_string(),
+                ));
             }
             Long("img") => {
-                args.img = Some(std::path::PathBuf::from(parser.value()?.to_string_lossy().to_string()));
+                args.img = Some(std::path::PathBuf::from(
+                    parser.value()?.to_string_lossy().to_string(),
+                ));
             }
             Long("png8") => args.png8 = true,
             Long("ratios") => {
@@ -158,10 +170,12 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
             Short('q') | Long("quiet") => args.quiet = true,
             Short('r') | Long("recursive") => args.recursive = true,
             Short('i') | Long("input") => {
-                args.source = std::path::PathBuf::from(parser.value()?.to_string_lossy().to_string());
+                args.source =
+                    std::path::PathBuf::from(parser.value()?.to_string_lossy().to_string());
             }
             Short('o') | Long("output") => {
-                args.output = std::path::PathBuf::from(parser.value()?.to_string_lossy().to_string());
+                args.output =
+                    std::path::PathBuf::from(parser.value()?.to_string_lossy().to_string());
             }
             Short('u') | Long("url") => {
                 args.url = Some(String::from(

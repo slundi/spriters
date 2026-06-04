@@ -533,8 +533,7 @@ impl Sprite {
         if !self.config.recursive {
             walker = walker.max_depth(1);
         }
-        for entry in walker.into_iter().filter_map(|e| e.ok())
-        {
+        for entry in walker.into_iter().filter_map(|e| e.ok()) {
             let name = entry.file_name().to_string_lossy();
             let ext = entry.path().extension();
             if name.starts_with('.') || ext.is_none() {

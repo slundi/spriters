@@ -12,7 +12,10 @@ pub struct Spacing {
 impl FromStr for Spacing {
     type Err = std::num::ParseIntError;
     fn from_str(s: &str) -> Result<Spacing, Self::Err> {
-        let data: Vec<&str> = s.split([',', ' '].as_ref()).filter(|x| !x.is_empty()).collect();
+        let data: Vec<&str> = s
+            .split([',', ' '].as_ref())
+            .filter(|x| !x.is_empty())
+            .collect();
         if data.len() == 4 {
             Ok(Spacing {
                 top: data[0].parse()?,
@@ -63,9 +66,8 @@ impl ops::Add<Spacing> for Spacing {
 impl Spacing {
     pub fn from(raw: Option<String>) -> Spacing {
         match raw {
-            Some(value) => Spacing::from_str(&value).unwrap_or_else(|e| {
-                panic!("Invalid spacing value '{}': {}", value, e)
-            }),
+            Some(value) => Spacing::from_str(&value)
+                .unwrap_or_else(|e| panic!("Invalid spacing value '{}': {}", value, e)),
             None => Spacing::default(),
         }
     }
@@ -237,18 +239,50 @@ mod tests {
 
         // Single value
         let s = Spacing::from_str("10").unwrap();
-        assert_eq!(s, Spacing { top: 10, right: 10, bottom: 10, left: 10 });
+        assert_eq!(
+            s,
+            Spacing {
+                top: 10,
+                right: 10,
+                bottom: 10,
+                left: 10
+            }
+        );
 
         // Two values (vertical, horizontal)
         let s = Spacing::from_str("5 10").unwrap();
-        assert_eq!(s, Spacing { top: 5, right: 10, bottom: 5, left: 10 });
+        assert_eq!(
+            s,
+            Spacing {
+                top: 5,
+                right: 10,
+                bottom: 5,
+                left: 10
+            }
+        );
 
         // Three values (top, horizontal, bottom)
         let s = Spacing::from_str("1 2 3").unwrap();
-        assert_eq!(s, Spacing { top: 1, right: 2, bottom: 3, left: 2 });
+        assert_eq!(
+            s,
+            Spacing {
+                top: 1,
+                right: 2,
+                bottom: 3,
+                left: 2
+            }
+        );
 
         // Four values (top, right, bottom, left)
         let s = Spacing::from_str("1 2 3 4").unwrap();
-        assert_eq!(s, Spacing { top: 1, right: 2, bottom: 3, left: 4 });
+        assert_eq!(
+            s,
+            Spacing {
+                top: 1,
+                right: 2,
+                bottom: 3,
+                left: 4
+            }
+        );
     }
 }
