@@ -5,7 +5,7 @@ channel = "1.96.0"
 components = [
   "rustfmt",
   "clippy",
-  "rust-src",   # needed by rust-analyzer and many tools (replaces deprecated rust-analysis)
+  "rust-src", # needed by rust-analyzer and many tools (replaces deprecated rust-analysis)
   "llvm-tools", # renamed from llvm-tools-preview
 ]
 # Add targets here only if your project actually needs them.

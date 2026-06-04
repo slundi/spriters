@@ -6,37 +6,37 @@
 
 ## Status vs. Glue 0.11.1
 
-| Feature | Glue | spriters |
-|---|:---:|:---:|
-| CSS / LESS / SCSS output | ✓ | ✓ |
-| Custom Jinja2/template output | ✓ | ✓ |
-| JSON output | ✓ | ✓ |
-| JSON hash format (`--json-format=hash`) | ✓ | ✗ |
-| cocos2d XML output | ✓ | ✓ |
-| CAAT output | ✓ | ✗ |
-| HTML test page | ✓ | ✓ |
-| Layout algorithms (6) | ✓ | ✓ |
-| Image ordering (5 modes) | ✓ | ✓ |
-| Transparent crop | ✓ | ✓ |
-| Padding & margin | ✓ | ✓ |
-| PNG8 output | ✓ | ✓ |
-| Retina / multi-ratio | ✓ | ✓ |
-| Pseudo-class from filename | ✓ | ✓ |
-| Cache busting (query param) | ✓ | ✓ |
-| Cache busting (filename) | ✓ | ✓ |
-| Cache busting (sprite-only) | ✓ | ✗ |
-| Project mode | ✓ | ✓ |
-| Recursive mode | ✓ | ✓ |
-| Follow symlinks | ✓ | ✓ |
-| Watch mode | ✓ | ✓ |
-| Force regeneration | ✓ | ✓ |
-| Config file support | ✓ | ✗ |
-| Environment variable config | ✓ | ✗ |
-| Duplicate detection | ✗ | ✓ |
-| Image resize (max-width/height) | ✗ | partial |
-| Multiple resize algorithms | ✗ | ✓ |
-| Multi-threaded processing | ✗ | ✗ (TODO) |
-| Wide image format support | limited | ✓ (via `image` crate) |
+| Feature                                 |  Glue   |       spriters        |
+| --------------------------------------- | :-----: | :-------------------: |
+| CSS / LESS / SCSS output                |    ✓    |           ✓           |
+| Custom Jinja2/template output           |    ✓    |           ✓           |
+| JSON output                             |    ✓    |           ✓           |
+| JSON hash format (`--json-format=hash`) |    ✓    |           ✗           |
+| cocos2d XML output                      |    ✓    |           ✓           |
+| CAAT output                             |    ✓    |           ✗           |
+| HTML test page                          |    ✓    |           ✓           |
+| Layout algorithms (6)                   |    ✓    |           ✓           |
+| Image ordering (5 modes)                |    ✓    |           ✓           |
+| Transparent crop                        |    ✓    |           ✓           |
+| Padding & margin                        |    ✓    |           ✓           |
+| PNG8 output                             |    ✓    |           ✓           |
+| Retina / multi-ratio                    |    ✓    |           ✓           |
+| Pseudo-class from filename              |    ✓    |           ✓           |
+| Cache busting (query param)             |    ✓    |           ✓           |
+| Cache busting (filename)                |    ✓    |           ✓           |
+| Cache busting (sprite-only)             |    ✓    |           ✗           |
+| Project mode                            |    ✓    |           ✓           |
+| Recursive mode                          |    ✓    |           ✓           |
+| Follow symlinks                         |    ✓    |           ✓           |
+| Watch mode                              |    ✓    |           ✓           |
+| Force regeneration                      |    ✓    |           ✓           |
+| Config file support                     |    ✓    |           ✗           |
+| Environment variable config             |    ✓    |           ✗           |
+| Duplicate detection                     |    ✗    |           ✓           |
+| Image resize (max-width/height)         |    ✗    |        partial        |
+| Multiple resize algorithms              |    ✗    |           ✓           |
+| Multi-threaded processing               |    ✗    |       ✗ (TODO)        |
+| Wide image format support               | limited | ✓ (via `image` crate) |
 
 ---
 
@@ -47,6 +47,7 @@ These are the remaining features present in Glue but missing or incomplete in sp
 ### 1.1 JSON hash format
 
 Glue supports two JSON output structures via `--json-format`:
+
 - `array` (default): `[{x, y, width, height, name}, ...]`
 - `hash`: `{name: {x, y, width, height}, ...}`
 
@@ -63,6 +64,7 @@ Add `--cachebuster-filename-only-sprites`: embed the hash in the sprite image fi
 ### 1.4 Configuration files
 
 Glue supports hierarchical config files (project → sprite → image level) and environment variables (`GLUE_*`). Add:
+
 - A `spriters.toml` config file parsed from the source directory
 - Merging priority: image-level > sprite-level > project-level > CLI args > env vars (`SPRITERS_*`) > defaults
 
@@ -126,6 +128,7 @@ Generate docs with `cargo doc` and publish via Codeberg Pages or GitHub Pages. I
 ### 4.3 Benchmarks
 
 Add a `benches/` directory using `criterion`. Compare spriters vs Glue on:
+
 - Small set (10 images)
 - Medium set (100 images)
 - Large set (500 images)
@@ -134,6 +137,7 @@ Add a `benches/` directory using `criterion`. Compare spriters vs Glue on:
 ### 4.4 Package manager distribution
 
 Publish to:
+
 - Homebrew tap (macOS/Linux)
 - AUR (Arch Linux)
 - Nix flake (already has `shell.nix`)

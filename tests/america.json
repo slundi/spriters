@@ -1,55 +1,55 @@
 {
-    "frames": [
-        {
-            "filename": "us.png",
-            "frame": {
-                "x": 0,
-                "y": 0,
-                "w": 250,
-                "h": 132
-            },
-            "rotated": false,
-            "trimmed": false,
-            "spriteSourceSize": {
-                "x": 0,
-                "y": 0,
-                "w": 250,
-                "h": 132
-            },
-            "sourceSize": {
-                "w": 250,
-                "h": 132
-            }
-        },
-        {
-            "filename": "ca.png",
-            "frame": {
-                "x": 0,
-                "y": -132,
-                "w": 100,
-                "h": 50
-            },
-            "rotated": false,
-            "trimmed": false,
-            "spriteSourceSize": {
-                "x": 0,
-                "y": -132,
-                "w": 100,
-                "h": 50
-            },
-            "sourceSize": {
-                "w": 100,
-                "h": 50
-            }
-        }
-    ],
-    "meta": {
-        "version": "0.13",
-        "hash": "1913eaa118",
-        "name": "america",
-        "sprite_path": "america.png",
-        "sprite_filename": "america.png",
-        "width": 250,
-        "height": 182
+  "frames": [
+    {
+      "filename": "us.png",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 250,
+        "h": 132
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 250,
+        "h": 132
+      },
+      "sourceSize": {
+        "w": 250,
+        "h": 132
+      }
+    },
+    {
+      "filename": "ca.png",
+      "frame": {
+        "x": 0,
+        "y": -132,
+        "w": 100,
+        "h": 50
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": -132,
+        "w": 100,
+        "h": 50
+      },
+      "sourceSize": {
+        "w": 100,
+        "h": 50
+      }
     }
+  ],
+  "meta": {
+    "version": "0.13",
+    "hash": "1913eaa118",
+    "name": "america",
+    "sprite_path": "america.png",
+    "sprite_filename": "america.png",
+    "width": 250,
+    "height": 182
+  }
 }
