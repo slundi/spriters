@@ -676,134 +676,58 @@ impl Sprite {
     }
 
     /// Sort images depending on the `config.ordering` value.
+    ///
+    /// All orderings use `path` as a tiebreaker so the result is a total order —
+    /// no two elements compare as Equal. This guarantees byte-for-byte reproducible
+    /// output regardless of the order images were collected from the filesystem.
     fn sort_images(&mut self) {
-        self.images.sort_by(|a, b| match self.config.ordering {
-            Ordering::Maxside | Ordering::MaxsideReverse => absolute_length(
-                b.image.height(),
-                vertical_spacing(
-                    self.padding.top,
-                    self.padding.bottom,
-                    self.margin.top,
-                    self.margin.bottom,
-                ),
-                self.ratios[0],
-            )
-            .max(absolute_length(
-                b.image.width(),
-                horizontal_spacing(
-                    self.padding.left,
-                    self.padding.right,
-                    self.margin.left,
-                    self.margin.right,
-                ),
-                self.ratios[0],
-            ))
-            .cmp(
-                &absolute_length(
-                    a.image.height(),
-                    vertical_spacing(
-                        self.padding.top,
-                        self.padding.bottom,
-                        self.margin.top,
-                        self.margin.bottom,
-                    ),
-                    self.ratios[0],
-                )
-                .max(absolute_length(
-                    a.image.width(),
-                    horizontal_spacing(
-                        self.padding.left,
-                        self.padding.right,
-                        self.margin.left,
-                        self.margin.right,
-                    ),
-                    self.ratios[0],
-                )),
-            ),
-            Ordering::Height | Ordering::HeightReverse => absolute_length(
-                b.image.height(),
-                vertical_spacing(
-                    self.padding.top,
-                    self.padding.bottom,
-                    self.margin.top,
-                    self.margin.bottom,
-                ),
-                self.ratios[0],
-            )
-            .cmp(&absolute_length(
-                a.image.height(),
-                vertical_spacing(
-                    self.padding.top,
-                    self.padding.bottom,
-                    self.margin.top,
-                    self.margin.bottom,
-                ),
-                self.ratios[0],
-            )),
-            Ordering::Width | Ordering::WidthReverse => absolute_length(
-                b.image.width(),
-                horizontal_spacing(
-                    self.padding.left,
-                    self.padding.right,
-                    self.margin.left,
-                    self.margin.right,
-                ),
-                self.ratios[0],
-            )
-            .cmp(&absolute_length(
-                a.image.width(),
-                horizontal_spacing(
-                    self.padding.left,
-                    self.padding.right,
-                    self.margin.left,
-                    self.margin.right,
-                ),
-                self.ratios[0],
-            )),
-            Ordering::Area | Ordering::AreaReverse => (absolute_length(
-                b.image.width(),
-                horizontal_spacing(
-                    self.padding.left,
-                    self.padding.right,
-                    self.margin.left,
-                    self.margin.right,
-                ),
-                self.ratios[0],
-            ) * absolute_length(
-                b.image.height(),
-                vertical_spacing(
-                    self.padding.top,
-                    self.padding.bottom,
-                    self.margin.top,
-                    self.margin.bottom,
-                ),
-                self.ratios[0],
-            ))
-            .cmp(
-                &(absolute_length(
-                    a.image.width(),
-                    horizontal_spacing(
-                        self.padding.left,
-                        self.padding.right,
-                        self.margin.left,
-                        self.margin.right,
-                    ),
-                    self.ratios[0],
-                ) * absolute_length(
-                    a.image.height(),
-                    vertical_spacing(
-                        self.padding.top,
-                        self.padding.bottom,
-                        self.margin.top,
-                        self.margin.bottom,
-                    ),
-                    self.ratios[0],
-                )),
-            ),
-            Ordering::Filename | Ordering::FilenameReverse => Path::new(&b.path)
-                .file_name()
-                .unwrap()
-                .cmp(Path::new(&a.path).file_name().unwrap()),
+        let vspace = vertical_spacing(
+            self.padding.top,
+            self.padding.bottom,
+            self.margin.top,
+            self.margin.bottom,
+        );
+        let hspace = horizontal_spacing(
+            self.padding.left,
+            self.padding.right,
+            self.margin.left,
+            self.margin.right,
+        );
+        let ratio = self.ratios[0];
+
+        self.images.sort_by(|a, b| {
+            let primary = match self.config.ordering {
+                Ordering::Maxside | Ordering::MaxsideReverse => {
+                    let b_max = absolute_length(b.image.height(), vspace, ratio)
+                        .max(absolute_length(b.image.width(), hspace, ratio));
+                    let a_max = absolute_length(a.image.height(), vspace, ratio)
+                        .max(absolute_length(a.image.width(), hspace, ratio));
+                    b_max.cmp(&a_max)
+                }
+                Ordering::Height | Ordering::HeightReverse => {
+                    let b_h = absolute_length(b.image.height(), vspace, ratio);
+                    let a_h = absolute_length(a.image.height(), vspace, ratio);
+                    b_h.cmp(&a_h)
+                }
+                Ordering::Width | Ordering::WidthReverse => {
+                    let b_w = absolute_length(b.image.width(), hspace, ratio);
+                    let a_w = absolute_length(a.image.width(), hspace, ratio);
+                    b_w.cmp(&a_w)
+                }
+                Ordering::Area | Ordering::AreaReverse => {
+                    let b_area = absolute_length(b.image.width(), hspace, ratio)
+                        * absolute_length(b.image.height(), vspace, ratio);
+                    let a_area = absolute_length(a.image.width(), hspace, ratio)
+                        * absolute_length(a.image.height(), vspace, ratio);
+                    b_area.cmp(&a_area)
+                }
+                Ordering::Filename | Ordering::FilenameReverse => Path::new(&b.path)
+                    .file_name()
+                    .unwrap()
+                    .cmp(Path::new(&a.path).file_name().unwrap()),
+            };
+            // Tiebreaker: full path ensures a total order independent of collection order.
+            primary.then_with(|| a.path.cmp(&b.path))
         });
         if self.config.ordering.is_reverse() {
             self.images.reverse();

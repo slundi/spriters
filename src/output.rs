@@ -1,5 +1,4 @@
 use image::{GenericImage, RgbaImage};
-use rand::{distr::Alphanumeric, RngExt};
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
@@ -21,44 +20,40 @@ const CSS_PSEUDO_CLASSES: [&str; 10] = [
     "after",
 ];
 
-/// Get the cache buster String when enabled.
-/// If `filename = true` the cache buster is in the filename like `_p3c54d` otherwise it is a a query param like `?p3c54d`
-fn get_cache_buster(enabled: bool, filename: bool) -> String {
-    let mut cache_buster: String = String::with_capacity(7);
-    if enabled {
-        cache_buster.push(if filename { '_' } else { '?' });
-        let hash: String = rand::rng()
-            .sample_iter(&Alphanumeric)
-            .take(6)
-            .map(char::from)
-            .collect();
-        cache_buster.push_str(&hash);
-    }
-    cache_buster
-}
-
 /// Get the sprite image URL for use in CSS.
 /// - If `config.url` is set, uses that as base URL
-/// - Handles cache buster in filename or as query param
+/// - Cache buster is derived deterministically from the sprite content hash.
 fn get_sprite_url(config: &Config, sprite: &Sprite) -> String {
     let name = sprite.path.file_name().unwrap().to_string_lossy();
-    let cache_buster = get_cache_buster(config.cachebuster, config.cachebuster_filename);
-
     let ext = config.sprite_format.extension();
+
+    // Deterministic cache buster: lower 32 bits of the sprite hash, hex-encoded.
+    let buster: String = if config.cachebuster || config.cachebuster_filename {
+        let h = compute_sprite_hash(config, sprite);
+        let prefix = if config.cachebuster_filename {
+            '_'
+        } else {
+            '?'
+        };
+        format!("{}{:08x}", prefix, h & 0xffff_ffff)
+    } else {
+        String::new()
+    };
+
     let filename = format!(
         "{name}{cbf}.{ext}{cbq}",
         name = name,
         ext = ext,
         cbf = if config.cachebuster_filename {
-            cache_buster.clone()
+            &buster
         } else {
-            String::new()
+            ""
         },
         cbq = if config.cachebuster && !config.cachebuster_filename {
-            cache_buster
+            &buster
         } else {
-            String::new()
-        }
+            ""
+        },
     );
 
     // If custom URL is provided, join it with the filename
@@ -636,12 +631,16 @@ fn compute_sprite_hash(config: &Config, sprite: &Sprite) -> u64 {
     config.margin.hash(&mut hasher);
     config.ratios.hash(&mut hasher);
 
-    // Hash each source image path and content
+    // Hash each source image path, layout position, dimensions, and aliases
     for img in &sprite.images {
         img.path.hash(&mut hasher);
-        // Hash the image dimensions and position
+        img.x.hash(&mut hasher);
+        img.y.hash(&mut hasher);
         img.computed_width.hash(&mut hasher);
         img.computed_height.hash(&mut hasher);
+        for alias in &img.aliases {
+            alias.hash(&mut hasher);
+        }
     }
 
     hasher.finish()
@@ -761,17 +760,53 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_cache_buster() {
-        assert_eq!(get_cache_buster(false, false), "");
-        assert_eq!(get_cache_buster(false, true), "");
+    fn test_cache_buster_deterministic() {
+        use crate::{Config, ImageAndPosition, Sprite};
+        use std::path::PathBuf;
 
-        let cb = get_cache_buster(true, false);
-        assert_eq!(cb.chars().count(), 7);
-        assert!(cb.starts_with('?'));
+        let make_sprite = || {
+            let config = Config::default();
+            let sprite = Sprite {
+                config: config.clone(),
+                path: PathBuf::from("america"),
+                ratios: vec![1.0],
+                images: vec![ImageAndPosition {
+                    path: String::from("us.png"),
+                    image: image::DynamicImage::new_rgba8(100, 50),
+                    computed_width: 100,
+                    computed_height: 50,
+                    x: 0,
+                    y: 0,
+                    aliases: vec![],
+                }],
+                margin: crate::util::Spacing::default(),
+                padding: crate::util::Spacing::default(),
+            };
+            sprite
+        };
 
-        let cb = get_cache_buster(true, true);
-        assert_eq!(cb.chars().count(), 7);
-        assert!(cb.starts_with('_'));
+        // No cachebuster: URL is just the filename
+        let config = Config::default();
+        let sprite = make_sprite();
+        let url = get_sprite_url(&config, &sprite);
+        assert_eq!(url, "america.png");
+
+        // cachebuster query param: deterministic (same hash every call)
+        let mut config_q = Config::default();
+        config_q.cachebuster = true;
+        let url1 = get_sprite_url(&config_q, &make_sprite());
+        let url2 = get_sprite_url(&config_q, &make_sprite());
+        assert_eq!(url1, url2, "cache buster must be deterministic");
+        assert!(url1.contains('?'), "query-param buster must contain '?'");
+
+        // cachebuster filename: deterministic
+        let mut config_f = Config::default();
+        config_f.cachebuster_filename = true;
+        let url3 = get_sprite_url(&config_f, &make_sprite());
+        let url4 = get_sprite_url(&config_f, &make_sprite());
+        assert_eq!(url3, url4, "filename buster must be deterministic");
+        assert!(url3.contains('_'), "filename buster must contain '_'");
+        assert!(url3.ends_with(".png"), "filename buster must end with .png");
     }
 
     #[test]

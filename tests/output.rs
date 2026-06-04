@@ -828,3 +828,188 @@ fn test_consolidation_caat_includes_alias() {
 
     std::fs::remove_dir_all(&src).ok();
 }
+
+// ─── Phase 3.5: reproducible output ──────────────────────────────────────────
+
+/// Generate the same sprite twice (to two different output dirs) and verify the
+/// text outputs are byte-for-byte identical.
+fn two_run_css(source: &str) -> (String, String) {
+    use std::sync::atomic::{AtomicUsize, Ordering as AOrdering};
+    static C: AtomicUsize = AtomicUsize::new(0);
+    let base = std::env::temp_dir().join(format!(
+        "spriters_repro_{}_{}",
+        std::process::id(),
+        C.fetch_add(1, AOrdering::SeqCst)
+    ));
+    let out1 = base.with_extension("a");
+    let out2 = base.with_extension("b");
+    std::fs::create_dir_all(&out1).unwrap();
+    std::fs::create_dir_all(&out2).unwrap();
+
+    let stem = std::path::Path::new(source)
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
+
+    let mut config1 = Config::default();
+    config1.source = std::path::PathBuf::from(source);
+    config1.output = out1.clone();
+    config1.no_img = true;
+    config1.no_css = false;
+    config1.force = true;
+    run_manager(config1);
+
+    let mut config2 = Config::default();
+    config2.source = std::path::PathBuf::from(source);
+    config2.output = out2.clone();
+    config2.no_img = true;
+    config2.no_css = false;
+    config2.force = true;
+    run_manager(config2);
+
+    let css1 = std::fs::read_to_string(out1.join(format!("{}.css", stem))).unwrap();
+    let css2 = std::fs::read_to_string(out2.join(format!("{}.css", stem))).unwrap();
+
+    std::fs::remove_dir_all(&out1).ok();
+    std::fs::remove_dir_all(&out2).ok();
+
+    (css1, css2)
+}
+
+// 3.5 — identical inputs produce identical CSS output across two independent runs.
+#[test]
+fn test_reproducible_css_america() {
+    let (a, b) = two_run_css("tests/images/america");
+    assert_eq!(
+        a, b,
+        "CSS output must be byte-for-byte identical across runs"
+    );
+}
+
+#[test]
+fn test_reproducible_css_europe() {
+    let (a, b) = two_run_css("tests/images/europe");
+    assert_eq!(
+        a, b,
+        "CSS output must be byte-for-byte identical across runs"
+    );
+}
+
+// 3.5 — cache buster is deterministic: same hash appears in both runs.
+#[test]
+fn test_reproducible_cachebuster_query() {
+    use std::sync::atomic::{AtomicUsize, Ordering as AOrdering};
+    static C: AtomicUsize = AtomicUsize::new(0);
+    let base = std::env::temp_dir().join(format!(
+        "spriters_cb_{}_{}",
+        std::process::id(),
+        C.fetch_add(1, AOrdering::SeqCst)
+    ));
+
+    let (out1, out2) = (base.with_extension("a"), base.with_extension("b"));
+    std::fs::create_dir_all(&out1).unwrap();
+    std::fs::create_dir_all(&out2).unwrap();
+
+    let make = |out: &std::path::Path| {
+        let mut c = Config::default();
+        c.source = std::path::PathBuf::from("tests/images/america");
+        c.output = out.to_path_buf();
+        c.no_img = true;
+        c.no_css = false;
+        c.force = true;
+        c.cachebuster = true;
+        run_manager(c);
+        std::fs::read_to_string(out.join("america.css")).unwrap()
+    };
+
+    let css1 = make(&out1);
+    let css2 = make(&out2);
+    assert_eq!(
+        css1, css2,
+        "cache buster (query param) must be deterministic"
+    );
+    // URL must contain '?' (query buster is present)
+    assert!(
+        css1.lines().any(|l| l.contains("america.png?")),
+        "query buster must appear in CSS"
+    );
+
+    std::fs::remove_dir_all(&out1).ok();
+    std::fs::remove_dir_all(&out2).ok();
+}
+
+// 3.5 — sort tiebreaker: when two images have the same maxside (100px),
+//        they must always appear in the same (alphabetical-path) order.
+#[test]
+fn test_sort_tiebreaker_alphabetical() {
+    use std::sync::atomic::{AtomicUsize, Ordering as AOrdering};
+    static C: AtomicUsize = AtomicUsize::new(0);
+
+    // ca.png (100×50, maxside=100) and se.png (100×63, maxside=100): equal maxside.
+    // Build a temp dir with just these two images.
+    let src = std::env::temp_dir().join(format!(
+        "spriters_sort_{}_{}",
+        std::process::id(),
+        C.fetch_add(1, AOrdering::SeqCst)
+    ));
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::copy("tests/images/america/ca.png", src.join("ca.png")).unwrap();
+    std::fs::copy("tests/images/europe/se.png", src.join("se.png")).unwrap();
+
+    with_tmp_dir(|out| {
+        let mut config = make_config(src.to_str().unwrap(), out);
+        config.json = true;
+        run_manager(config);
+
+        let stem = src.file_name().unwrap().to_string_lossy().to_string();
+        let json = std::fs::read_to_string(format!("{}/{}.json", out, stem)).unwrap();
+
+        // Both images must appear; ca must come before se (alphabetical tiebreaker)
+        let pos_ca = json.find("\"ca\"").unwrap_or(usize::MAX);
+        let pos_se = json.find("\"se\"").unwrap_or(usize::MAX);
+        assert!(
+            pos_ca < pos_se,
+            "ca (alphabetically earlier) must appear before se when maxside is equal"
+        );
+    });
+
+    std::fs::remove_dir_all(&src).ok();
+}
+
+// 3.5 — JSON output is also reproducible across two independent runs.
+#[test]
+fn test_reproducible_json() {
+    use std::sync::atomic::{AtomicUsize, Ordering as AOrdering};
+    static C: AtomicUsize = AtomicUsize::new(0);
+    let base = std::env::temp_dir().join(format!(
+        "spriters_rj_{}_{}",
+        std::process::id(),
+        C.fetch_add(1, AOrdering::SeqCst)
+    ));
+    let (out1, out2) = (base.with_extension("a"), base.with_extension("b"));
+    std::fs::create_dir_all(&out1).unwrap();
+    std::fs::create_dir_all(&out2).unwrap();
+
+    let make = |out: &std::path::Path| {
+        let mut c = Config::default();
+        c.source = std::path::PathBuf::from("tests/images/europe");
+        c.output = out.to_path_buf();
+        c.no_img = true;
+        c.no_css = true;
+        c.force = true;
+        c.json = true;
+        run_manager(c);
+        std::fs::read_to_string(out.join("europe.json")).unwrap()
+    };
+
+    let j1 = make(&out1);
+    let j2 = make(&out2);
+    assert_eq!(
+        j1, j2,
+        "JSON output must be byte-for-byte identical across runs"
+    );
+
+    std::fs::remove_dir_all(&out1).ok();
+    std::fs::remove_dir_all(&out2).ok();
+}

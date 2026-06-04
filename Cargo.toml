@@ -30,7 +30,6 @@ path = "src/main.rs"
 image = { version = "0.25", features = ["avif"] }
 fraction = "0.15"
 slug = "0.1"
-rand = "0.10"
 lexopt = "0.3"
 walkdir = "2"
 log = "0.4"
