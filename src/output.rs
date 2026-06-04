@@ -107,11 +107,28 @@ fn build_class_name(config: &Config, sprite_name: &str, image_label: &str) -> St
     class_name
 }
 
+/// Derive a CSS-safe label from an arbitrary file path (same logic as `ImageAndPosition::label()`).
+fn label_from_path(path: &str) -> String {
+    slug::slugify(
+        std::path::Path::new(path)
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy(),
+    )
+}
+
 fn implode_image_label(config: &Config, sprite: &Sprite) -> String {
     let sprite_name = sprite.path.file_name().unwrap().to_string_lossy();
     let mut labels: Vec<String> = Vec::with_capacity(sprite.images.len());
     for img in sprite.images.iter() {
         labels.push(build_class_name(config, &sprite_name, &img.label()));
+        for alias_path in &img.aliases {
+            labels.push(build_class_name(
+                config,
+                &sprite_name,
+                &label_from_path(alias_path),
+            ));
+        }
     }
     labels.join(",")
 }
@@ -131,9 +148,8 @@ fn generate_css(config: &Config, sprite: &Sprite) {
         url = sprite_url,
     );
 
-    // Write individual image classes
+    // Write individual image classes (primary + aliases share the same rule).
     for img in sprite.images.iter() {
-        let class_name = build_class_name(config, &name, &img.label());
         let x = if img.x == 0 {
             String::from("0")
         } else {
@@ -144,10 +160,15 @@ fn generate_css(config: &Config, sprite: &Sprite) {
         } else {
             format!("-{}px", img.y)
         };
+        let selector = std::iter::once(img.label())
+            .chain(img.aliases.iter().map(|p| label_from_path(p)))
+            .map(|lbl| format!(".{}", build_class_name(config, &name, &lbl)))
+            .collect::<Vec<_>>()
+            .join(", ");
         let _ = writeln!(
             &mut f,
-            "\n.{class} {{\n  background-position: {x} {y};\n  width: {w}px;\n  height: {h}px;\n}}",
-            class = class_name,
+            "\n{selector} {{\n  background-position: {x} {y};\n  width: {w}px;\n  height: {h}px;\n}}",
+            selector = selector,
             x = x,
             y = y,
             w = img.computed_width,
@@ -189,7 +210,11 @@ fn generate_html(config: &Config, sprite: &Sprite) {
     let name = sprite.path.file_name().unwrap().to_string_lossy();
     let output_path = config.output.join(format!("{}.html", name));
     let mut f = BufWriter::new(File::create(&output_path).expect("Unable to create HTML file"));
-    let n = sprite.images.len();
+    let total = sprite
+        .images
+        .iter()
+        .map(|img| 1 + img.aliases.len())
+        .sum::<usize>();
     let _ = writeln!(&mut f, "<html>
     <head><title>Spriters Test Html</title>
     <link rel=\"stylesheet\" type=\"text/css\" href=\"{}.css\">
@@ -200,13 +225,17 @@ fn generate_html(config: &Config, sprite: &Sprite) {
     <thead><tr>
         <th>CSS Class</th>
         <th>Result</th>
-    </tr></thead><tbody>", name, n);
+    </tr></thead><tbody>", name, total);
     for image in sprite.images.iter() {
-        let _ = writeln!(
-            &mut f,
-            "<tr><td>.{label}</td><td><div class=\"{label}\"></div></td></tr>",
-            label = image.label()
-        );
+        for label in
+            std::iter::once(image.label()).chain(image.aliases.iter().map(|p| label_from_path(p)))
+        {
+            let _ = writeln!(
+                &mut f,
+                "<tr><td>.{label}</td><td><div class=\"{label}\"></div></td></tr>",
+                label = label
+            );
+        }
     }
     let _ = write!(&mut f, "</tbody></table>
     <footer>Generated using <a href=\"https://codeberg.org/slundi/spriters\">Spriters v{}</a></footer>
@@ -284,7 +313,6 @@ fn generate_less(config: &Config, sprite: &Sprite) {
         url = sprite_url,
     );
     for img in sprite.images.iter() {
-        let class_name = build_class_name(config, &name, &img.label());
         let x = if img.x == 0 {
             String::from("0")
         } else {
@@ -295,14 +323,15 @@ fn generate_less(config: &Config, sprite: &Sprite) {
         } else {
             format!("-{}px", img.y)
         };
+        let selector = std::iter::once(img.label())
+            .chain(img.aliases.iter().map(|p| label_from_path(p)))
+            .map(|lbl| format!(".{}", build_class_name(config, &name, &lbl)))
+            .collect::<Vec<_>>()
+            .join(", ");
         let _ = writeln!(
             f,
-            "\n.{class} {{\n  background-position: {x} {y};\n  width: {w}px;\n  height: {h}px;\n}}",
-            class = class_name,
-            x = x,
-            y = y,
-            w = img.computed_width,
-            h = img.computed_height,
+            "\n{selector} {{\n  background-position: {x} {y};\n  width: {w}px;\n  height: {h}px;\n}}",
+            selector = selector, x = x, y = y, w = img.computed_width, h = img.computed_height,
         );
     }
     log::info!("Generated LESS: {:?}", output_path);
@@ -333,17 +362,18 @@ fn generate_scss(config: &Config, sprite: &Sprite) {
         name = name,
     );
 
-    // Generate individual image classes
+    // Generate individual image classes (primary + aliases share the same rule).
     for img in sprite.images.iter() {
-        let class_name = build_class_name(config, &name, &img.label());
+        let selector = std::iter::once(img.label())
+            .chain(img.aliases.iter().map(|p| label_from_path(p)))
+            .map(|lbl| format!(".{}", build_class_name(config, &name, &lbl)))
+            .collect::<Vec<_>>()
+            .join(", ");
         let _ = writeln!(
             f,
-            "\n.{class} {{\n  background-position: -{x}px -{y}px;\n  width: {w}px;\n  height: {h}px;\n}}",
-            class = class_name,
-            x = img.x,
-            y = img.y,
-            w = img.computed_width,
-            h = img.computed_height,
+            "\n{selector} {{\n  background-position: -{x}px -{y}px;\n  width: {w}px;\n  height: {h}px;\n}}",
+            selector = selector, x = img.x, y = img.y,
+            w = img.computed_width, h = img.computed_height,
         );
     }
 }
@@ -365,36 +395,41 @@ fn generate_coco2d(config: &Config, sprite: &Sprite) {
     let _ = writeln!(f, r#"<plist version="1.0">"#);
     let _ = writeln!(f, "<dict>");
 
-    // Write frames
+    // Write frames (primary + aliases share the same region).
     let _ = writeln!(f, "    <key>frames</key>");
     let _ = writeln!(f, "    <dict>");
 
     for img in sprite.images.iter() {
-        let _ = writeln!(f, "        <key>{}</key>", img.label());
-        let _ = writeln!(f, "        <dict>");
-        let _ = writeln!(f, "            <key>frame</key>");
-        let _ = writeln!(
-            f,
-            "            <string>{{{{{},{}}},{{{},{}}}}}</string>",
-            img.x, img.y, img.computed_width, img.computed_height
-        );
-        let _ = writeln!(f, "            <key>offset</key>");
-        let _ = writeln!(f, "            <string>{{0,0}}</string>");
-        let _ = writeln!(f, "            <key>rotated</key>");
-        let _ = writeln!(f, "            <false/>");
-        let _ = writeln!(f, "            <key>sourceColorRect</key>");
-        let _ = writeln!(
-            f,
-            "            <string>{{{{0,0}},{{{},{}}}}}</string>",
-            img.computed_width, img.computed_height
-        );
-        let _ = writeln!(f, "            <key>sourceSize</key>");
-        let _ = writeln!(
-            f,
-            "            <string>{{{},{}}}</string>",
-            img.computed_width, img.computed_height
-        );
-        let _ = writeln!(f, "        </dict>");
+        let labels: Vec<String> = std::iter::once(img.label())
+            .chain(img.aliases.iter().map(|p| label_from_path(p)))
+            .collect();
+        for lbl in &labels {
+            let _ = writeln!(f, "        <key>{}</key>", lbl);
+            let _ = writeln!(f, "        <dict>");
+            let _ = writeln!(f, "            <key>frame</key>");
+            let _ = writeln!(
+                f,
+                "            <string>{{{{{},{}}},{{{},{}}}}}</string>",
+                img.x, img.y, img.computed_width, img.computed_height
+            );
+            let _ = writeln!(f, "            <key>offset</key>");
+            let _ = writeln!(f, "            <string>{{0,0}}</string>");
+            let _ = writeln!(f, "            <key>rotated</key>");
+            let _ = writeln!(f, "            <false/>");
+            let _ = writeln!(f, "            <key>sourceColorRect</key>");
+            let _ = writeln!(
+                f,
+                "            <string>{{{{0,0}},{{{},{}}}}}</string>",
+                img.computed_width, img.computed_height
+            );
+            let _ = writeln!(f, "            <key>sourceSize</key>");
+            let _ = writeln!(
+                f,
+                "            <string>{{{},{}}}</string>",
+                img.computed_width, img.computed_height
+            );
+            let _ = writeln!(f, "        </dict>");
+        }
     }
 
     let _ = writeln!(f, "    </dict>");
@@ -420,44 +455,44 @@ fn generate_json(config: &Config, sprite: &Sprite) {
     let name = sprite.path.file_name().unwrap().to_string_lossy();
     let output_path = config.output.join(format!("{}.json", name));
     let mut f = BufWriter::new(File::create(&output_path).expect("Unable to create JSON file"));
-    let n = sprite.images.len();
     let (width, height) = sprite.dimensions();
     let sprite_url = get_sprite_url(config, sprite);
+
+    // Flatten: primary + aliases all become independent entries at the same coordinates.
+    let entries: Vec<(String, u32, u32, u32, u32)> = sprite
+        .images
+        .iter()
+        .flat_map(|img| {
+            std::iter::once(img.label())
+                .chain(img.aliases.iter().map(|p| label_from_path(p)))
+                .map(|lbl| (lbl, img.x, img.y, img.computed_width, img.computed_height))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let n = entries.len();
 
     match config.json_format {
         JsonFormat::Array => {
             let _ = writeln!(f, "{{\"frames\":[");
-            for (index, img) in sprite.images.iter().enumerate() {
+            for (index, (label, x, y, w, h)) in entries.iter().enumerate() {
                 let _ = writeln!(
                     f,
                     "{{\"filename\": \"{label}\", \"frame\":{{\"x\":{x},\"y\":{y},\"w\":{w},\"h\":{h}}}}}{coma}",
-                    label = img.label(),
-                    x = img.x,
-                    y = img.y,
-                    w = img.computed_width,
-                    h = img.computed_height,
                     coma = if index + 1 < n { "," } else { "" },
                 );
             }
             let _ = writeln!(
                 f,
                 "],\n\"meta\":{{\"width\": {w}, \"height\": {h}, \"sprite_filename\": \"{name}\", \"sprite_url\": \"{url}\"}}\n}}",
-                w = width,
-                h = height,
-                url = sprite_url,
+                w = width, h = height, url = sprite_url,
             );
         }
         JsonFormat::Hash => {
             let _ = writeln!(f, "{{");
-            for (index, img) in sprite.images.iter().enumerate() {
+            for (index, (label, x, y, w, h)) in entries.iter().enumerate() {
                 let _ = writeln!(
                     f,
                     "\"{label}\": {{\"x\": {x}, \"y\": {y}, \"w\": {w}, \"h\": {h}}}{coma}",
-                    label = img.label(),
-                    x = img.x,
-                    y = img.y,
-                    w = img.computed_width,
-                    h = img.computed_height,
                     coma = if index + 1 < n { "," } else { "" },
                 );
             }
@@ -472,26 +507,41 @@ fn generate_caat(config: &Config, sprite: &Sprite) {
     let name = sprite.path.file_name().unwrap().to_string_lossy();
     let output_path = config.output.join(format!("{}.caat.json", name));
     let mut f = BufWriter::new(File::create(&output_path).expect("Unable to create CAAT file"));
-    let n = sprite.images.len();
     let (width, height) = sprite.dimensions();
     let sprite_filename = format!("{}.{}", name, config.sprite_format.extension());
     let hash = compute_sprite_hash(config, sprite);
 
+    // Flatten primary + alias entries (CAAT uses original filenames, not labels).
+    let entries: Vec<(String, u32, u32, u32, u32)> = sprite
+        .images
+        .iter()
+        .flat_map(|img| {
+            let primary_filename = std::path::Path::new(&img.path)
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .to_string();
+            std::iter::once(primary_filename)
+                .chain(img.aliases.iter().map(|p| {
+                    std::path::Path::new(p)
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .to_string()
+                }))
+                .map(|fn_| (fn_, img.x, img.y, img.computed_width, img.computed_height))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let n = entries.len();
+
     let _ = writeln!(f, "{{");
     let _ = writeln!(f, "    \"sprites\": {{");
-    for (index, img) in sprite.images.iter().enumerate() {
-        let filename = std::path::Path::new(&img.path)
-            .file_name()
-            .unwrap()
-            .to_string_lossy();
+    for (index, (filename, x, y, w, h)) in entries.iter().enumerate() {
         let _ = writeln!(
             f,
             "        \"{fn}\": {{\"x\": {x}, \"y\": {y}, \"width\": {w}, \"height\": {h}}}{coma}",
-            fn = filename,
-            x = img.x,
-            y = img.y,
-            w = img.computed_width,
-            h = img.computed_height,
+            fn = filename, x = x, y = y, w = w, h = h,
             coma = if index + 1 < n { "," } else { "" },
         );
     }

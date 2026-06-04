@@ -429,6 +429,7 @@ mod tests {
                 y: 0,
                 computed_width: 50,
                 computed_height: 30,
+                aliases: vec![],
             }],
             margin: crate::util::Spacing::default(),
             padding: crate::util::Spacing::default(),

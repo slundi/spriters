@@ -487,6 +487,8 @@ pub struct ImageAndPosition {
     pub y: u32,
     pub computed_width: u32,
     pub computed_height: u32,
+    /// Paths of images with identical content that consolidate into this region.
+    pub aliases: Vec<String>,
 }
 impl ImageAndPosition {
     pub fn label(&self) -> String {
@@ -560,8 +562,11 @@ impl Sprite {
         use rayon::prelude::*;
 
         // Phase 1 (sequential): walk directory, deduplicate, collect (path, bytes) pairs.
-        // Reading bytes here avoids a second file-read later for hashing.
+        // Reading bytes once avoids a second file-read for hashing.
+        // Duplicate images (same size + hash) are tracked as aliases of their primary;
+        // only the primary is decoded and placed in the sprite.
         let mut seen: HashMap<(u64, u64), String> = HashMap::new();
+        let mut alias_map: HashMap<String, Vec<String>> = HashMap::new();
         let mut candidates: Vec<(String, Vec<u8>)> = Vec::new();
 
         let mut walker = WalkDir::new(std::path::Path::new(&self.config.source))
@@ -588,12 +593,14 @@ impl Sprite {
                 Ok(bytes) => {
                     let size = bytes.len() as u64;
                     let hash = twox_hash::XxHash64::oneshot(713705, &bytes);
-                    if let Some(path2) = seen.get(&(size, hash)) {
+                    if let Some(primary) = seen.get(&(size, hash)) {
                         if self.config.no_duplicate {
-                            error!("{} and {} are identical", path, path2);
+                            error!("{} and {} are identical", path, primary);
                             std::process::exit(1);
                         }
-                        warn!("{} and {} are identical", path, path2);
+                        warn!("{} and {} are identical — consolidating", path, primary);
+                        alias_map.entry(primary.clone()).or_default().push(path);
+                        continue; // skip: alias shares the primary's sprite region
                     }
                     seen.insert((size, hash), path.clone());
                     candidates.push((path, bytes));
@@ -632,15 +639,26 @@ impl Sprite {
                         img2 = crop(img2, None);
                     }
                     let (final_w, final_h) = (img2.width(), img2.height());
+                    let aliases = alias_map.get(&path).cloned().unwrap_or_default();
                     info!(
-                        "\t Adding: {} ({}x{} -> {}x{})",
-                        path, original.0, original.1, final_w, final_h
+                        "\t Adding: {} ({}x{} -> {}x{}){}",
+                        path,
+                        original.0,
+                        original.1,
+                        final_w,
+                        final_h,
+                        if aliases.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" [aliases: {}]", aliases.len())
+                        }
                     );
                     Some(ImageAndPosition {
                         path,
                         image: img2,
                         computed_width: final_w,
                         computed_height: final_h,
+                        aliases,
                         ..Default::default()
                     })
                 }
@@ -1225,6 +1243,7 @@ mod tests {
             y: 0,
             computed_width: 10,
             computed_height: 10,
+            ..Default::default()
         };
         assert_eq!(iap.label(), "my-image");
 
@@ -1236,6 +1255,7 @@ mod tests {
             y: 0,
             computed_width: 10,
             computed_height: 10,
+            ..Default::default()
         };
         assert_eq!(iap2.label(), "my-image-file");
 
@@ -1247,6 +1267,7 @@ mod tests {
             y: 0,
             computed_width: 10,
             computed_height: 10,
+            ..Default::default()
         };
         assert_eq!(iap3.label(), "icon-arrow-left");
     }
@@ -1274,6 +1295,7 @@ mod tests {
             y: 0,
             computed_width: 50,
             computed_height: 30,
+            ..Default::default()
         });
         assert_eq!(sprite.dimensions(), (50, 30));
 
@@ -1285,6 +1307,7 @@ mod tests {
             y: 20,
             computed_width: 40,
             computed_height: 40,
+            ..Default::default()
         });
         // Width should be 60 + 40 = 100, Height should be 20 + 40 = 60
         assert_eq!(sprite.dimensions(), (100, 60));

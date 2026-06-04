@@ -151,6 +151,7 @@ mod tests {
                 y: 0,
                 computed_width: *w,
                 computed_height: *h,
+                aliases: vec![],
             });
         }
 
