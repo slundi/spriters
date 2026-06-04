@@ -659,37 +659,46 @@ fn save_metadata(config: &Config, sprite: &Sprite) {
 }
 
 pub fn generate_files(config: &Config, sprite: &Sprite) {
+    use rayon::prelude::*;
+
     // Check if sprite needs regeneration (unless generating only metadata files)
     if !config.no_img && !should_regenerate(config, sprite) {
         return;
     }
 
+    // Image generation and metadata must happen sequentially (metadata depends on image).
     if !config.no_img {
         generate_sprite_image(config, sprite);
-        // Save metadata after successful image generation
         save_metadata(config, sprite);
     }
-    if !config.no_css {
-        generate_css(config, sprite);
-    }
-    if config.html {
-        generate_html(config, sprite);
-    }
-    if config.less {
-        generate_less(config, sprite);
-    }
-    if config.scss {
-        generate_scss(config, sprite);
-    }
-    if config.cocos2d {
-        generate_coco2d(config, sprite);
-    }
-    if config.json {
-        generate_json(config, sprite);
-    }
-    if config.caat {
-        generate_caat(config, sprite);
-    }
+
+    // Text-format outputs are all independent — generate them in parallel.
+    let tasks: Vec<fn(&Config, &Sprite)> = {
+        let mut t: Vec<fn(&Config, &Sprite)> = Vec::new();
+        if !config.no_css {
+            t.push(generate_css);
+        }
+        if config.html {
+            t.push(generate_html);
+        }
+        if config.less {
+            t.push(generate_less);
+        }
+        if config.scss {
+            t.push(generate_scss);
+        }
+        if config.cocos2d {
+            t.push(generate_coco2d);
+        }
+        if config.json {
+            t.push(generate_json);
+        }
+        if config.caat {
+            t.push(generate_caat);
+        }
+        t
+    };
+    tasks.par_iter().for_each(|f| f(config, sprite));
 }
 
 #[cfg(test)]

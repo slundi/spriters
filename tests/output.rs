@@ -277,3 +277,107 @@ fn test_apply_env_vars() {
     std::env::remove_var("SPRITERS_JSON_FORMAT");
     std::env::remove_var("SPRITERS_SEPARATOR");
 }
+
+// ─── Phase 2: parallel correctness ───────────────────────────────────────────
+
+// 2.1 — parallel pre-processing produces the same images as sequential would.
+// We verify by checking that all expected images appear in the output.
+#[test]
+fn test_parallel_preprocess_produces_all_images() {
+    with_tmp_dir(|out| {
+        let mut config = make_config("tests/images/europe", out);
+        config.json = true;
+        config.json_format = spriters::JsonFormat::Array;
+        run_manager(config);
+
+        let json = std::fs::read_to_string(format!("{}/europe.json", out)).unwrap();
+        // europe has 5 images: de, fi, fr, no, se
+        for name in &["de", "fi", "fr", "no", "se"] {
+            assert!(
+                json.contains(name),
+                "image '{}' must appear in JSON output",
+                name
+            );
+        }
+    });
+}
+
+// 2.2 — multiple output formats are all generated when requested simultaneously.
+#[test]
+fn test_parallel_multi_format() {
+    with_tmp_dir(|out| {
+        let mut config = make_config("tests/images/america", out);
+        config.no_img = false;
+        config.no_css = false;
+        config.json = true;
+        config.caat = true;
+        config.html = true;
+        config.less = true;
+        config.scss = true;
+        run_manager(config);
+
+        for ext in &["css", "json", "html", "less", "scss"] {
+            let path = format!("{}/america.{}", out, ext);
+            assert!(
+                std::path::Path::new(&path).exists(),
+                "america.{} must be generated",
+                ext
+            );
+        }
+        assert!(
+            std::path::Path::new(&format!("{}/america.caat.json", out)).exists(),
+            "america.caat.json must be generated"
+        );
+        assert!(
+            std::path::Path::new(&format!("{}/america.png", out)).exists(),
+            "america.png must be generated"
+        );
+    });
+}
+
+// 2.3 — project mode generates one sprite per subdirectory.
+#[test]
+fn test_parallel_project_mode() {
+    with_tmp_dir(|out| {
+        let mut config = make_config("tests/images", out);
+        config.project = true;
+        config.json = true;
+        run_manager(config);
+
+        // tests/images has two subdirs: america and europe
+        assert!(
+            std::path::Path::new(&format!("{}/america.json", out)).exists(),
+            "america.json must be generated in project mode"
+        );
+        assert!(
+            std::path::Path::new(&format!("{}/europe.json", out)).exists(),
+            "europe.json must be generated in project mode"
+        );
+    });
+}
+
+// 2.3 — project mode: verify both sprites contain the correct images.
+#[test]
+fn test_parallel_project_mode_content() {
+    with_tmp_dir(|out| {
+        let mut config = make_config("tests/images", out);
+        config.project = true;
+        config.json = true;
+        run_manager(config);
+
+        let america = std::fs::read_to_string(format!("{}/america.json", out)).unwrap();
+        assert!(
+            america.contains("us") || america.contains("ca"),
+            "america sprite must contain us/ca"
+        );
+
+        let europe = std::fs::read_to_string(format!("{}/europe.json", out)).unwrap();
+        for country in &["fr", "de", "fi", "no", "se"] {
+            assert!(
+                europe.contains(country),
+                "europe sprite must contain {}",
+                country
+            );
+        }
+    });
+}

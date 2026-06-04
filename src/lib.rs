@@ -527,7 +527,13 @@ impl Sprite {
     ///
     /// The list of images will be ordered using the desired ordering algorithm. The default is 'Maxside'.
     fn discover_images(&mut self) {
-        let mut files: HashMap<(u64, u64), String> = HashMap::new();
+        use rayon::prelude::*;
+
+        // Phase 1 (sequential): walk directory, deduplicate, collect (path, bytes) pairs.
+        // Reading bytes here avoids a second file-read later for hashing.
+        let mut seen: HashMap<(u64, u64), String> = HashMap::new();
+        let mut candidates: Vec<(String, Vec<u8>)> = Vec::new();
+
         let mut walker = WalkDir::new(std::path::Path::new(&self.config.source))
             .follow_links(self.config.follow_links);
         if !self.config.recursive {
@@ -539,88 +545,69 @@ impl Sprite {
             if name.starts_with('.') || ext.is_none() {
                 continue;
             }
-            let ext = String::from(ext.unwrap().to_ascii_lowercase().to_string_lossy());
-            if matches!(
-                ext.as_str(),
-                "jpg"
-                    | "jpeg"
-                    | "jpe"
-                    | "jif"
-                    | "jfif"
-                    | "jfi"
-                    | "png"
-                    | "gif"
-                    | "webp"
-                    | "tiff"
-                    | "tif"
-                    | "bmp"
-                    | "dib"
-                    | "jp2"
-                    | "j2k"
-                    | "jpf"
-                    | "jpx"
-                    | "jpm"
-                    | "mj2"
-            ) {
-                match image::open(entry.path()) {
-                    Ok(img) => {
-                        // check unicity
-                        let path = String::from(entry.path().to_string_lossy());
-                        let size = std::fs::metadata(entry.path()).unwrap().len();
-                        let hash = twox_hash::XxHash64::oneshot(
-                            713705,
-                            &std::fs::read(entry.path()).unwrap(),
-                        );
-                        if let Some(path2) = files.get(&(size, hash)) {
-                            if self.config.no_duplicate {
-                                error!("{} and {} are identical", path, path2);
-                                std::process::exit(1);
-                            }
-                            warn!("{} and {} are identical", path, path2);
+            let ext = ext
+                .unwrap()
+                .to_ascii_lowercase()
+                .to_string_lossy()
+                .to_string();
+            if !is_image_extension(&ext) {
+                continue;
+            }
+            let path = entry.path().to_string_lossy().to_string();
+            match std::fs::read(entry.path()) {
+                Ok(bytes) => {
+                    let size = bytes.len() as u64;
+                    let hash = twox_hash::XxHash64::oneshot(713705, &bytes);
+                    if let Some(path2) = seen.get(&(size, hash)) {
+                        if self.config.no_duplicate {
+                            error!("{} and {} are identical", path, path2);
+                            std::process::exit(1);
                         }
-                        files.insert((size, hash), path.clone());
-
-                        let dimensions = (img.width(), img.height());
-                        let mut img2 = img.clone();
-                        // Perform pre-processing operations when applicable
-                        // cropping
-                        if self.config.crop {
-                            img2 = crop(img2, None);
-                        }
-
-                        // resize depending on max-width and max-height
-                        let d = get_dimensions_from_max(
-                            img2.width(),
-                            img2.height(),
-                            self.config.max_width,
-                            self.config.max_height,
-                        );
-                        // Actually resize the image if dimensions changed
-                        if d.0 != img2.width() || d.1 != img2.height() {
-                            img2 = img2.resize_exact(d.0, d.1, self.config.resize_algorithm);
-                        }
-                        let iap = ImageAndPosition {
-                            path: path.clone(),
-                            image: img2,
-                            computed_width: d.0,
-                            computed_height: d.1,
-                            ..Default::default()
-                        };
-
-                        info!(
-                            "\t Adding: {} ({}x{} -> {}x{})",
-                            entry.path().display(),
-                            dimensions.0,
-                            dimensions.1,
-                            iap.computed_width,
-                            iap.computed_height
-                        );
-                        self.images.push(iap);
+                        warn!("{} and {} are identical", path, path2);
                     }
-                    Err(err) => error!("Cannot open image: {}", err),
-                };
-            } // else { continue; }
+                    seen.insert((size, hash), path.clone());
+                    candidates.push((path, bytes));
+                }
+                Err(e) => error!("Cannot read {:?}: {}", entry.path(), e),
+            }
         }
+
+        // Phase 2 (parallel): decode, crop, and resize each image independently.
+        let config = &self.config;
+        self.images = candidates
+            .into_par_iter()
+            .filter_map(|(path, bytes)| match image::load_from_memory(&bytes) {
+                Ok(img) => {
+                    let dimensions = (img.width(), img.height());
+                    let mut img2 = if config.crop { crop(img, None) } else { img };
+                    let d = get_dimensions_from_max(
+                        img2.width(),
+                        img2.height(),
+                        config.max_width,
+                        config.max_height,
+                    );
+                    if d.0 != img2.width() || d.1 != img2.height() {
+                        img2 = img2.resize_exact(d.0, d.1, config.resize_algorithm);
+                    }
+                    info!(
+                        "\t Adding: {} ({}x{} -> {}x{})",
+                        path, dimensions.0, dimensions.1, d.0, d.1
+                    );
+                    Some(ImageAndPosition {
+                        path,
+                        image: img2,
+                        computed_width: d.0,
+                        computed_height: d.1,
+                        ..Default::default()
+                    })
+                }
+                Err(err) => {
+                    error!("Cannot open image: {}", err);
+                    None
+                }
+            })
+            .collect();
+
         if self.images.is_empty() {
             error!("No images were found in the source directory");
         }
@@ -819,32 +806,41 @@ pub struct Manager {
 
 impl Manager {
     pub fn find_sprites(&mut self) {
+        use rayon::prelude::*;
+
         if self.project {
-            for entry in std::fs::read_dir(std::path::Path::new(&self.config.source.clone()))
-                .expect("Source does not exists or permissions are insufficient or it is a file")
-            {
-                match entry {
-                    Ok(de) => {
-                        // Only process folders and ignore filenames starting with '.'
-                        // Ignore symlinks if necessary
-                        let p = de.path();
-                        if !p.is_dir() || (p.is_symlink() && !self.config.follow_links) {
-                            continue;
-                        }
-                        if let Some(name) = p.file_name() {
-                            if name.to_string_lossy().starts_with('.') {
-                                continue;
-                            }
-                        }
-                        info!(
-                            "Creating sprite: {}",
-                            p.file_stem().unwrap().to_string_lossy()
-                        );
-                        self.sprites.push(Sprite::new(&self.config, p));
+            // Collect subdirectory paths first (sequential — read_dir is not parallel).
+            let paths: Vec<PathBuf> = std::fs::read_dir(&self.config.source)
+                .expect("Source does not exist or permissions are insufficient or it is a file")
+                .filter_map(|e| e.ok())
+                .filter_map(|de| {
+                    let p = de.path();
+                    if !p.is_dir() || (p.is_symlink() && !self.config.follow_links) {
+                        return None;
                     }
-                    Err(_) => continue,
-                }
-            }
+                    if p.file_name()?.to_string_lossy().starts_with('.') {
+                        return None;
+                    }
+                    Some(p)
+                })
+                .collect();
+
+            // Build each sprite concurrently (discover_images is the heavy work).
+            // Each sprite must have its own config.source pointing to its subdirectory;
+            // discover_images walks config.source, not sprite.path.
+            let config = &self.config;
+            self.sprites = paths
+                .into_par_iter()
+                .map(|p| {
+                    info!(
+                        "Creating sprite: {}",
+                        p.file_stem().unwrap().to_string_lossy()
+                    );
+                    let mut sprite_config = config.clone();
+                    sprite_config.source = p.clone();
+                    Sprite::new(&sprite_config, p)
+                })
+                .collect();
         } else {
             let p = PathBuf::from(&self.config.source);
             info!(
@@ -860,18 +856,41 @@ impl Manager {
 
     /// Save all sprites inside this manager.
     pub fn save(&self) {
-        // TODO: pre-processing (crop, resize, ...): async/thread pool
-        // TODO: process: build image(s): async/thread pool in project mode?
-        // TODO: generate description file (CSS, ...): async/thread pool for each format?
-        for sprite in self.sprites.iter() {
-            crate::output::generate_files(&self.config, sprite);
-        }
+        use rayon::prelude::*;
+        self.sprites
+            .par_iter()
+            .for_each(|sprite| crate::output::generate_files(&self.config, sprite));
     }
 }
 
 #[inline]
 pub fn add(left: usize, right: usize) -> usize {
     left + right
+}
+
+fn is_image_extension(ext: &str) -> bool {
+    matches!(
+        ext,
+        "jpg"
+            | "jpeg"
+            | "jpe"
+            | "jif"
+            | "jfif"
+            | "jfi"
+            | "png"
+            | "gif"
+            | "webp"
+            | "tiff"
+            | "tif"
+            | "bmp"
+            | "dib"
+            | "jp2"
+            | "j2k"
+            | "jpf"
+            | "jpx"
+            | "jpm"
+            | "mj2"
+    )
 }
 
 /// Crop an image. When no color is provided, it crops white or transparent areas (when alpha channel is available).
