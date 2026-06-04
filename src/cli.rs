@@ -1,5 +1,5 @@
 use image::imageops::FilterType;
-use spriters::{Algorithm, Config, Ordering};
+use spriters::{Algorithm, Config, JsonFormat, Ordering};
 
 const HELP_MSG: &str = "spriters [OPTIONS] [SOURCE_DIR] [OUTPUT_DIR]
 
@@ -19,6 +19,8 @@ General options:
 Output options:
 --html:                 generate an HTML page
 --json:                 generate JSON
+--json-format:          JSON output format: array (default) or hash
+--caat:                 generate CAAT (Canvas Advanced Animation Toolkit) JSON descriptor
 --cocos2d:              generate Cocos2d XML compatible files
 -l, --less:             generate LESS dynamic  stylesheet
 --scss:                 generate SCSS dynamic stylesheet
@@ -31,6 +33,7 @@ Output options:
 --img:                  custom output directory for image files
 --cachebuster:          when generating CSS, add image hash in the end of the filename
 --cachebuster-filename: when generating CSS, add image hash before the extension in the filename
+--cachebuster-filename-only-sprites: embed hash in sprite image filename but keep CSS filename unchanged
 --separator:            separator for CSS class names (default: '-')
 --namespace:            global namespace for CSS classes (default: 'sprite')
 --sprite-namespace:     sprite-specific namespace, use %(sprite)s for sprite name
@@ -107,6 +110,7 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
             Long("project") => args.project = true,
             Long("cachebuster") => args.cachebuster = true,
             Long("cachebuster-filename") => args.cachebuster_filename = true,
+            Long("cachebuster-filename-only-sprites") => args.cachebuster_filename_only_sprites = true,
             // Long("colors") => {
             //     match parser.value()?.to_ascii_lowercase() {
 
@@ -114,6 +118,15 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
             // },
             Long("html") => args.html = true,
             Long("json") => args.json = true,
+            Long("json-format") => {
+                let fmt: String = parser.value()?.parse()?;
+                if fmt.to_lowercase() == "hash" {
+                    args.json_format = JsonFormat::Hash;
+                } else {
+                    args.json_format = JsonFormat::Array;
+                }
+            }
+            Long("caat") => args.caat = true,
             Long("cocos2d") => args.cocos2d = true,
             Short('l') | Long("less") => args.less = true,
             Long("scss") => args.scss = true,

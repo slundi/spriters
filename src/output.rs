@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
 
-use crate::{Config, Sprite};
+use crate::{Config, JsonFormat, Sprite};
 
 const SPRITERS_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -392,12 +392,71 @@ fn generate_json(config: &Config, sprite: &Sprite) {
     let n = sprite.images.len();
     let (width, height) = sprite.dimensions();
     let sprite_url = get_sprite_url(config, sprite);
-    let _ = writeln!(f, "{{\"frames\":[");
+
+    match config.json_format {
+        JsonFormat::Array => {
+            let _ = writeln!(f, "{{\"frames\":[");
+            for (index, img) in sprite.images.iter().enumerate() {
+                let _ = writeln!(
+                    f,
+                    "{{\"filename\": \"{label}\", \"frame\":{{\"x\":{x},\"y\":{y},\"w\":{w},\"h\":{h}}}}}{coma}",
+                    label = img.label(),
+                    x = img.x,
+                    y = img.y,
+                    w = img.computed_width,
+                    h = img.computed_height,
+                    coma = if index + 1 < n { "," } else { "" },
+                );
+            }
+            let _ = writeln!(
+                f,
+                "],\n\"meta\":{{\"width\": {w}, \"height\": {h}, \"sprite_filename\": \"{name}\", \"sprite_url\": \"{url}\"}}\n}}",
+                w = width,
+                h = height,
+                url = sprite_url,
+            );
+        }
+        JsonFormat::Hash => {
+            let _ = writeln!(f, "{{");
+            for (index, img) in sprite.images.iter().enumerate() {
+                let _ = writeln!(
+                    f,
+                    "\"{label}\": {{\"x\": {x}, \"y\": {y}, \"w\": {w}, \"h\": {h}}}{coma}",
+                    label = img.label(),
+                    x = img.x,
+                    y = img.y,
+                    w = img.computed_width,
+                    h = img.computed_height,
+                    coma = if index + 1 < n { "," } else { "" },
+                );
+            }
+            let _ = writeln!(f, "}}");
+        }
+    }
+
+    log::info!("Generated JSON: {:?}", output_path);
+}
+
+fn generate_caat(config: &Config, sprite: &Sprite) {
+    let name = sprite.path.file_name().unwrap().to_string_lossy();
+    let output_path = config.output.join(format!("{}.caat.json", name));
+    let mut f = BufWriter::new(File::create(&output_path).expect("Unable to create CAAT file"));
+    let n = sprite.images.len();
+    let (width, height) = sprite.dimensions();
+    let sprite_filename = format!("{}.png", name);
+    let hash = compute_sprite_hash(config, sprite);
+
+    let _ = writeln!(f, "{{");
+    let _ = writeln!(f, "    \"sprites\": {{");
     for (index, img) in sprite.images.iter().enumerate() {
+        let filename = std::path::Path::new(&img.path)
+            .file_name()
+            .unwrap()
+            .to_string_lossy();
         let _ = writeln!(
             f,
-            "{{\"filename\": \"{label}\", \"frame\":{{\"x\":{x},\"y\":{y},\"w\":{w},\"h\":{h}}}}}{coma}",
-            label = img.label(),
+            "        \"{fn}\": {{\"x\": {x}, \"y\": {y}, \"width\": {w}, \"height\": {h}}}{coma}",
+            fn = filename,
             x = img.x,
             y = img.y,
             w = img.computed_width,
@@ -405,14 +464,17 @@ fn generate_json(config: &Config, sprite: &Sprite) {
             coma = if index + 1 < n { "," } else { "" },
         );
     }
-    let _ = writeln!(
-        f,
-        "],\n\"meta\":{{\"width\": {w}, \"height\": {h}, \"sprite_filename\": \"{name}\", \"sprite_url\": \"{url}\"}}\n}}",
-        w = width,
-        h = height,
-        url = sprite_url,
-    );
-    log::info!("Generated JSON: {:?}", output_path);
+    let _ = writeln!(f, "    }},");
+    let _ = writeln!(f, "    \"meta\": {{");
+    let _ = writeln!(f, "        \"version\": \"{}\",", SPRITERS_VERSION);
+    let _ = writeln!(f, "        \"hash\": \"{:x}\",", hash);
+    let _ = writeln!(f, "        \"sprite_filename\": \"{}\",", sprite_filename);
+    let _ = writeln!(f, "        \"width\": {},", width);
+    let _ = writeln!(f, "        \"height\": {}", height);
+    let _ = writeln!(f, "    }}");
+    let _ = writeln!(f, "}}");
+
+    log::info!("Generated CAAT: {:?}", output_path);
 }
 
 fn generate_sprite_image(config: &Config, sprite: &Sprite) {
@@ -431,10 +493,14 @@ fn generate_sprite_image(config: &Config, sprite: &Sprite) {
         }
     }
 
-    let output_path = config.output.join(format!(
-        "{}.png",
-        sprite.path.file_name().unwrap_or_default().to_string_lossy()
-    ));
+    let stem = sprite.path.file_name().unwrap_or_default().to_string_lossy();
+    let filename = if config.cachebuster_filename_only_sprites {
+        let hash = compute_sprite_hash(config, sprite);
+        format!("{stem}_{hash:x}.png")
+    } else {
+        format!("{stem}.png")
+    };
+    let output_path = config.output.join(filename);
 
     // Convert to grayscale if png8 is enabled
     let save_result = if config.png8 {
@@ -579,6 +645,9 @@ pub fn generate_files(config: &Config, sprite: &Sprite) {
     }
     if config.json {
         generate_json(config, sprite);
+    }
+    if config.caat {
+        generate_caat(config, sprite);
     }
 }
 

@@ -16,7 +16,11 @@ fn run_sprite_generation(config: &spriters::Config) {
 }
 
 fn main() -> Result<(), lexopt::Error> {
-    let config = cli::parse_args()?;
+    let mut config = cli::parse_args()?;
+    spriters::config::apply_env_vars(&mut config);
+    if let Some(fc) = spriters::config::load_file_config(&config.source) {
+        spriters::config::apply_file_config(&mut config, fc);
+    }
     config.check()?;
     stderrlog::new()
         .module(module_path!())

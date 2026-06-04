@@ -5,6 +5,13 @@ use std::{
     str::FromStr,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum JsonFormat {
+    #[default]
+    Array,
+    Hash,
+}
+
 use image::{ColorType, DynamicImage, GenericImageView};
 use log::*;
 use util::{absolute_length, horizontal_spacing, vertical_spacing, Spacing};
@@ -12,6 +19,7 @@ use walkdir::WalkDir;
 
 pub mod algorithm;
 mod algorithm_square;
+pub mod config;
 mod output;
 pub mod util;
 
@@ -245,7 +253,7 @@ pub struct Config {
     /// This flag will make **spriters** suppress all console output.
     pub quiet: bool,
     /// Read directories recursively and add all the images to the same sprite. Example structure:
-    /// ```
+    /// ```text
     /// source
     /// ├── actions
     /// │   ├── add.png
@@ -324,7 +332,7 @@ pub struct Config {
     ///
     /// The suggested setup is to create a new folder for every sprite, and add inside all the images you need for each one. **spriters** will create a new sprite for every folder:
     ///
-    /// ```
+    /// ```text
     /// images
     /// ├── actions
     /// │   ├── add.png
@@ -342,6 +350,12 @@ pub struct Config {
     pub no_duplicate: bool,
     /// Watch source directory for changes and regenerate sprites automatically
     pub watch: bool,
+    /// JSON output format: array (default) or hash
+    pub json_format: JsonFormat,
+    /// Generate CAAT (Canvas Advanced Animation Toolkit) JSON descriptor
+    pub caat: bool,
+    /// Embed hash in sprite image filename but keep CSS filename unchanged
+    pub cachebuster_filename_only_sprites: bool,
 }
 impl Config {
     /// Check mandatory arguments and some values
@@ -428,6 +442,9 @@ impl Default for Config {
             project: false,
             no_duplicate: false,
             watch: false,
+            json_format: JsonFormat::Array,
+            caat: false,
+            cachebuster_filename_only_sprites: false,
         }
     }
 }

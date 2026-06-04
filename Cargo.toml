@@ -38,6 +38,8 @@ stderrlog = "0.6"
 url = "2.5"
 twox-hash = "2.1"
 notify = "8"
+serde = { version = "1", features = ["derive"] }
+toml = "1.1"
 
 [workspace.metadata.cargo-machete]
 ignored = []
