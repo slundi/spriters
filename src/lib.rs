@@ -388,11 +388,14 @@ pub struct Config {
     /// Glob patterns (matched against filename) for files to skip during discovery.
     /// Repeatable: `--exclude "_draft_*" --exclude "*.tmp"`.
     pub exclude: Vec<String>,
+    /// Explicit file list, populated from stdin when stdin is a pipe.
+    /// When non-empty, directory walking is skipped entirely.
+    pub files: Vec<PathBuf>,
 }
 impl Config {
     /// Check mandatory arguments and some values
     pub fn check(&self) -> Result<(), lexopt::Error> {
-        if !self.source.is_dir() {
+        if self.files.is_empty() && !self.source.is_dir() {
             error!(
                 "Source directory does not exist or is not accessible: {:?}",
                 self.source
@@ -479,6 +482,7 @@ impl Default for Config {
             cachebuster_filename_only_sprites: false,
             sprite_format: SpriteFormat::Png,
             exclude: vec![],
+            files: vec![],
         }
     }
 }
@@ -584,50 +588,89 @@ impl Sprite {
             })
             .collect();
 
-        let mut walker = WalkDir::new(std::path::Path::new(&self.config.source))
-            .follow_links(self.config.follow_links);
-        if !self.config.recursive {
-            walker = walker.max_depth(1);
-        }
-        for entry in walker.into_iter().filter_map(|e| e.ok()) {
-            let name = entry.file_name().to_string_lossy();
-            let ext = entry.path().extension();
-            if name.starts_with('.') || ext.is_none() {
-                continue;
+        let match_opts = glob::MatchOptions {
+            case_sensitive: true,
+            ..Default::default()
+        };
+
+        if self.config.files.is_empty() {
+            // Directory-walk mode (default).
+            let mut walker = WalkDir::new(std::path::Path::new(&self.config.source))
+                .follow_links(self.config.follow_links);
+            if !self.config.recursive {
+                walker = walker.max_depth(1);
             }
-            if exclude_patterns
-                .iter()
-                .any(|p| p.matches_with(&name, glob::MatchOptions { case_sensitive: true, ..Default::default() }))
-            {
-                debug!("Excluding: {}", name);
-                continue;
-            }
-            let ext = ext
-                .unwrap()
-                .to_ascii_lowercase()
-                .to_string_lossy()
-                .to_string();
-            if !is_image_extension(&ext) {
-                continue;
-            }
-            let path = entry.path().to_string_lossy().to_string();
-            match std::fs::read(entry.path()) {
-                Ok(bytes) => {
-                    let size = bytes.len() as u64;
-                    let hash = twox_hash::XxHash64::oneshot(713705, &bytes);
-                    if let Some(primary) = seen.get(&(size, hash)) {
-                        if self.config.no_duplicate {
-                            error!("{} and {} are identical", path, primary);
-                            std::process::exit(1);
-                        }
-                        warn!("{} and {} are identical — consolidating", path, primary);
-                        alias_map.entry(primary.clone()).or_default().push(path);
-                        continue; // skip: alias shares the primary's sprite region
-                    }
-                    seen.insert((size, hash), path.clone());
-                    candidates.push((path, bytes));
+            for entry in walker.into_iter().filter_map(|e| e.ok()) {
+                let name = entry.file_name().to_string_lossy();
+                let ext = entry.path().extension();
+                if name.starts_with('.') || ext.is_none() {
+                    continue;
                 }
-                Err(e) => error!("Cannot read {:?}: {}", entry.path(), e),
+                if exclude_patterns.iter().any(|p| p.matches_with(&name, match_opts)) {
+                    debug!("Excluding: {}", name);
+                    continue;
+                }
+                let ext = ext.unwrap().to_ascii_lowercase().to_string_lossy().to_string();
+                if !is_image_extension(&ext) {
+                    continue;
+                }
+                let path = entry.path().to_string_lossy().to_string();
+                match std::fs::read(entry.path()) {
+                    Ok(bytes) => {
+                        let size = bytes.len() as u64;
+                        let hash = twox_hash::XxHash64::oneshot(713705, &bytes);
+                        if let Some(primary) = seen.get(&(size, hash)) {
+                            if self.config.no_duplicate {
+                                error!("{} and {} are identical", path, primary);
+                                std::process::exit(1);
+                            }
+                            warn!("{} and {} are identical — consolidating", path, primary);
+                            alias_map.entry(primary.clone()).or_default().push(path);
+                            continue;
+                        }
+                        seen.insert((size, hash), path.clone());
+                        candidates.push((path, bytes));
+                    }
+                    Err(e) => error!("Cannot read {:?}: {}", entry.path(), e),
+                }
+            }
+        } else {
+            // File-list mode: paths supplied explicitly (e.g. from stdin).
+            for path_buf in &self.config.files {
+                let name = match path_buf.file_name() {
+                    Some(n) => n.to_string_lossy().into_owned(),
+                    None => continue,
+                };
+                let ext = match path_buf.extension() {
+                    Some(e) => e.to_ascii_lowercase().to_string_lossy().into_owned(),
+                    None => continue,
+                };
+                if name.starts_with('.') || !is_image_extension(&ext) {
+                    continue;
+                }
+                if exclude_patterns.iter().any(|p| p.matches_with(&name, match_opts)) {
+                    debug!("Excluding: {}", name);
+                    continue;
+                }
+                let path = path_buf.to_string_lossy().into_owned();
+                match std::fs::read(path_buf) {
+                    Ok(bytes) => {
+                        let size = bytes.len() as u64;
+                        let hash = twox_hash::XxHash64::oneshot(713705, &bytes);
+                        if let Some(primary) = seen.get(&(size, hash)) {
+                            if self.config.no_duplicate {
+                                error!("{} and {} are identical", path, primary);
+                                std::process::exit(1);
+                            }
+                            warn!("{} and {} are identical — consolidating", path, primary);
+                            alias_map.entry(primary.clone()).or_default().push(path);
+                            continue;
+                        }
+                        seen.insert((size, hash), path.clone());
+                        candidates.push((path, bytes));
+                    }
+                    Err(e) => error!("Cannot read {:?}: {}", path_buf, e),
+                }
             }
         }
 

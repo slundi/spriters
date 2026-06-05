@@ -1,5 +1,6 @@
 use log::*;
 use notify::{Event, RecursiveMode, Watcher};
+use std::io::{BufRead, IsTerminal};
 use std::sync::mpsc::channel;
 use std::time::Duration;
 
@@ -17,6 +18,20 @@ fn run_sprite_generation(config: &spriters::Config) {
 
 fn main() -> Result<(), lexopt::Error> {
     let mut config = cli::parse_args()?;
+
+    // When stdin is a pipe, read newline-delimited image paths from it.
+    // This lets spriters compose with other tools: `fd -e png . | spriters -o dist/`
+    if !std::io::stdin().is_terminal() {
+        for line in std::io::stdin().lock().lines() {
+            if let Ok(line) = line {
+                let line = line.trim().to_owned();
+                if !line.is_empty() {
+                    config.files.push(std::path::PathBuf::from(line));
+                }
+            }
+        }
+    }
+
     spriters::config::apply_env_vars(&mut config);
     if let Some(fc) = spriters::config::load_file_config(&config.source) {
         spriters::config::apply_file_config(&mut config, fc);
@@ -28,7 +43,11 @@ fn main() -> Result<(), lexopt::Error> {
         .quiet(config.quiet)
         .init()
         .unwrap();
-    info!("Input directory: {}", config.source.to_string_lossy());
+    if config.files.is_empty() {
+        info!("Input directory: {}", config.source.to_string_lossy());
+    } else {
+        info!("Reading {} files from stdin", config.files.len());
+    }
     info!("Output directory: {}", config.output.to_string_lossy());
 
     // Initial sprite generation
