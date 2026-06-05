@@ -625,11 +625,18 @@ impl Sprite {
                 if name.starts_with('.') || ext.is_none() {
                     continue;
                 }
-                if exclude_patterns.iter().any(|p| p.matches_with(&name, match_opts)) {
+                if exclude_patterns
+                    .iter()
+                    .any(|p| p.matches_with(&name, match_opts))
+                {
                     debug!("Excluding: {}", name);
                     continue;
                 }
-                let ext = ext.unwrap().to_ascii_lowercase().to_string_lossy().to_string();
+                let ext = ext
+                    .unwrap()
+                    .to_ascii_lowercase()
+                    .to_string_lossy()
+                    .to_string();
                 if !is_image_extension(&ext) {
                     continue;
                 }
@@ -667,7 +674,10 @@ impl Sprite {
                 if name.starts_with('.') || !is_image_extension(&ext) {
                     continue;
                 }
-                if exclude_patterns.iter().any(|p| p.matches_with(&name, match_opts)) {
+                if exclude_patterns
+                    .iter()
+                    .any(|p| p.matches_with(&name, match_opts))
+                {
                     debug!("Excluding: {}", name);
                     continue;
                 }

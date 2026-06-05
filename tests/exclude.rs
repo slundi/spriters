@@ -41,7 +41,10 @@ fn exact_name_excludes_single_file() {
     let names = image_names(&sprite);
 
     assert_eq!(sprite.images.len(), 4);
-    assert!(!names.contains(&"fr.png"), "fr.png should have been excluded");
+    assert!(
+        !names.contains(&"fr.png"),
+        "fr.png should have been excluded"
+    );
 }
 
 #[test]
@@ -81,7 +84,11 @@ fn wildcard_question_mark_excludes_matching_files() {
 #[test]
 fn multiple_exclude_patterns_are_additive() {
     let (mut config, src) = europe_config();
-    config.exclude = vec!["de.png".to_owned(), "se.png".to_owned(), "no.png".to_owned()];
+    config.exclude = vec![
+        "de.png".to_owned(),
+        "se.png".to_owned(),
+        "no.png".to_owned(),
+    ];
 
     let sprite = Sprite::new(&config, src);
     let names = image_names(&sprite);

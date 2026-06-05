@@ -60,7 +60,10 @@ fn tailwind_json_has_safelist_key() {
         config.tailwind = true;
         run(config);
         let content = read_file(&out.join("america.tailwind.json"));
-        assert!(content.contains("\"safelist\""), "must contain \"safelist\" key");
+        assert!(
+            content.contains("\"safelist\""),
+            "must contain \"safelist\" key"
+        );
         assert!(content.contains('['), "safelist must be an array");
         assert!(content.contains(']'), "safelist must be an array");
     });
@@ -75,7 +78,10 @@ fn tailwind_json_lists_class_names() {
         let content = read_file(&out.join("america.tailwind.json"));
         // Default namespace is "sprite", sprite name "america", so classes like
         // "sprite-america-us" (slugified image names).
-        assert!(content.contains("sprite-america-"), "must contain namespaced class names");
+        assert!(
+            content.contains("sprite-america-"),
+            "must contain namespaced class names"
+        );
     });
 }
 
@@ -103,7 +109,8 @@ fn tailwind_includes_all_images() {
         for name in &["de", "fi", "fr", "no", "se"] {
             assert!(
                 content.contains(&format!("sprite-europe-{}", name)),
-                "must contain sprite-europe-{}", name
+                "must contain sprite-europe-{}",
+                name
             );
         }
     });
@@ -148,7 +155,8 @@ fn dts_contains_image_labels() {
         for name in &["de", "fi", "fr", "no", "se"] {
             assert!(
                 content.contains(&format!("\"{}\"", name)),
-                "must contain label \"{}\"", name
+                "must contain label \"{}\"",
+                name
             );
         }
     });
@@ -161,7 +169,10 @@ fn dts_type_ends_with_semicolon() {
         config.dts = true;
         run(config);
         let content = read_file(&out.join("america.d.ts"));
-        assert!(content.trim_end().ends_with(';'), "type declaration must end with semicolon");
+        assert!(
+            content.trim_end().ends_with(';'),
+            "type declaration must end with semicolon"
+        );
     });
 }
 
@@ -185,7 +196,10 @@ fn tailwind_and_dts_work_together() {
         config.tailwind = true;
         config.dts = true;
         run(config);
-        assert!(out.join("america.tailwind.json").exists(), "tailwind.json must exist");
+        assert!(
+            out.join("america.tailwind.json").exists(),
+            "tailwind.json must exist"
+        );
         assert!(out.join("america.d.ts").exists(), ".d.ts must exist");
     });
 }

@@ -376,12 +376,16 @@ fn generate_scss(config: &Config, sprite: &Sprite) {
 fn generate_css_vars(config: &Config, sprite: &Sprite) {
     let name = sprite.path.file_name().unwrap().to_string_lossy();
     let output_path = config.output.join(format!("{}.vars.css", name));
-    let mut f =
-        BufWriter::new(File::create(&output_path).expect("Unable to create CSS vars file"));
+    let mut f = BufWriter::new(File::create(&output_path).expect("Unable to create CSS vars file"));
     let sprite_url = get_sprite_url(config, sprite);
 
     let _ = writeln!(f, ":root {{");
-    let _ = writeln!(f, "  --{name}-image: url('{url}');", name = name, url = sprite_url);
+    let _ = writeln!(
+        f,
+        "  --{name}-image: url('{url}');",
+        name = name,
+        url = sprite_url
+    );
 
     for img in sprite.images.iter() {
         let x_val = if img.x == 0 {
@@ -395,8 +399,8 @@ fn generate_css_vars(config: &Config, sprite: &Sprite) {
             format!("-{}px", img.y)
         };
 
-        for label in std::iter::once(img.label())
-            .chain(img.aliases.iter().map(|p| label_from_path(p)))
+        for label in
+            std::iter::once(img.label()).chain(img.aliases.iter().map(|p| label_from_path(p)))
         {
             let prop = build_class_name(config, &name, &label);
             let _ = writeln!(f, "  --{p}-x: {x};", p = prop, x = x_val);
@@ -752,9 +756,8 @@ fn save_metadata(config: &Config, sprite: &Sprite) {
 fn generate_tailwind(config: &Config, sprite: &Sprite) {
     let name = sprite.path.file_name().unwrap().to_string_lossy();
     let output_path = config.output.join(format!("{}.tailwind.json", name));
-    let mut f = BufWriter::new(
-        File::create(&output_path).expect("Unable to create Tailwind JSON file"),
-    );
+    let mut f =
+        BufWriter::new(File::create(&output_path).expect("Unable to create Tailwind JSON file"));
 
     let class_names: Vec<String> = sprite
         .images
@@ -782,8 +785,7 @@ fn generate_tailwind(config: &Config, sprite: &Sprite) {
 fn generate_dts(config: &Config, sprite: &Sprite) {
     let name = sprite.path.file_name().unwrap().to_string_lossy();
     let output_path = config.output.join(format!("{}.d.ts", name));
-    let mut f =
-        BufWriter::new(File::create(&output_path).expect("Unable to create .d.ts file"));
+    let mut f = BufWriter::new(File::create(&output_path).expect("Unable to create .d.ts file"));
 
     let labels: Vec<String> = sprite
         .images
@@ -813,10 +815,13 @@ fn print_dry_run(config: &Config, sprite: &Sprite) {
     let (w, h) = sprite.dimensions();
     let total_entries: usize = sprite.images.iter().map(|i| 1 + i.aliases.len()).sum();
 
-    println!("Sprite: {} ({}×{} px, {} entries)", name, w, h, total_entries);
+    println!(
+        "Sprite: {} ({}×{} px, {} entries)",
+        name, w, h, total_entries
+    );
     for img in &sprite.images {
-        for label in std::iter::once(img.label())
-            .chain(img.aliases.iter().map(|p| label_from_path(p)))
+        for label in
+            std::iter::once(img.label()).chain(img.aliases.iter().map(|p| label_from_path(p)))
         {
             println!(
                 "  .{cls:40} at ({x},{y}) {w}×{h}px",
@@ -832,16 +837,36 @@ fn print_dry_run(config: &Config, sprite: &Sprite) {
     if !config.no_img {
         println!("  {name}.{ext}", ext = config.sprite_format.extension());
     }
-    if !config.no_css    { println!("  {name}.css"); }
-    if config.less       { println!("  {name}.less"); }
-    if config.scss       { println!("  {name}.scss"); }
-    if config.json       { println!("  {name}.json"); }
-    if config.html       { println!("  {name}.html"); }
-    if config.cocos2d    { println!("  {name}.plist"); }
-    if config.caat       { println!("  {name}.caat.json"); }
-    if config.css_vars   { println!("  {name}.vars.css"); }
-    if config.tailwind   { println!("  {name}.tailwind.json"); }
-    if config.dts        { println!("  {name}.d.ts"); }
+    if !config.no_css {
+        println!("  {name}.css");
+    }
+    if config.less {
+        println!("  {name}.less");
+    }
+    if config.scss {
+        println!("  {name}.scss");
+    }
+    if config.json {
+        println!("  {name}.json");
+    }
+    if config.html {
+        println!("  {name}.html");
+    }
+    if config.cocos2d {
+        println!("  {name}.plist");
+    }
+    if config.caat {
+        println!("  {name}.caat.json");
+    }
+    if config.css_vars {
+        println!("  {name}.vars.css");
+    }
+    if config.tailwind {
+        println!("  {name}.tailwind.json");
+    }
+    if config.dts {
+        println!("  {name}.d.ts");
+    }
 }
 
 pub fn generate_files(config: &Config, sprite: &Sprite) {

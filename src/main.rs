@@ -18,7 +18,9 @@ fn run_sprite_generation(config: &spriters::Config) {
         if manager.is_up_to_date() {
             info!("All sprites are up to date.");
         } else {
-            eprintln!("One or more sprites are out of date. Run spriters without --check to regenerate.");
+            eprintln!(
+                "One or more sprites are out of date. Run spriters without --check to regenerate."
+            );
             std::process::exit(1);
         }
         return;
@@ -36,7 +38,10 @@ fn handle_stats(output_dir: Option<&str>) {
 
     let names = spriters::list_sprite_names(dir);
     if names.is_empty() {
-        eprintln!("No sprite metadata found in '{}'. Generate sprites first.", dir.display());
+        eprintln!(
+            "No sprite metadata found in '{}'. Generate sprites first.",
+            dir.display()
+        );
         std::process::exit(1);
     }
 

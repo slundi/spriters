@@ -210,7 +210,11 @@ pub fn apply_env_vars(config: &mut Config) {
         config.sprite_format = parse_sprite_format(&v);
     }
     if let Ok(v) = env::var("SPRITERS_EXCLUDE") {
-        config.exclude = v.split(',').map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()).collect();
+        config.exclude = v
+            .split(',')
+            .map(|s| s.trim().to_owned())
+            .filter(|s| !s.is_empty())
+            .collect();
     }
     if let Ok(v) = env::var("SPRITERS_CSS_VARS") {
         if let Ok(b) = parse_bool(&v) {

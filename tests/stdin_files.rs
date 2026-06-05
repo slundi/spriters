@@ -54,10 +54,7 @@ fn explicit_file_list_loads_only_listed_images() {
 #[test]
 fn file_list_can_span_multiple_directories() {
     let mut config = base_config();
-    config.files = vec![
-        image("europe/de.png"),
-        image("america/ca.png"),
-    ];
+    config.files = vec![image("europe/de.png"), image("america/ca.png")];
     config.source = manifest().join("tests/images/europe");
 
     let sprite = Sprite::new(&config, config.source.clone());
@@ -105,10 +102,7 @@ fn exclude_patterns_apply_in_file_list_mode() {
 fn duplicate_files_in_list_are_consolidated() {
     let mut config = base_config();
     // identical-fr.png is a pixel-identical copy of fr.png
-    config.files = vec![
-        image("europe/fr.png"),
-        image("identical-fr.png"),
-    ];
+    config.files = vec![image("europe/fr.png"), image("identical-fr.png")];
     config.source = manifest().join("tests/images/europe");
 
     let sprite = Sprite::new(&config, config.source.clone());

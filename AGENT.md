@@ -2,7 +2,7 @@
 
 ## Project identity
 
-**spriters** is a Rust CLI + library for generating CSS sprite sheets.  It is a fast reimplementation of the Python [Glue](http://glue.readthedocs.org/) tool.
+**spriters** is a Rust CLI + library for generating CSS sprite sheets. It is a fast reimplementation of the Python [Glue](http://glue.readthedocs.org/) tool.
 
 - **Repository**: https://codeberg.org/slundi/spriters
 - **Crate type**: both library (`spriters`) and binary (`spriters`)
@@ -40,21 +40,21 @@ tests/images/
 
 ### `Config` (lib.rs)
 
-Holds every option.  `Config::default()` gives sensible defaults (Square algorithm, maxside ordering, PNG format, `-` separator, `sprite` namespace).  All fields are `pub`.
+Holds every option. `Config::default()` gives sensible defaults (Square algorithm, maxside ordering, PNG format, `-` separator, `sprite` namespace). All fields are `pub`.
 
 Notable fields for Phase 3+ work: `sprite_format: SpriteFormat`, `json_format: JsonFormat`, `caat: bool`, `cachebuster_filename_only_sprites: bool`.
 
 ### `Sprite` (lib.rs)
 
-Built by `Sprite::new(config, path)`.  `path` is the output name stem (e.g. `images/america`).  Internally calls `discover_images()` then `process()` (layout algorithm).
+Built by `Sprite::new(config, path)`. `path` is the output name stem (e.g. `images/america`). Internally calls `discover_images()` then `process()` (layout algorithm).
 
 ### `ImageAndPosition` (lib.rs)
 
-One image in a sprite, with computed `x`, `y`, `computed_width`, `computed_height`.  Also carries `aliases: Vec<String>` — paths of identical images that share this region (consolidation, Phase 3.4).
+One image in a sprite, with computed `x`, `y`, `computed_width`, `computed_height`. Also carries `aliases: Vec<String>` — paths of identical images that share this region (consolidation, Phase 3.4).
 
 ### `Manager` (lib.rs)
 
-`find_sprites()` populates `self.sprites`; `save()` calls `output::generate_files` for each.  Both are parallelised with Rayon.
+`find_sprites()` populates `self.sprites`; `save()` calls `output::generate_files` for each. Both are parallelised with Rayon.
 
 ---
 
@@ -102,13 +102,14 @@ The integration test helper `make_config(source, output)` sets `no_img = true`, 
 ### Reproducibility invariant
 
 All output must be byte-for-byte identical across runs on the same inputs:
+
 - `sort_images()` uses a path tiebreaker — never leave `Equal` in a comparator
 - Cache busters derive from `compute_sprite_hash` — never use `rand`
 - Parallel `collect()` from Rayon is order-preserving for indexed iterators (our usage)
 
 ### Cache invalidation
 
-`compute_sprite_hash` (output.rs) hashes: spriters version, relevant config fields, and per-image path + x + y + dimensions + aliases.  If you add a field that affects the output image or layout, hash it here.
+`compute_sprite_hash` (output.rs) hashes: spriters version, relevant config fields, and per-image path + x + y + dimensions + aliases. If you add a field that affects the output image or layout, hash it here.
 
 ---
 
@@ -127,6 +128,7 @@ All output must be byte-for-byte identical across runs on the same inputs:
 Phase 1 (Glue parity) ✓, Phase 2 (performance) ✓, Phase 3 (beyond Glue) ✓ — all complete.
 
 Remaining phases from `Roadmap.md`:
+
 - **Phase 4.1**: publish to crates.io (API stabilisation, doc coverage)
 - **Phase 4.2**: documentation site
 - **Phase 4.3**: criterion benchmarks (`benches/`)

@@ -196,13 +196,20 @@ fn sprite_stats_returns_none_for_missing_sprite() {
 #[test]
 fn bash_completion_covers_key_flags() {
     let script = spriters::completions::BASH;
-    for flag in &["--dry-run", "--check", "--exclude", "--css-vars", "--format", "--algorithm"] {
-        assert!(
-            script.contains(flag),
-            "bash completion missing flag {flag}"
-        );
+    for flag in &[
+        "--dry-run",
+        "--check",
+        "--exclude",
+        "--css-vars",
+        "--format",
+        "--algorithm",
+    ] {
+        assert!(script.contains(flag), "bash completion missing flag {flag}");
     }
-    assert!(script.contains("complete -F _spriters spriters"), "must register completion");
+    assert!(
+        script.contains("complete -F _spriters spriters"),
+        "must register completion"
+    );
 }
 
 #[test]
@@ -211,17 +218,17 @@ fn zsh_completion_covers_key_flags() {
     for flag in &["--dry-run", "--check", "--exclude", "--css-vars"] {
         assert!(script.contains(flag), "zsh completion missing flag {flag}");
     }
-    assert!(script.contains("#compdef spriters"), "must start with #compdef");
+    assert!(
+        script.contains("#compdef spriters"),
+        "must start with #compdef"
+    );
 }
 
 #[test]
 fn fish_completion_covers_key_flags() {
     let script = spriters::completions::FISH;
     for flag in &["dry-run", "check", "exclude", "css-vars", "algorithm"] {
-        assert!(
-            script.contains(flag),
-            "fish completion missing flag {flag}"
-        );
+        assert!(script.contains(flag), "fish completion missing flag {flag}");
     }
     assert!(
         script.contains("complete -c spriters"),

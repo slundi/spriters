@@ -77,10 +77,22 @@ fn css_vars_has_xywh_properties_for_each_image() {
         // america/ has ca.png and us.png
         for name in &["ca", "us"] {
             let prefix = format!("--sprite-america-{name}-");
-            assert!(content.contains(&format!("{prefix}x:")), "missing {prefix}x");
-            assert!(content.contains(&format!("{prefix}y:")), "missing {prefix}y");
-            assert!(content.contains(&format!("{prefix}w:")), "missing {prefix}w");
-            assert!(content.contains(&format!("{prefix}h:")), "missing {prefix}h");
+            assert!(
+                content.contains(&format!("{prefix}x:")),
+                "missing {prefix}x"
+            );
+            assert!(
+                content.contains(&format!("{prefix}y:")),
+                "missing {prefix}y"
+            );
+            assert!(
+                content.contains(&format!("{prefix}w:")),
+                "missing {prefix}w"
+            );
+            assert!(
+                content.contains(&format!("{prefix}h:")),
+                "missing {prefix}h"
+            );
         }
     });
 }
@@ -91,10 +103,8 @@ fn css_vars_single_image_at_origin_has_zero_position() {
     with_tmp_dir(|out| {
         let mut config = make_config("tests/images/america", out);
         // Use file-list mode to pin to a single image.
-        config.files = vec![PathBuf::from(
-            env!("CARGO_MANIFEST_DIR"),
-        )
-        .join("tests/images/europe/fr.png")];
+        config.files =
+            vec![PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/images/europe/fr.png")];
         config.source = PathBuf::from("tests/images/europe");
 
         run_manager(config);
@@ -109,8 +119,14 @@ fn css_vars_single_image_at_origin_has_zero_position() {
             "single image y must be 0"
         );
         // fr.png is 250×167
-        assert!(content.contains("--sprite-europe-fr-w: 250px;"), "width must be 250px");
-        assert!(content.contains("--sprite-europe-fr-h: 167px;"), "height must be 167px");
+        assert!(
+            content.contains("--sprite-europe-fr-w: 250px;"),
+            "width must be 250px"
+        );
+        assert!(
+            content.contains("--sprite-europe-fr-h: 167px;"),
+            "height must be 167px"
+        );
     });
 }
 

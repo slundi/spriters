@@ -97,7 +97,9 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
                     }
                 }
             }
-            Long("exclude") => args.exclude.push(parser.value()?.to_string_lossy().into_owned()),
+            Long("exclude") => args
+                .exclude
+                .push(parser.value()?.to_string_lossy().into_owned()),
             Long("max-width") => args.max_width = Some(parser.value()?.parse()?),
             Long("max-height") => args.max_height = Some(parser.value()?.parse()?),
             Short('p') | Long("padding") => {
