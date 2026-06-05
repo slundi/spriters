@@ -385,6 +385,9 @@ pub struct Config {
     pub cachebuster_filename_only_sprites: bool,
     /// Output format for the sprite image (png, webp, avif)
     pub sprite_format: SpriteFormat,
+    /// Glob patterns (matched against filename) for files to skip during discovery.
+    /// Repeatable: `--exclude "_draft_*" --exclude "*.tmp"`.
+    pub exclude: Vec<String>,
 }
 impl Config {
     /// Check mandatory arguments and some values
@@ -475,6 +478,7 @@ impl Default for Config {
             caat: false,
             cachebuster_filename_only_sprites: false,
             sprite_format: SpriteFormat::Png,
+            exclude: vec![],
         }
     }
 }
@@ -569,6 +573,17 @@ impl Sprite {
         let mut alias_map: HashMap<String, Vec<String>> = HashMap::new();
         let mut candidates: Vec<(String, Vec<u8>)> = Vec::new();
 
+        let exclude_patterns: Vec<glob::Pattern> = self
+            .config
+            .exclude
+            .iter()
+            .filter_map(|p| {
+                glob::Pattern::new(p)
+                    .map_err(|e| warn!("Invalid exclude pattern '{}': {}", p, e))
+                    .ok()
+            })
+            .collect();
+
         let mut walker = WalkDir::new(std::path::Path::new(&self.config.source))
             .follow_links(self.config.follow_links);
         if !self.config.recursive {
@@ -578,6 +593,13 @@ impl Sprite {
             let name = entry.file_name().to_string_lossy();
             let ext = entry.path().extension();
             if name.starts_with('.') || ext.is_none() {
+                continue;
+            }
+            if exclude_patterns
+                .iter()
+                .any(|p| p.matches_with(&name, glob::MatchOptions { case_sensitive: true, ..Default::default() }))
+            {
+                debug!("Excluding: {}", name);
                 continue;
             }
             let ext = ext

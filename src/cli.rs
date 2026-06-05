@@ -48,6 +48,7 @@ Image processing options:
 --ratios:               generate sprites at multiple ratios for different DPIs (e.g., '2,1' or '2,1.5,1')
 --retina:               shortcut for --ratios=2,1
 -c, --crop:             crop unnecessary transparent spaces
+--exclude:              skip files whose name matches a glob pattern (repeatable, e.g. --exclude '_draft_*' --exclude '*.tmp')
 --max-width:            image max width in the sprite
 --max-height:           image max height in the sprite
 --resize-algorithm:     resize algorithm are nearesr, triangle, gaussian, lanczos3, catmullrom (default)
@@ -90,6 +91,7 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
                     }
                 }
             }
+            Long("exclude") => args.exclude.push(parser.value()?.to_string_lossy().into_owned()),
             Long("max-width") => args.max_width = Some(parser.value()?.parse()?),
             Long("max-height") => args.max_height = Some(parser.value()?.parse()?),
             Short('p') | Long("padding") => {

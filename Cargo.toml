@@ -23,6 +23,7 @@ path = "src/main.rs"
 
 [dependencies]
 fraction = "0.15"
+glob = "0.3"
 image = { version = "0.25", features = ["avif"] }
 lexopt = "0.3"
 log = "0.4"

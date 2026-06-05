@@ -39,6 +39,7 @@ pub struct FileConfig {
     pub no_duplicate: Option<bool>,
     pub recursive: Option<bool>,
     pub project: Option<bool>,
+    pub exclude: Option<Vec<String>>,
 }
 
 /// Load a `spriters.toml` from `dir` if it exists.
@@ -203,6 +204,9 @@ pub fn apply_env_vars(config: &mut Config) {
     if let Ok(v) = env::var("SPRITERS_FORMAT") {
         config.sprite_format = parse_sprite_format(&v);
     }
+    if let Ok(v) = env::var("SPRITERS_EXCLUDE") {
+        config.exclude = v.split(',').map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()).collect();
+    }
 }
 
 /// Overlay file config values onto config. Higher priority than env vars and CLI.
@@ -310,6 +314,9 @@ pub fn apply_file_config(config: &mut Config, fc: FileConfig) {
     }
     if let Some(v) = fc.project {
         config.project = v;
+    }
+    if let Some(v) = fc.exclude {
+        config.exclude.extend(v);
     }
 }
 
