@@ -86,31 +86,6 @@ fn format_bytes(n: u64) -> String {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::format_bytes;
-
-    #[test]
-    fn test_format_bytes_bytes_range() {
-        assert_eq!(format_bytes(0), "0 B");
-        assert_eq!(format_bytes(1), "1 B");
-        assert_eq!(format_bytes(1023), "1023 B");
-    }
-
-    #[test]
-    fn test_format_bytes_kb_range() {
-        assert_eq!(format_bytes(1024), "1.0 KB");
-        assert_eq!(format_bytes(2048), "2.0 KB");
-        assert_eq!(format_bytes(1_047_552), "1023.0 KB");
-    }
-
-    #[test]
-    fn test_format_bytes_mb_range() {
-        assert_eq!(format_bytes(1_048_576), "1.0 MB");
-        assert_eq!(format_bytes(2_097_152), "2.0 MB");
-    }
-}
-
 fn main() -> Result<(), lexopt::Error> {
     // Detect subcommands before full argument parsing.
     let raw: Vec<String> = std::env::args().collect();
@@ -131,12 +106,10 @@ fn main() -> Result<(), lexopt::Error> {
     // When stdin is a pipe, read newline-delimited image paths from it.
     // This lets spriters compose with other tools: `fd -e png . | spriters -o dist/`
     if !std::io::stdin().is_terminal() {
-        for line in std::io::stdin().lock().lines() {
-            if let Ok(line) = line {
-                let line = line.trim().to_owned();
-                if !line.is_empty() {
-                    config.files.push(std::path::PathBuf::from(line));
-                }
+        for line in std::io::stdin().lock().lines().map_while(Result::ok) {
+            let line = line.trim().to_owned();
+            if !line.is_empty() {
+                config.files.push(std::path::PathBuf::from(line));
             }
         }
     }
@@ -197,4 +170,29 @@ fn main() -> Result<(), lexopt::Error> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_bytes;
+
+    #[test]
+    fn test_format_bytes_bytes_range() {
+        assert_eq!(format_bytes(0), "0 B");
+        assert_eq!(format_bytes(1), "1 B");
+        assert_eq!(format_bytes(1023), "1023 B");
+    }
+
+    #[test]
+    fn test_format_bytes_kb_range() {
+        assert_eq!(format_bytes(1024), "1.0 KB");
+        assert_eq!(format_bytes(2048), "2.0 KB");
+        assert_eq!(format_bytes(1_047_552), "1023.0 KB");
+    }
+
+    #[test]
+    fn test_format_bytes_mb_range() {
+        assert_eq!(format_bytes(1_048_576), "1.0 MB");
+        assert_eq!(format_bytes(2_097_152), "2.0 MB");
+    }
 }

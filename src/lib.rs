@@ -844,6 +844,7 @@ impl Sprite {
         }
     }
 
+    #[cfg(test)]
     fn get_max_color_type(&self) -> ColorType {
         let mut current = ColorType::L8;
         for i in self.images.iter() {

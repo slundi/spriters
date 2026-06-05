@@ -7,6 +7,7 @@ use crate::{Config, JsonFormat, Sprite, SpriteFormat};
 
 const SPRITERS_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+#[cfg(test)]
 const CSS_PSEUDO_CLASSES: [&str; 10] = [
     "link",
     "visited",
@@ -255,46 +256,6 @@ const _LESS_TEMPLATE: &str = "<% for image in &images { %>.<%= image.label %><%=
     height:<%= image.height %>px;
 }
 <% } %>";
-
-fn generate_less_old(config: &Config, sprite: &Sprite) {
-    let mut f = BufWriter::new(File::create(&sprite.path).expect("Unable to create file"));
-    let name = sprite.path.file_name().unwrap().to_string_lossy();
-    let _ = writeln!(
-        f,
-        "{list}{{
-    background-image:url('{name}.png');
-    -webkit-background-size: {w}px {h}px;
-    -moz-background-size: {w}px {h}px;
-    background-size: {w}px {h}px;
-    @media screen and (-webkit-min-device-pixel-ratio: 1.0), screen and (min--moz-device-pixel-ratio: 1.0), screen and (-o-min-device-pixel-ratio: 100/100), screen and (min-device-pixel-ratio: 1.0),screen and (min-resolution: 1.0dppx){{
-        background-image:url('{name}.png');
-    }}
-}}",
-        list = implode_image_label(config, sprite),
-        name = name,
-        w = 0, // TODO: sprite.get_width(),
-        h = 0, //sprite.get_height(),
-    );
-    for img in sprite.images.iter() {
-        let class_name = build_class_name(config, &name, &img.label());
-        let _ = writeln!(
-            f,
-            ".{class}{{background-position: {x} {y}; width: {w}px; height: {h}px;}}",
-            class = class_name,
-            x = img.x,
-            y = img.y,
-            w = img.computed_width,
-            h = img.computed_height,
-        );
-    }
-    let _ = writeln!(f, "@media screen and (-webkit-min-device-pixel-ratio: 1.0), screen and (min--moz-device-pixel-ratio: 1.0), screen and (-o-min-device-pixel-ratio: 100/100), screen and (min-device-pixel-ratio: 1.0), screen and (min-resolution: 1.0dppx){{
-    background-image: url('{name}'); -webkit-background-size: {w}px {h}px; -moz-background-size: {w}px {h}px; background-size: {w}px {h}px;
-}}",
-        name = name,
-        w = 0, // TODO:
-        h = 0,
-    );
-}
 
 fn generate_less(config: &Config, sprite: &Sprite) {
     let name = sprite.path.file_name().unwrap().to_string_lossy();
@@ -937,7 +898,8 @@ mod tests {
 
         let make_sprite = || {
             let config = Config::default();
-            let sprite = Sprite {
+
+            Sprite {
                 config: config.clone(),
                 path: PathBuf::from("america"),
                 ratios: vec![1.0],
@@ -952,8 +914,7 @@ mod tests {
                 }],
                 margin: crate::util::Spacing::default(),
                 padding: crate::util::Spacing::default(),
-            };
-            sprite
+            }
         };
 
         // No cachebuster: URL is just the filename
