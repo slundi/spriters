@@ -1,12 +1,11 @@
 [package]
 name = "spriters"
-version = "0.2.0"
+version = "1.0.0"
 authors = ["Sébastien LUNDI"]
 categories = ["command-line-utilities", "multimedia::images", "algorithms", "game-development", "web-programming"]
 edition = "2021"
 keywords = ["sprites", "css-sprites", "sprite-sheet", "image-packing", "css"]
 license = "GPL-3.0-or-later"
-license-file = "LICENSE.md"
 readme = "README.md"
 repository = "https://codeberg.org/slundi/spriters"
 description = "Fast CSS sprite generator — Rust reimplementation of Glue with SVG support, WebP/AVIF output, and multi-threaded processing"
@@ -29,7 +28,7 @@ lexopt = "0.3"
 log = "0.4"
 notify = "8"
 rayon = "1"
-resvg = "0.44"
+resvg = "0.47"
 serde = { version = "1", features = ["derive"] }
 slug = "0.1"
 stderrlog = "0.6"

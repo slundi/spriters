@@ -29,6 +29,16 @@ Packing many small images into a single file reduces HTTP requests and improves 
 | **Project mode**       | `--project` generates one sprite per sub-directory                                                                                                 |
 | **Reproducibility**    | Byte-for-byte identical output for the same inputs, suitable for content-addressed CI caches                                                       |
 | **Performance**        | Rayon-parallel decode, crop, resize; parallel output generation; parallel project-mode builds                                                      |
+| **File exclusion**     | `--exclude <glob>` (repeatable) skips matching files; supports `*` and `?`; configurable via `SPRITERS_EXCLUDE`                                    |
+| **Stdin input**        | Newline-separated image paths on stdin replace directory walking — compose with `fd`, `find`, etc.                                                 |
+| **CSS custom props**   | `--css-vars` emits `<sprite>.vars.css` with `--name-x/y/w/h` tokens in `:root {}` for design-system / CSS token workflows                          |
+| **Dry-run**            | `--dry-run` prints detected images, sprite dimensions, and output paths without writing any files                                                  |
+| **Incremental builds** | Content-hash lockfile (`.{name}.spriters`) skips regeneration when inputs are unchanged; `--force` bypasses                                        |
+| **Check mode**         | `--check` exits non-zero when output is missing or stale — assert sprites are committed in CI without regenerating                                 |
+| **Stats**              | `stats <output-dir>` subcommand reports dimensions, file size, packing efficiency, and duplicate count                                             |
+| **Shell completions**  | `completions <shell>` subcommand writes bash/zsh/fish completion scripts to stdout                                                                 |
+| **Tailwind safelist**  | `--tailwind` emits `<sprite>.tailwind.json` listing all CSS class names for Tailwind's purge/safelist config                                       |
+| **TypeScript types**   | `--dts` emits `<sprite>.d.ts` with `export type SpriteName = "…"                                                                                   |
 
 ---
 
@@ -68,6 +78,21 @@ spriters svg-icons/ dist/
 
 # Project mode: one sprite per sub-folder
 spriters images/ dist/ --project
+
+# Exclude draft/temp files
+spriters icons/ dist/ --exclude "_draft_*" --exclude "*.tmp"
+
+# Compose with fd — pipe file list on stdin
+fd -e png -e svg . icons/ | spriters --output dist/
+
+# Emit CSS custom properties, Tailwind safelist, and TypeScript types
+spriters icons/ dist/ --css-vars --tailwind --dts
+
+# Dry-run: see what would be generated without writing files
+spriters icons/ dist/ --dry-run
+
+# CI check — fail if sprites are out of date
+spriters icons/ dist/ --check
 ```
 
 ---
@@ -76,16 +101,19 @@ spriters images/ dist/ --project
 
 ### General
 
-| Flag                | Description                             |
-| ------------------- | --------------------------------------- |
-| `-i`, `--input`     | Source directory (default: CWD)         |
-| `-o`, `--output`    | Output directory (default: CWD)         |
-| `--project`         | Generate one sprite per sub-directory   |
-| `-r`, `--recursive` | Walk source directory recursively       |
-| `--follow-links`    | Follow symbolic links                   |
-| `--force`           | Regenerate even if sprite is up to date |
-| `--watch`           | Watch for changes and regenerate        |
-| `-q`, `--quiet`     | Suppress console output                 |
+| Flag                | Description                                                         |
+| ------------------- | ------------------------------------------------------------------- |
+| `-i`, `--input`     | Source directory (default: CWD)                                     |
+| `-o`, `--output`    | Output directory (default: CWD)                                     |
+| `--project`         | Generate one sprite per sub-directory                               |
+| `-r`, `--recursive` | Walk source directory recursively                                   |
+| `--follow-links`    | Follow symbolic links                                               |
+| `--force`           | Regenerate even if sprite is up to date                             |
+| `--watch`           | Watch for changes and regenerate                                    |
+| `-q`, `--quiet`     | Suppress console output                                             |
+| `--exclude`         | Skip files matching glob pattern (repeatable, supports `*` and `?`) |
+| `--dry-run`         | Print what would be generated without writing any files             |
+| `--check`           | Exit non-zero if output is missing or stale (CI assertion)          |
 
 ### Image processing
 
@@ -122,6 +150,10 @@ spriters images/ dist/ --project
 | `--css-template`                      | Custom Jinja-style CSS template                                                                |
 | `--less-template`                     | Custom Jinja-style LESS template                                                               |
 | `--scss-template`                     | Custom Jinja-style SCSS template                                                               |
+| `--css-vars`                          | Emit CSS custom properties (`<sprite>.vars.css`) with `--name-x/y/w/h` tokens                  |
+| `--css-vars-template`                 | Custom template for CSS custom properties output                                               |
+| `--tailwind`                          | Emit `<sprite>.tailwind.json` safelist for Tailwind CSS purge/safelist config                  |
+| `--dts`                               | Emit `<sprite>.d.ts` TypeScript union type of all sprite names                                 |
 | `--cachebuster`                       | Add content hash as query param to sprite URL                                                  |
 | `--cachebuster-filename`              | Embed content hash in sprite URL filename                                                      |
 | `--cachebuster-filename-only-sprites` | Embed hash in sprite image filename; CSS URL stays clean                                       |
@@ -130,6 +162,18 @@ spriters images/ dist/ --project
 | `--separator`                         | CSS class name separator (default: `-`)                                                        |
 | `--pseudo-class-separator`            | Suffix separator for pseudo-classes (e.g. `__` → `button__hover.png` → `.sprite-button:hover`) |
 | `-u`, `--url`                         | Base URL for sprite images (e.g. `https://cdn.example.com/sprites`)                            |
+
+### Subcommands
+
+| Subcommand            | Description                                                             |
+| --------------------- | ----------------------------------------------------------------------- |
+| `stats <output-dir>`  | Report sprite dimensions, file size, packing efficiency, and duplicates |
+| `completions <shell>` | Write completion script to stdout (`bash`, `zsh`, or `fish`)            |
+
+```sh
+# Install zsh completions
+spriters completions zsh > ~/.zfunc/_spriters
+```
 
 ---
 
@@ -181,21 +225,30 @@ manager.save();
 
 spriters targets full feature parity with [Glue 0.11.1](http://glue.readthedocs.org/) plus several additions:
 
-| Feature                              |  Glue   | spriters |
-| ------------------------------------ | :-----: | :------: |
-| CSS / LESS / SCSS / custom templates |    ✓    |    ✓     |
-| JSON (array & hash), cocos2d, CAAT   |    ✓    |    ✓     |
-| HTML test page                       |    ✓    |    ✓     |
-| 6 layout algorithms, 5 orderings     |    ✓    |    ✓     |
-| Transparent crop, padding, margin    |    ✓    |    ✓     |
-| PNG8, retina / multi-ratio           |    ✓    |    ✓     |
-| Pseudo-class from filename           |    ✓    |    ✓     |
-| Cache busting (3 modes)              |    ✓    |    ✓     |
-| Project mode, recursive, watch       |    ✓    |    ✓     |
-| Config file + env vars               |    ✓    |    ✓     |
-| Duplicate detection & consolidation  |    —    |    ✓     |
-| SVG source support                   |    —    |    ✓     |
-| WebP / AVIF output                   |    —    |    ✓     |
-| Image resize (max-width/height)      | partial |    ✓     |
-| Multi-threaded processing            |    —    |    ✓     |
-| Reproducible output                  |    —    |    ✓     |
+| Feature                               |  Glue   | spriters |
+| ------------------------------------- | :-----: | :------: |
+| CSS / LESS / SCSS / custom templates  |    ✓    |    ✓     |
+| JSON (array & hash), cocos2d, CAAT    |    ✓    |    ✓     |
+| HTML test page                        |    ✓    |    ✓     |
+| 6 layout algorithms, 5 orderings      |    ✓    |    ✓     |
+| Transparent crop, padding, margin     |    ✓    |    ✓     |
+| PNG8, retina / multi-ratio            |    ✓    |    ✓     |
+| Pseudo-class from filename            |    ✓    |    ✓     |
+| Cache busting (3 modes)               |    ✓    |    ✓     |
+| Project mode, recursive, watch        |    ✓    |    ✓     |
+| Config file + env vars                |    ✓    |    ✓     |
+| Duplicate detection & consolidation   |    —    |    ✓     |
+| SVG source support                    |    —    |    ✓     |
+| WebP / AVIF output                    |    —    |    ✓     |
+| Image resize (max-width/height)       | partial |    ✓     |
+| Multi-threaded processing             |    —    |    ✓     |
+| Reproducible output                   |    —    |    ✓     |
+| File exclusion patterns (`--exclude`) |    —    |    ✓     |
+| stdin / piped file list               |    —    |    ✓     |
+| CSS custom properties (`--css-vars`)  |    —    |    ✓     |
+| Dry-run mode (`--dry-run`)            |    —    |    ✓     |
+| Incremental builds / check mode       |    —    |    ✓     |
+| Tailwind safelist JSON (`--tailwind`) |    —    |    ✓     |
+| TypeScript type definitions (`--dts`) |    —    |    ✓     |
+| Stats subcommand                      |    —    |    ✓     |
+| Shell completions subcommand          |    —    |    ✓     |
