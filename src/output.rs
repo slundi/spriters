@@ -749,6 +749,65 @@ fn save_metadata(config: &Config, sprite: &Sprite) {
     }
 }
 
+fn generate_tailwind(config: &Config, sprite: &Sprite) {
+    let name = sprite.path.file_name().unwrap().to_string_lossy();
+    let output_path = config.output.join(format!("{}.tailwind.json", name));
+    let mut f = BufWriter::new(
+        File::create(&output_path).expect("Unable to create Tailwind JSON file"),
+    );
+
+    let class_names: Vec<String> = sprite
+        .images
+        .iter()
+        .flat_map(|img| {
+            std::iter::once(img.label())
+                .chain(img.aliases.iter().map(|p| label_from_path(p)))
+                .map(|lbl| build_class_name(config, &name, &lbl))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
+    let n = class_names.len();
+    let _ = writeln!(f, "{{");
+    let _ = writeln!(f, "  \"safelist\": [");
+    for (i, cls) in class_names.iter().enumerate() {
+        let comma = if i + 1 < n { "," } else { "" };
+        let _ = writeln!(f, "    \"{}\"{}", cls, comma);
+    }
+    let _ = writeln!(f, "  ]");
+    let _ = writeln!(f, "}}");
+    log::info!("Generated Tailwind JSON: {:?}", output_path);
+}
+
+fn generate_dts(config: &Config, sprite: &Sprite) {
+    let name = sprite.path.file_name().unwrap().to_string_lossy();
+    let output_path = config.output.join(format!("{}.d.ts", name));
+    let mut f =
+        BufWriter::new(File::create(&output_path).expect("Unable to create .d.ts file"));
+
+    let labels: Vec<String> = sprite
+        .images
+        .iter()
+        .flat_map(|img| {
+            std::iter::once(img.label())
+                .chain(img.aliases.iter().map(|p| label_from_path(p)))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
+    if labels.is_empty() {
+        let _ = writeln!(f, "export type SpriteName = never;");
+        return;
+    }
+
+    let _ = write!(f, "export type SpriteName");
+    for (i, lbl) in labels.iter().enumerate() {
+        let semi = if i + 1 == labels.len() { ";" } else { "" };
+        let _ = writeln!(f, "\n  | \"{}\"{}", lbl, semi);
+    }
+    log::info!("Generated TypeScript definitions: {:?}", output_path);
+}
+
 fn print_dry_run(config: &Config, sprite: &Sprite) {
     let name = sprite.path.file_name().unwrap().to_string_lossy();
     let (w, h) = sprite.dimensions();
@@ -773,14 +832,16 @@ fn print_dry_run(config: &Config, sprite: &Sprite) {
     if !config.no_img {
         println!("  {name}.{ext}", ext = config.sprite_format.extension());
     }
-    if !config.no_css  { println!("  {name}.css"); }
-    if config.less     { println!("  {name}.less"); }
-    if config.scss     { println!("  {name}.scss"); }
-    if config.json     { println!("  {name}.json"); }
-    if config.html     { println!("  {name}.html"); }
-    if config.cocos2d  { println!("  {name}.plist"); }
-    if config.caat     { println!("  {name}.caat.json"); }
-    if config.css_vars { println!("  {name}.vars.css"); }
+    if !config.no_css    { println!("  {name}.css"); }
+    if config.less       { println!("  {name}.less"); }
+    if config.scss       { println!("  {name}.scss"); }
+    if config.json       { println!("  {name}.json"); }
+    if config.html       { println!("  {name}.html"); }
+    if config.cocos2d    { println!("  {name}.plist"); }
+    if config.caat       { println!("  {name}.caat.json"); }
+    if config.css_vars   { println!("  {name}.vars.css"); }
+    if config.tailwind   { println!("  {name}.tailwind.json"); }
+    if config.dts        { println!("  {name}.d.ts"); }
 }
 
 pub fn generate_files(config: &Config, sprite: &Sprite) {
@@ -828,6 +889,12 @@ pub fn generate_files(config: &Config, sprite: &Sprite) {
         }
         if config.css_vars {
             t.push(generate_css_vars);
+        }
+        if config.tailwind {
+            t.push(generate_tailwind);
+        }
+        if config.dts {
+            t.push(generate_dts);
         }
         t
     };

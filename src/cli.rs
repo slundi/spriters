@@ -31,6 +31,8 @@ Output options:
 --scss-template:        custom Jinja template for SCSS output
 --css-vars:             generate a .vars.css file with CSS custom properties (--sprite-name-x, -y, -w, -h)
 --css-vars-template:    custom template file for CSS vars output
+--tailwind:             generate a .tailwind.json file with a Tailwind CSS safelist of all sprite class names
+--dts:                  generate a .d.ts TypeScript definition file with a SpriteName union type
 --no-css:               do not generate CSS files
 --no-img:               do not generate image file
 --format:               output image format: png (default), webp, avif
@@ -155,6 +157,8 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
                 ));
             }
             Long("css-vars") => args.css_vars = true,
+            Long("tailwind") => args.tailwind = true,
+            Long("dts") => args.dts = true,
             Long("css-vars-template") => {
                 args.css_vars_template = Some(std::path::PathBuf::from(
                     parser.value()?.to_string_lossy().to_string(),

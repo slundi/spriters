@@ -400,6 +400,10 @@ pub struct Config {
     pub dry_run: bool,
     /// Exit non-zero if output is missing or stale; do not regenerate.
     pub check: bool,
+    /// Emit a `<sprite>.tailwind.json` file listing all CSS class names for Tailwind's safelist.
+    pub tailwind: bool,
+    /// Emit a `<sprite>.d.ts` TypeScript definition file with a `SpriteName` union type.
+    pub dts: bool,
 }
 impl Config {
     /// Check mandatory arguments and some values
@@ -496,6 +500,8 @@ impl Default for Config {
             css_vars_template: None,
             dry_run: false,
             check: false,
+            tailwind: false,
+            dts: false,
         }
     }
 }

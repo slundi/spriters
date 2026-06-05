@@ -7,7 +7,7 @@ pub const BASH: &str = r#"_spriters() {
           --follow-links --force --dry-run --check
           --html --json --json-format --caat --cocos2d
           --less --scss --css-template --less-template --scss-template
-          --no-css --no-img --css-vars --css-vars-template --format
+          --no-css --no-img --css-vars --css-vars-template --tailwind --dts --format
           --css --img --cachebuster --cachebuster-filename
           --cachebuster-filename-only-sprites --separator --namespace
           --sprite-namespace --pseudo-class-separator --url
@@ -69,6 +69,8 @@ _spriters() {
         '--no-css[Skip CSS generation]'
         '--no-img[Skip image generation]'
         '--css-vars[Generate CSS custom properties file]'
+        '--tailwind[Generate Tailwind CSS safelist JSON]'
+        '--dts[Generate TypeScript SpriteName type definition]'
         '--format[Sprite image format]:format:(png webp avif)'
         '--cachebuster[Add hash as query param]'
         '--cachebuster-filename[Embed hash in filename]'
@@ -120,6 +122,8 @@ complete -c spriters      -l scss        -d 'Generate SCSS stylesheet'
 complete -c spriters      -l no-css      -d 'Skip CSS generation'
 complete -c spriters      -l no-img      -d 'Skip image generation'
 complete -c spriters      -l css-vars    -d 'Generate CSS custom properties'
+complete -c spriters      -l tailwind    -d 'Generate Tailwind CSS safelist JSON'
+complete -c spriters      -l dts         -d 'Generate TypeScript SpriteName type'
 complete -c spriters      -l format      -d 'Image format'             -r -a 'png webp avif'
 complete -c spriters      -l cachebuster -d 'Add hash as query param'
 complete -c spriters      -l cachebuster-filename -d 'Embed hash in filename'

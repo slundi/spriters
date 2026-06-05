@@ -30,8 +30,8 @@
 | Follow symlinks                         |    ✓    |           ✓           |
 | Watch mode                              |    ✓    |           ✓           |
 | Force regeneration                      |    ✓    |           ✓           |
-| Config file support                     |    ✓    |           ✗           |
-| Environment variable config             |    ✓    |           ✗           |
+| Config file support                     |    ✓    |           ✓           |
+| Environment variable config             |    ✓    |           ✓           |
 | Duplicate detection                     |    ✗    |           ✓           |
 | Image resize (max-width/height)         |    ✗    |           ✓           |
 | Multiple resize algorithms              |    ✗    |           ✓           |
@@ -180,13 +180,13 @@ spriters completions zsh > ~/.zfunc/_spriters
 
 ---
 
-## Phase 5 — Modern Web Integration
+## Phase 5 — Modern Web Integration ✓
 
-### 5.1 Tailwind-compatible JSON output
+### 5.1 Tailwind-compatible JSON output ✓
 
 Emit a JSON file (`--tailwind`) structured as a Tailwind CSS plugin config or `safelist` entry, listing all generated class names. This lets Tailwind's treeshaker keep sprite classes in production builds without manual safelisting.
 
-### 5.2 TypeScript type definitions
+### 5.2 TypeScript type definitions ✓
 
 Alongside JSON output, emit a `.d.ts` file (`--dts`) exporting a union type of all sprite names:
 
@@ -259,3 +259,5 @@ Publish to:
 - [x] `--check` — exits non-zero if output is missing or stale; used in CI via `Manager::is_up_to_date()`
 - [x] `stats` subcommand — reads generated sprite image, reports dimensions, file size, and packing efficiency
 - [x] `completions` subcommand — writes bash/zsh/fish completion scripts to stdout
+- [x] `--tailwind` — emits `<sprite>.tailwind.json` with a `safelist` array of all CSS class names for Tailwind's purge/safelist config
+- [x] `--dts` — emits `<sprite>.d.ts` with `export type SpriteName = "label-1" | "label-2" | ...` for typed UI frameworks

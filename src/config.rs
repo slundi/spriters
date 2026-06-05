@@ -43,6 +43,8 @@ pub struct FileConfig {
     pub css_vars: Option<bool>,
     pub dry_run: Option<bool>,
     pub check: Option<bool>,
+    pub tailwind: Option<bool>,
+    pub dts: Option<bool>,
 }
 
 /// Load a `spriters.toml` from `dir` if it exists.
@@ -225,6 +227,16 @@ pub fn apply_env_vars(config: &mut Config) {
             config.check = b;
         }
     }
+    if let Ok(v) = env::var("SPRITERS_TAILWIND") {
+        if let Ok(b) = parse_bool(&v) {
+            config.tailwind = b;
+        }
+    }
+    if let Ok(v) = env::var("SPRITERS_DTS") {
+        if let Ok(b) = parse_bool(&v) {
+            config.dts = b;
+        }
+    }
 }
 
 /// Overlay file config values onto config. Higher priority than env vars and CLI.
@@ -344,6 +356,12 @@ pub fn apply_file_config(config: &mut Config, fc: FileConfig) {
     }
     if let Some(v) = fc.check {
         config.check = v;
+    }
+    if let Some(v) = fc.tailwind {
+        config.tailwind = v;
+    }
+    if let Some(v) = fc.dts {
+        config.dts = v;
     }
 }
 
