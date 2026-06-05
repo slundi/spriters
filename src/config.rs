@@ -40,6 +40,7 @@ pub struct FileConfig {
     pub recursive: Option<bool>,
     pub project: Option<bool>,
     pub exclude: Option<Vec<String>>,
+    pub css_vars: Option<bool>,
 }
 
 /// Load a `spriters.toml` from `dir` if it exists.
@@ -207,6 +208,11 @@ pub fn apply_env_vars(config: &mut Config) {
     if let Ok(v) = env::var("SPRITERS_EXCLUDE") {
         config.exclude = v.split(',').map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()).collect();
     }
+    if let Ok(v) = env::var("SPRITERS_CSS_VARS") {
+        if let Ok(b) = parse_bool(&v) {
+            config.css_vars = b;
+        }
+    }
 }
 
 /// Overlay file config values onto config. Higher priority than env vars and CLI.
@@ -317,6 +323,9 @@ pub fn apply_file_config(config: &mut Config, fc: FileConfig) {
     }
     if let Some(v) = fc.exclude {
         config.exclude.extend(v);
+    }
+    if let Some(v) = fc.css_vars {
+        config.css_vars = v;
     }
 }
 

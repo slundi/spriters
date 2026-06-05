@@ -391,6 +391,10 @@ pub struct Config {
     /// Explicit file list, populated from stdin when stdin is a pipe.
     /// When non-empty, directory walking is skipped entirely.
     pub files: Vec<PathBuf>,
+    /// Emit a `<sprite>.vars.css` file with CSS custom properties for each image.
+    pub css_vars: bool,
+    /// Custom template file for CSS vars output.
+    pub css_vars_template: Option<PathBuf>,
 }
 impl Config {
     /// Check mandatory arguments and some values
@@ -483,6 +487,8 @@ impl Default for Config {
             sprite_format: SpriteFormat::Png,
             exclude: vec![],
             files: vec![],
+            css_vars: false,
+            css_vars_template: None,
         }
     }
 }

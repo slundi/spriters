@@ -373,6 +373,43 @@ fn generate_scss(config: &Config, sprite: &Sprite) {
     }
 }
 
+fn generate_css_vars(config: &Config, sprite: &Sprite) {
+    let name = sprite.path.file_name().unwrap().to_string_lossy();
+    let output_path = config.output.join(format!("{}.vars.css", name));
+    let mut f =
+        BufWriter::new(File::create(&output_path).expect("Unable to create CSS vars file"));
+    let sprite_url = get_sprite_url(config, sprite);
+
+    let _ = writeln!(f, ":root {{");
+    let _ = writeln!(f, "  --{name}-image: url('{url}');", name = name, url = sprite_url);
+
+    for img in sprite.images.iter() {
+        let x_val = if img.x == 0 {
+            "0".to_owned()
+        } else {
+            format!("-{}px", img.x)
+        };
+        let y_val = if img.y == 0 {
+            "0".to_owned()
+        } else {
+            format!("-{}px", img.y)
+        };
+
+        for label in std::iter::once(img.label())
+            .chain(img.aliases.iter().map(|p| label_from_path(p)))
+        {
+            let prop = build_class_name(config, &name, &label);
+            let _ = writeln!(f, "  --{p}-x: {x};", p = prop, x = x_val);
+            let _ = writeln!(f, "  --{p}-y: {y};", p = prop, y = y_val);
+            let _ = writeln!(f, "  --{p}-w: {w}px;", p = prop, w = img.computed_width);
+            let _ = writeln!(f, "  --{p}-h: {h}px;", p = prop, h = img.computed_height);
+        }
+    }
+
+    let _ = writeln!(f, "}}");
+    log::info!("Generated CSS vars: {:?}", output_path);
+}
+
 fn generate_coco2d(config: &Config, sprite: &Sprite) {
     let name = sprite.path.file_name().unwrap().to_string_lossy();
     let output_path = config.output.join(format!("{}.plist", name));
@@ -749,6 +786,9 @@ pub fn generate_files(config: &Config, sprite: &Sprite) {
         }
         if config.caat {
             t.push(generate_caat);
+        }
+        if config.css_vars {
+            t.push(generate_css_vars);
         }
         t
     };
