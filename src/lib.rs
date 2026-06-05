@@ -138,7 +138,7 @@ impl FromStr for Ordering {
 
 /// Used to order the images before adding them to the canvas can be tuned. By default the algorithm is `Square``,
 /// but in some situations using another ordering like vertical or horizontal could be useful depending on the kind of images you are spriting.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Algorithm {
     /// The square algorithm was inspired by the Binary Tree Bin Packing Algorithm Article by Jake Gordon.
@@ -1529,5 +1529,113 @@ mod tests {
         assert_eq!(add(2, 3), 5);
         assert_eq!(add(0, 0), 0);
         assert_eq!(add(100, 200), 300);
+    }
+
+    #[test]
+    fn test_sprite_format_image_format() {
+        assert_eq!(SpriteFormat::Png.image_format(), image::ImageFormat::Png);
+        assert_eq!(SpriteFormat::WebP.image_format(), image::ImageFormat::WebP);
+        assert_eq!(SpriteFormat::Avif.image_format(), image::ImageFormat::Avif);
+    }
+
+    fn tmp_dir(tag: &str) -> std::path::PathBuf {
+        let p = std::env::temp_dir().join(format!("spriters_{tag}_{}", std::process::id()));
+        std::fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    #[test]
+    fn test_config_check_valid() {
+        let d = tmp_dir("chk_ok");
+        let mut c = Config::default();
+        c.source = d.clone();
+        c.output = d.clone();
+        assert!(c.check().is_ok());
+        std::fs::remove_dir_all(&d).ok();
+    }
+
+    #[test]
+    fn test_config_check_output_not_dir() {
+        let d = tmp_dir("chk_out");
+        let mut c = Config::default();
+        c.source = d.clone();
+        c.output = PathBuf::from("/nonexistent/__spriters_test__");
+        let err = c.check();
+        std::fs::remove_dir_all(&d).ok();
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn test_config_check_source_not_dir() {
+        let d = tmp_dir("chk_src");
+        let mut c = Config::default();
+        c.source = PathBuf::from("/nonexistent/__spriters_test__");
+        c.output = d.clone();
+        let err = c.check();
+        std::fs::remove_dir_all(&d).ok();
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn test_config_check_max_width_zero() {
+        let d = tmp_dir("chk_mw0");
+        let mut c = Config::default();
+        c.source = d.clone();
+        c.output = d.clone();
+        c.max_width = Some(0);
+        let err = c.check();
+        std::fs::remove_dir_all(&d).ok();
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn test_config_check_max_height_zero() {
+        let d = tmp_dir("chk_mh0");
+        let mut c = Config::default();
+        c.source = d.clone();
+        c.output = d.clone();
+        c.max_height = Some(0);
+        let err = c.check();
+        std::fs::remove_dir_all(&d).ok();
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn test_get_max_color_type_promotes_to_highest() {
+        let make_img_sprite = |images: Vec<DynamicImage>| Sprite {
+            config: Config::default(),
+            path: PathBuf::from("test"),
+            ratios: vec![1.0],
+            images: images
+                .into_iter()
+                .enumerate()
+                .map(|(i, img)| ImageAndPosition {
+                    path: format!("img{}.png", i),
+                    image: img,
+                    computed_width: 10,
+                    computed_height: 10,
+                    x: 0,
+                    y: 0,
+                    aliases: vec![],
+                })
+                .collect(),
+            margin: util::Spacing::default(),
+            padding: util::Spacing::default(),
+        };
+
+        let s = make_img_sprite(vec![
+            DynamicImage::new_luma8(10, 10),
+            DynamicImage::new_rgb8(10, 10),
+        ]);
+        assert_eq!(s.get_max_color_type(), ColorType::Rgb8);
+
+        let s2 = make_img_sprite(vec![
+            DynamicImage::new_rgba8(10, 10),
+            DynamicImage::new_rgb8(10, 10),
+        ]);
+        assert_eq!(s2.get_max_color_type(), ColorType::Rgba8);
+
+        let s3 = make_img_sprite(vec![DynamicImage::new_luma8(10, 10)]);
+        assert_eq!(s3.get_max_color_type(), ColorType::L8);
     }
 }

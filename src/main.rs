@@ -86,6 +86,31 @@ fn format_bytes(n: u64) -> String {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::format_bytes;
+
+    #[test]
+    fn test_format_bytes_bytes_range() {
+        assert_eq!(format_bytes(0), "0 B");
+        assert_eq!(format_bytes(1), "1 B");
+        assert_eq!(format_bytes(1023), "1023 B");
+    }
+
+    #[test]
+    fn test_format_bytes_kb_range() {
+        assert_eq!(format_bytes(1024), "1.0 KB");
+        assert_eq!(format_bytes(2048), "2.0 KB");
+        assert_eq!(format_bytes(1_047_552), "1023.0 KB");
+    }
+
+    #[test]
+    fn test_format_bytes_mb_range() {
+        assert_eq!(format_bytes(1_048_576), "1.0 MB");
+        assert_eq!(format_bytes(2_097_152), "2.0 MB");
+    }
+}
+
 fn main() -> Result<(), lexopt::Error> {
     // Detect subcommands before full argument parsing.
     let raw: Vec<String> = std::env::args().collect();

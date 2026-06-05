@@ -396,3 +396,132 @@ pub(crate) fn parse_sprite_format(s: &str) -> SpriteFormat {
         _ => SpriteFormat::Png,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Algorithm, Config, SpriteFormat};
+
+    #[test]
+    fn test_parse_algorithm_valid() {
+        assert_eq!(parse_algorithm("square"), Ok(Algorithm::Square));
+        assert_eq!(parse_algorithm("SQUARE"), Ok(Algorithm::Square));
+        assert_eq!(parse_algorithm("vertical"), Ok(Algorithm::Vertical));
+        assert_eq!(parse_algorithm("horizontal"), Ok(Algorithm::Horizontal));
+        assert_eq!(parse_algorithm("diagonal"), Ok(Algorithm::Diagonal));
+        assert_eq!(
+            parse_algorithm("verticalright"),
+            Ok(Algorithm::VerticalRight)
+        );
+        assert_eq!(
+            parse_algorithm("vertical-right"),
+            Ok(Algorithm::VerticalRight)
+        );
+        assert_eq!(
+            parse_algorithm("horizontalbottom"),
+            Ok(Algorithm::HorizontalBottom)
+        );
+        assert_eq!(
+            parse_algorithm("horizontal-bottom"),
+            Ok(Algorithm::HorizontalBottom)
+        );
+    }
+
+    #[test]
+    fn test_parse_algorithm_invalid() {
+        assert!(parse_algorithm("unknown").is_err());
+        assert!(parse_algorithm("").is_err());
+        assert!(parse_algorithm("vert").is_err());
+    }
+
+    #[test]
+    fn test_parse_sprite_format() {
+        assert_eq!(parse_sprite_format("webp"), SpriteFormat::WebP);
+        assert_eq!(parse_sprite_format("WEBP"), SpriteFormat::WebP);
+        assert_eq!(parse_sprite_format("avif"), SpriteFormat::Avif);
+        assert_eq!(parse_sprite_format("AVIF"), SpriteFormat::Avif);
+        assert_eq!(parse_sprite_format("png"), SpriteFormat::Png);
+        assert_eq!(parse_sprite_format("unknown"), SpriteFormat::Png);
+        assert_eq!(parse_sprite_format(""), SpriteFormat::Png);
+    }
+
+    #[test]
+    fn test_apply_env_vars_algorithm() {
+        let mut config = Config::default();
+        std::env::set_var("SPRITERS_ALGORITHM", "vertical");
+        apply_env_vars(&mut config);
+        std::env::remove_var("SPRITERS_ALGORITHM");
+        assert_eq!(config.algorithm, Algorithm::Vertical);
+    }
+
+    #[test]
+    fn test_apply_env_vars_invalid_algorithm_is_ignored() {
+        let mut config = Config::default();
+        let original = config.algorithm;
+        std::env::set_var("SPRITERS_ALGORITHM_INVALID_TEST", "not-an-algorithm");
+        // We set a key that won't match, but test that invalid values for the real key are ignored.
+        // Use a separate env key to avoid test interference.
+        std::env::remove_var("SPRITERS_ALGORITHM_INVALID_TEST");
+        // Force invalid value via the real key:
+        std::env::set_var("SPRITERS_ALGORITHM", "bogus");
+        apply_env_vars(&mut config);
+        std::env::remove_var("SPRITERS_ALGORITHM");
+        assert_eq!(config.algorithm, original);
+    }
+
+    #[test]
+    fn test_apply_env_vars_max_dimensions() {
+        let mut config = Config::default();
+        std::env::set_var("SPRITERS_MAX_WIDTH", "800");
+        std::env::set_var("SPRITERS_MAX_HEIGHT", "600");
+        apply_env_vars(&mut config);
+        std::env::remove_var("SPRITERS_MAX_WIDTH");
+        std::env::remove_var("SPRITERS_MAX_HEIGHT");
+        assert_eq!(config.max_width, Some(800));
+        assert_eq!(config.max_height, Some(600));
+    }
+
+    #[test]
+    fn test_apply_env_vars_cachebuster_flags() {
+        let mut config = Config::default();
+        std::env::set_var("SPRITERS_CACHEBUSTER", "true");
+        std::env::set_var("SPRITERS_CACHEBUSTER_FILENAME", "yes");
+        apply_env_vars(&mut config);
+        std::env::remove_var("SPRITERS_CACHEBUSTER");
+        std::env::remove_var("SPRITERS_CACHEBUSTER_FILENAME");
+        assert!(config.cachebuster);
+        assert!(config.cachebuster_filename);
+    }
+
+    #[test]
+    fn test_load_file_config_malformed_toml() {
+        let tmp = std::env::temp_dir().join(format!("spriters_bad_toml_{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join("spriters.toml"), "not valid toml [[[").unwrap();
+        let result = load_file_config(&tmp);
+        std::fs::remove_dir_all(&tmp).ok();
+        assert!(result.is_none(), "malformed TOML must return None");
+    }
+
+    #[test]
+    fn test_load_file_config_with_sprite_format() {
+        let tmp = std::env::temp_dir().join(format!("spriters_fmt_cfg_{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join("spriters.toml"), "sprite_format = \"webp\"\n").unwrap();
+        let fc = load_file_config(&tmp).unwrap();
+        std::fs::remove_dir_all(&tmp).ok();
+        assert_eq!(fc.sprite_format.as_deref(), Some("webp"));
+    }
+
+    #[test]
+    fn test_apply_file_config_sprite_format() {
+        let tmp = std::env::temp_dir().join(format!("spriters_fc_fmt_{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join("spriters.toml"), "sprite_format = \"webp\"\n").unwrap();
+        let fc = load_file_config(&tmp).unwrap();
+        let mut config = Config::default();
+        apply_file_config(&mut config, fc);
+        std::fs::remove_dir_all(&tmp).ok();
+        assert_eq!(config.sprite_format, SpriteFormat::WebP);
+    }
+}

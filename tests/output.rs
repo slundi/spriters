@@ -1156,3 +1156,123 @@ fn test_svg_css_class() {
     });
     std::fs::remove_dir_all(&src).ok();
 }
+
+// ─── Uncovered output formats ─────────────────────────────────────────────────
+
+#[test]
+fn test_cocos2d_output() {
+    with_tmp_dir(|out| {
+        let mut config = make_config("tests/images/america", out);
+        config.cocos2d = true;
+        run_manager(config);
+
+        let plist = std::fs::read_to_string(format!("{}/america.plist", out)).unwrap();
+        assert!(plist.contains(r#"<?xml version="1.0" encoding="UTF-8"?>"#));
+        assert!(plist.contains(r#"<plist version="1.0">"#));
+        assert!(plist.contains("<key>frames</key>"));
+        assert!(plist.contains("<key>metadata</key>"));
+        assert!(plist.contains("<key>format</key>"));
+        assert!(plist.contains("america.png"));
+    });
+}
+
+#[test]
+fn test_tailwind_output() {
+    with_tmp_dir(|out| {
+        let mut config = make_config("tests/images/america", out);
+        config.tailwind = true;
+        run_manager(config);
+
+        let json = std::fs::read_to_string(format!("{}/america.tailwind.json", out)).unwrap();
+        assert!(json.contains("\"safelist\""));
+        assert!(json.contains("sprite-america-"));
+    });
+}
+
+#[test]
+fn test_less_output() {
+    with_tmp_dir(|out| {
+        let mut config = make_config("tests/images/america", out);
+        config.less = true;
+        run_manager(config);
+
+        let less = std::fs::read_to_string(format!("{}/america.less", out)).unwrap();
+        assert!(less.contains("background-image:"));
+        assert!(less.contains("america.png"));
+        assert!(less.contains("background-position:"));
+        assert!(less.contains("width:"));
+        assert!(less.contains("height:"));
+    });
+}
+
+#[test]
+fn test_scss_output() {
+    with_tmp_dir(|out| {
+        let mut config = make_config("tests/images/america", out);
+        config.scss = true;
+        run_manager(config);
+
+        let scss = std::fs::read_to_string(format!("{}/america.scss", out)).unwrap();
+        assert!(scss.contains("background-image:"));
+        assert!(scss.contains("america.png"));
+        assert!(scss.contains("background-position:"));
+        assert!(scss.contains("width:"));
+        assert!(scss.contains("height:"));
+    });
+}
+
+#[test]
+fn test_dts_output() {
+    with_tmp_dir(|out| {
+        let mut config = make_config("tests/images/america", out);
+        config.dts = true;
+        run_manager(config);
+
+        let dts = std::fs::read_to_string(format!("{}/america.d.ts", out)).unwrap();
+        assert!(dts.contains("export type SpriteName"));
+        assert!(dts.contains("|"));
+        assert!(dts.ends_with(";\n"));
+    });
+}
+
+#[test]
+fn test_html_output() {
+    with_tmp_dir(|out| {
+        let mut config = make_config("tests/images/america", out);
+        config.html = true;
+        run_manager(config);
+
+        let html = std::fs::read_to_string(format!("{}/america.html", out)).unwrap();
+        assert!(html.contains("<html>"));
+        assert!(html.contains("america.css"));
+        assert!(html.contains("</html>"));
+        assert!(html.contains("<table>"));
+    });
+}
+
+#[test]
+fn test_dry_run_no_files_written() {
+    with_tmp_dir(|out| {
+        let mut config = make_config("tests/images/america", out);
+        config.dry_run = true;
+        config.no_img = false;
+        config.less = true;
+        config.scss = true;
+        config.json = true;
+        run_manager(config);
+
+        // dry_run must not write any files
+        assert!(
+            !std::path::Path::new(&format!("{}/america.png", out)).exists(),
+            "dry_run must not create sprite image"
+        );
+        assert!(
+            !std::path::Path::new(&format!("{}/america.css", out)).exists(),
+            "dry_run must not create CSS"
+        );
+        assert!(
+            !std::path::Path::new(&format!("{}/america.less", out)).exists(),
+            "dry_run must not create LESS"
+        );
+    });
+}
