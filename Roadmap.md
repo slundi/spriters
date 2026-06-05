@@ -33,7 +33,7 @@
 | Config file support                     |    ✓    |           ✗           |
 | Environment variable config             |    ✓    |           ✗           |
 | Duplicate detection                     |    ✗    |           ✓           |
-| Image resize (max-width/height)         |    ✗    |        partial        |
+| Image resize (max-width/height)         |    ✗    |           ✓           |
 | Multiple resize algorithms              |    ✗    |           ✓           |
 | Multi-threaded processing               |    ✗    |       ✗ (TODO)        |
 | Wide image format support               | limited | ✓ (via `image` crate) |
@@ -110,22 +110,111 @@ Currently spriters detects and warns about duplicate images. Close the loop: whe
 
 Make output byte-for-byte deterministic across runs (fixed ordering, deterministic hash seeds) to support content-addressed caching in CI pipelines.
 
+### 3.6 File exclusion patterns
+
+Add `--exclude <glob>` (repeatable) to skip matching files when walking the source directory. Useful for ignoring work-in-progress assets, drafts, or OS metadata files.
+
+```sh
+spriters icons/ dist/ --exclude "_draft_*" --exclude "*.tmp"
+```
+
+### 3.7 stdin / piped file list
+
+Accept a newline-separated list of image paths on stdin (when no `--input` directory is given) so spriters can be composed with other tools:
+
+```sh
+fd -e png -e svg . | spriters --output dist/
+```
+
+### 3.8 CSS custom properties output
+
+Emit an additional CSS file where each sprite entry is expressed as custom properties rather than (or alongside) class selectors:
+
+```css
+:root {
+  --sprite-icon-home-x: 0px;
+  --sprite-icon-home-y: -48px;
+  --sprite-icon-home-w: 24px;
+  --sprite-icon-home-h: 24px;
+}
+```
+
+This fits design-system / CSS token workflows and avoids coupling consumers to specific class names. Add a `--css-vars` flag and a `--css-vars-template` for custom output.
+
 ---
 
-## Phase 4 — Ecosystem
+## Phase 4 — CI & Developer Experience
 
-### 4.1 Publish to crates.io
+### 4.1 Dry-run mode
+
+Add `--dry-run`: print what would be generated (detected images, sprite dimensions, output file paths, CSS class names) without writing any files. Useful for debugging config or validating a CI setup without side-effects.
+
+### 4.2 Incremental builds — up-to-date detection
+
+Skip regeneration entirely when the source images haven't changed since the last run. Compare content hashes (already computed for cache-busting) of all inputs against a small lockfile written to the output directory. `--force` bypasses the check. Enables fast re-runs in watch mode and incremental CI caches.
+
+### 4.3 Check mode
+
+Add `--check`: exit with a non-zero status code if the current output is missing or stale (source changed since last generation), without regenerating. Intended for CI steps that assert sprites are committed and up-to-date:
+
+```sh
+spriters icons/ dist/ --check || { echo "Sprites out of date — run spriters"; exit 1; }
+```
+
+### 4.4 Stats subcommand
+
+Add a `spriters stats <output-dir>` subcommand that reads the last generated sprite and reports:
+
+- Packing efficiency (used area / total sprite area, %)
+- Number of source images, duplicates collapsed
+- Input total bytes vs output sprite bytes (compression ratio)
+- Per-format breakdown when multiple outputs were generated
+
+### 4.5 Shell completions
+
+Add a `spriters completions <shell>` subcommand that writes a completion script to stdout for `bash`, `zsh`, or `fish`. Integrates with standard shell setup:
+
+```sh
+spriters completions zsh > ~/.zfunc/_spriters
+```
+
+---
+
+## Phase 5 — Modern Web Integration
+
+### 5.1 Tailwind-compatible JSON output
+
+Emit a JSON file (`--tailwind`) structured as a Tailwind CSS plugin config or `safelist` entry, listing all generated class names. This lets Tailwind's treeshaker keep sprite classes in production builds without manual safelisting.
+
+### 5.2 TypeScript type definitions
+
+Alongside JSON output, emit a `.d.ts` file (`--dts`) exporting a union type of all sprite names:
+
+```ts
+export type SpriteName =
+  | "icon-home"
+  | "icon-user"
+  | "icon-settings";
+```
+
+Useful for typed UI frameworks (React, Vue, Svelte) to get autocomplete and compile-time checks on sprite name strings.
+
+---
+
+## Phase 6 — Ecosystem
+
+### 6.1 Publish to crates.io
 
 - Stabilize the public API surface
 - Write crate-level documentation (`///` and module docs)
 - Add integration tests covering at least one image per output format
 - Publish `spriters` as both a library and a binary crate
 
-### 4.2 Documentation site
+### 6.2 Documentation site
 
 Generate docs with `cargo doc` and publish via Codeberg Pages or GitHub Pages. Include a quickstart guide, CLI reference, and template variable reference equivalent to Glue's ReadTheDocs site.
 
-### 4.3 Benchmarks
+### 6.3 Benchmarks
 
 Add a `benches/` directory using `criterion`. Compare spriters vs Glue on:
 
@@ -134,7 +223,7 @@ Add a `benches/` directory using `criterion`. Compare spriters vs Glue on:
 - Large set (500 images)
 - Project mode (10 sprites × 50 images each)
 
-### 4.4 Package manager distribution
+### 6.4 Package manager distribution
 
 Publish to:
 
@@ -161,3 +250,12 @@ Publish to:
 - [x] Project mode and recursive mode
 - [x] Watch mode with debounce
 - [x] PNG8 output
+- [x] Image resize (`--max-width` / `--max-height`) with aspect-ratio preservation and ratio awareness
+- [x] File exclusion patterns (`--exclude`) with glob support (`*`, `?`), repeatable, TOML config and `SPRITERS_EXCLUDE` env var
+- [x] stdin / piped file list — newline-delimited paths bypass directory walking; compose with `fd`, `find`, etc.
+- [x] CSS custom properties output (`--css-vars`) — emits `<sprite>.vars.css` with `--name-x/y/w/h` tokens in `:root {}`
+- [x] `--dry-run` — discovers images and prints what would be generated without writing any files
+- [x] Incremental builds / up-to-date detection — content-hash lockfile (`.{name}.spriters`) skips regeneration when inputs are unchanged; `--force` bypasses
+- [x] `--check` — exits non-zero if output is missing or stale; used in CI via `Manager::is_up_to_date()`
+- [x] `stats` subcommand — reads generated sprite image, reports dimensions, file size, and packing efficiency
+- [x] `completions` subcommand — writes bash/zsh/fish completion scripts to stdout

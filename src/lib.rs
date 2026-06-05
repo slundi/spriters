@@ -46,6 +46,7 @@ use walkdir::WalkDir;
 
 pub mod algorithm;
 mod algorithm_square;
+pub mod completions;
 pub mod config;
 mod output;
 pub mod util;
@@ -395,6 +396,10 @@ pub struct Config {
     pub css_vars: bool,
     /// Custom template file for CSS vars output.
     pub css_vars_template: Option<PathBuf>,
+    /// Print what would be generated without writing any files.
+    pub dry_run: bool,
+    /// Exit non-zero if output is missing or stale; do not regenerate.
+    pub check: bool,
 }
 impl Config {
     /// Check mandatory arguments and some values
@@ -489,6 +494,8 @@ impl Default for Config {
             files: vec![],
             css_vars: false,
             css_vars_template: None,
+            dry_run: false,
+            check: false,
         }
     }
 }
@@ -933,6 +940,80 @@ impl Manager {
             .par_iter()
             .for_each(|sprite| crate::output::generate_files(&self.config, sprite));
     }
+
+    /// Returns `true` if every sprite in this manager is current (no regeneration needed).
+    /// Used by `--check` mode.
+    pub fn is_up_to_date(&self) -> bool {
+        self.sprites
+            .iter()
+            .all(|s| !output::should_regenerate(&self.config, s))
+    }
+}
+
+// ─── Stats API ────────────────────────────────────────────────────────────────
+
+/// Per-sprite statistics derived from the generated sprite image.
+pub struct SpriteStats {
+    pub name: String,
+    pub width: u32,
+    pub height: u32,
+    /// Size of the sprite image file on disk, in bytes.
+    pub file_size: u64,
+    /// Number of pixels with alpha > 0.
+    pub used_pixels: u64,
+    /// Total pixel count (width × height).
+    pub total_pixels: u64,
+}
+
+impl SpriteStats {
+    /// Packing efficiency as an integer percentage (0–100).
+    pub fn packing_efficiency_pct(&self) -> u64 {
+        if self.total_pixels == 0 {
+            return 0;
+        }
+        self.used_pixels * 100 / self.total_pixels
+    }
+}
+
+/// Load stats for a named sprite in `output_dir`.
+/// Tries `.png`, `.webp`, `.avif` in order; returns `None` if no image is found.
+pub fn sprite_stats(output_dir: &Path, name: &str) -> Option<SpriteStats> {
+    let img_path = ["png", "webp", "avif"]
+        .iter()
+        .map(|ext| output_dir.join(format!("{}.{}", name, ext)))
+        .find(|p| p.exists())?;
+
+    let file_size = std::fs::metadata(&img_path).ok()?.len();
+    let img = image::open(&img_path).ok()?;
+    let (w, h) = (img.width(), img.height());
+    let total = w as u64 * h as u64;
+    let used = img.to_rgba8().pixels().filter(|p| p.0[3] > 0).count() as u64;
+
+    Some(SpriteStats {
+        name: name.to_owned(),
+        width: w,
+        height: h,
+        file_size,
+        used_pixels: used,
+        total_pixels: total,
+    })
+}
+
+/// Scan `output_dir` for `.*.spriters` metadata files and return the sprite names found.
+pub fn list_sprite_names(output_dir: &Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(output_dir) else {
+        return vec![];
+    };
+    let mut names: Vec<String> = entries
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let n = e.file_name().to_string_lossy().into_owned();
+            (n.starts_with('.') && n.ends_with(".spriters"))
+                .then(|| n[1..n.len() - ".spriters".len()].to_owned())
+        })
+        .collect();
+    names.sort();
+    names
 }
 
 #[inline]

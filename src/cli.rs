@@ -15,6 +15,8 @@ General options:
 --watch:                watch working directory for changes (run in background)
 --follow-links:         follow symbolic links
 --force:                force regeneration even if sprite is up to date
+--dry-run:              print what would be generated without writing any files
+--check:                exit non-zero if sprite output is missing or stale (for CI)
 
 Output options:
 --html:                 generate an HTML page
@@ -185,6 +187,8 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
             // The option `--retina` is only a shortcut for `--ratios=2,1`.
             Long("retina") => args.ratios = Some("2,1".to_owned()),
             Long("force") => args.force = true,
+            Long("dry-run") => args.dry_run = true,
+            Long("check") => args.check = true,
             Long("follow-links") => args.follow_links = true,
             Short('q') | Long("quiet") => args.quiet = true,
             Short('r') | Long("recursive") => args.recursive = true,

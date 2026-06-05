@@ -41,6 +41,8 @@ pub struct FileConfig {
     pub project: Option<bool>,
     pub exclude: Option<Vec<String>>,
     pub css_vars: Option<bool>,
+    pub dry_run: Option<bool>,
+    pub check: Option<bool>,
 }
 
 /// Load a `spriters.toml` from `dir` if it exists.
@@ -213,6 +215,16 @@ pub fn apply_env_vars(config: &mut Config) {
             config.css_vars = b;
         }
     }
+    if let Ok(v) = env::var("SPRITERS_DRY_RUN") {
+        if let Ok(b) = parse_bool(&v) {
+            config.dry_run = b;
+        }
+    }
+    if let Ok(v) = env::var("SPRITERS_CHECK") {
+        if let Ok(b) = parse_bool(&v) {
+            config.check = b;
+        }
+    }
 }
 
 /// Overlay file config values onto config. Higher priority than env vars and CLI.
@@ -326,6 +338,12 @@ pub fn apply_file_config(config: &mut Config, fc: FileConfig) {
     }
     if let Some(v) = fc.css_vars {
         config.css_vars = v;
+    }
+    if let Some(v) = fc.dry_run {
+        config.dry_run = v;
+    }
+    if let Some(v) = fc.check {
+        config.check = v;
     }
 }
 

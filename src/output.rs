@@ -684,7 +684,7 @@ fn compute_sprite_hash(config: &Config, sprite: &Sprite) -> u64 {
 }
 
 /// Check if sprite needs regeneration based on cached metadata
-fn should_regenerate(config: &Config, sprite: &Sprite) -> bool {
+pub(crate) fn should_regenerate(config: &Config, sprite: &Sprite) -> bool {
     if config.force {
         log::debug!("Force flag set, regenerating sprite");
         return true;
@@ -749,8 +749,47 @@ fn save_metadata(config: &Config, sprite: &Sprite) {
     }
 }
 
+fn print_dry_run(config: &Config, sprite: &Sprite) {
+    let name = sprite.path.file_name().unwrap().to_string_lossy();
+    let (w, h) = sprite.dimensions();
+    let total_entries: usize = sprite.images.iter().map(|i| 1 + i.aliases.len()).sum();
+
+    println!("Sprite: {} ({}×{} px, {} entries)", name, w, h, total_entries);
+    for img in &sprite.images {
+        for label in std::iter::once(img.label())
+            .chain(img.aliases.iter().map(|p| label_from_path(p)))
+        {
+            println!(
+                "  .{cls:40} at ({x},{y}) {w}×{h}px",
+                cls = build_class_name(config, &name, &label),
+                x = img.x,
+                y = img.y,
+                w = img.computed_width,
+                h = img.computed_height,
+            );
+        }
+    }
+    println!("Would write to {}:", config.output.display());
+    if !config.no_img {
+        println!("  {name}.{ext}", ext = config.sprite_format.extension());
+    }
+    if !config.no_css  { println!("  {name}.css"); }
+    if config.less     { println!("  {name}.less"); }
+    if config.scss     { println!("  {name}.scss"); }
+    if config.json     { println!("  {name}.json"); }
+    if config.html     { println!("  {name}.html"); }
+    if config.cocos2d  { println!("  {name}.plist"); }
+    if config.caat     { println!("  {name}.caat.json"); }
+    if config.css_vars { println!("  {name}.vars.css"); }
+}
+
 pub fn generate_files(config: &Config, sprite: &Sprite) {
     use rayon::prelude::*;
+
+    if config.dry_run {
+        print_dry_run(config, sprite);
+        return;
+    }
 
     // Check if sprite needs regeneration (unless generating only metadata files)
     if !config.no_img && !should_regenerate(config, sprite) {
