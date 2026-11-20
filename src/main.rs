@@ -145,10 +145,10 @@ fn main() -> Result<(), lexopt::Error> {
         let (tx, rx) = channel();
 
         let mut watcher = notify::recommended_watcher(move |res: Result<Event, _>| {
-            if let Ok(event) = res {
-                if event.kind.is_modify() || event.kind.is_create() || event.kind.is_remove() {
-                    let _ = tx.send(());
-                }
+            if let Ok(event) = res
+                && (event.kind.is_modify() || event.kind.is_create() || event.kind.is_remove())
+            {
+                let _ = tx.send(());
             }
         })
         .expect("Failed to create file watcher");

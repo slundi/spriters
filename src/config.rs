@@ -65,30 +65,30 @@ pub fn load_file_config(dir: &Path) -> Option<FileConfig> {
 pub fn apply_env_vars(config: &mut Config) {
     use std::env;
 
-    if let Ok(v) = env::var("SPRITERS_ALGORITHM") {
-        if let Ok(a) = parse_algorithm(&v) {
-            config.algorithm = a;
-        }
+    if let Ok(v) = env::var("SPRITERS_ALGORITHM")
+        && let Ok(a) = parse_algorithm(&v)
+    {
+        config.algorithm = a;
     }
-    if let Ok(v) = env::var("SPRITERS_ORDERING") {
-        if let Ok(o) = v.parse::<Ordering>() {
-            config.ordering = o;
-        }
+    if let Ok(v) = env::var("SPRITERS_ORDERING")
+        && let Ok(o) = v.parse::<Ordering>()
+    {
+        config.ordering = o;
     }
-    if let Ok(v) = env::var("SPRITERS_CROP") {
-        if let Ok(b) = parse_bool(&v) {
-            config.crop = b;
-        }
+    if let Ok(v) = env::var("SPRITERS_CROP")
+        && let Ok(b) = parse_bool(&v)
+    {
+        config.crop = b;
     }
-    if let Ok(v) = env::var("SPRITERS_MAX_WIDTH") {
-        if let Ok(n) = v.parse::<u32>() {
-            config.max_width = Some(n);
-        }
+    if let Ok(v) = env::var("SPRITERS_MAX_WIDTH")
+        && let Ok(n) = v.parse::<u32>()
+    {
+        config.max_width = Some(n);
     }
-    if let Ok(v) = env::var("SPRITERS_MAX_HEIGHT") {
-        if let Ok(n) = v.parse::<u32>() {
-            config.max_height = Some(n);
-        }
+    if let Ok(v) = env::var("SPRITERS_MAX_HEIGHT")
+        && let Ok(n) = v.parse::<u32>()
+    {
+        config.max_height = Some(n);
     }
     if let Ok(v) = env::var("SPRITERS_PADDING") {
         config.padding = Some(v);
@@ -118,90 +118,90 @@ pub fn apply_env_vars(config: &mut Config) {
             JsonFormat::Array
         };
     }
-    if let Ok(v) = env::var("SPRITERS_CACHEBUSTER") {
-        if let Ok(b) = parse_bool(&v) {
-            config.cachebuster = b;
-        }
+    if let Ok(v) = env::var("SPRITERS_CACHEBUSTER")
+        && let Ok(b) = parse_bool(&v)
+    {
+        config.cachebuster = b;
     }
-    if let Ok(v) = env::var("SPRITERS_CACHEBUSTER_FILENAME") {
-        if let Ok(b) = parse_bool(&v) {
-            config.cachebuster_filename = b;
-        }
+    if let Ok(v) = env::var("SPRITERS_CACHEBUSTER_FILENAME")
+        && let Ok(b) = parse_bool(&v)
+    {
+        config.cachebuster_filename = b;
     }
-    if let Ok(v) = env::var("SPRITERS_CACHEBUSTER_FILENAME_ONLY_SPRITES") {
-        if let Ok(b) = parse_bool(&v) {
-            config.cachebuster_filename_only_sprites = b;
-        }
+    if let Ok(v) = env::var("SPRITERS_CACHEBUSTER_FILENAME_ONLY_SPRITES")
+        && let Ok(b) = parse_bool(&v)
+    {
+        config.cachebuster_filename_only_sprites = b;
     }
-    if let Ok(v) = env::var("SPRITERS_FORCE") {
-        if let Ok(b) = parse_bool(&v) {
-            config.force = b;
-        }
+    if let Ok(v) = env::var("SPRITERS_FORCE")
+        && let Ok(b) = parse_bool(&v)
+    {
+        config.force = b;
     }
-    if let Ok(v) = env::var("SPRITERS_FOLLOW_LINKS") {
-        if let Ok(b) = parse_bool(&v) {
-            config.follow_links = b;
-        }
+    if let Ok(v) = env::var("SPRITERS_FOLLOW_LINKS")
+        && let Ok(b) = parse_bool(&v)
+    {
+        config.follow_links = b;
     }
-    if let Ok(v) = env::var("SPRITERS_RECURSIVE") {
-        if let Ok(b) = parse_bool(&v) {
-            config.recursive = b;
-        }
+    if let Ok(v) = env::var("SPRITERS_RECURSIVE")
+        && let Ok(b) = parse_bool(&v)
+    {
+        config.recursive = b;
     }
-    if let Ok(v) = env::var("SPRITERS_PROJECT") {
-        if let Ok(b) = parse_bool(&v) {
-            config.project = b;
-        }
+    if let Ok(v) = env::var("SPRITERS_PROJECT")
+        && let Ok(b) = parse_bool(&v)
+    {
+        config.project = b;
     }
-    if let Ok(v) = env::var("SPRITERS_NO_CSS") {
-        if let Ok(b) = parse_bool(&v) {
-            config.no_css = b;
-        }
+    if let Ok(v) = env::var("SPRITERS_NO_CSS")
+        && let Ok(b) = parse_bool(&v)
+    {
+        config.no_css = b;
     }
-    if let Ok(v) = env::var("SPRITERS_NO_IMG") {
-        if let Ok(b) = parse_bool(&v) {
-            config.no_img = b;
-        }
+    if let Ok(v) = env::var("SPRITERS_NO_IMG")
+        && let Ok(b) = parse_bool(&v)
+    {
+        config.no_img = b;
     }
-    if let Ok(v) = env::var("SPRITERS_PNG8") {
-        if let Ok(b) = parse_bool(&v) {
-            config.png8 = b;
-        }
+    if let Ok(v) = env::var("SPRITERS_PNG8")
+        && let Ok(b) = parse_bool(&v)
+    {
+        config.png8 = b;
     }
-    if let Ok(v) = env::var("SPRITERS_HTML") {
-        if let Ok(b) = parse_bool(&v) {
-            config.html = b;
-        }
+    if let Ok(v) = env::var("SPRITERS_HTML")
+        && let Ok(b) = parse_bool(&v)
+    {
+        config.html = b;
     }
-    if let Ok(v) = env::var("SPRITERS_JSON") {
-        if let Ok(b) = parse_bool(&v) {
-            config.json = b;
-        }
+    if let Ok(v) = env::var("SPRITERS_JSON")
+        && let Ok(b) = parse_bool(&v)
+    {
+        config.json = b;
     }
-    if let Ok(v) = env::var("SPRITERS_CAAT") {
-        if let Ok(b) = parse_bool(&v) {
-            config.caat = b;
-        }
+    if let Ok(v) = env::var("SPRITERS_CAAT")
+        && let Ok(b) = parse_bool(&v)
+    {
+        config.caat = b;
     }
-    if let Ok(v) = env::var("SPRITERS_LESS") {
-        if let Ok(b) = parse_bool(&v) {
-            config.less = b;
-        }
+    if let Ok(v) = env::var("SPRITERS_LESS")
+        && let Ok(b) = parse_bool(&v)
+    {
+        config.less = b;
     }
-    if let Ok(v) = env::var("SPRITERS_SCSS") {
-        if let Ok(b) = parse_bool(&v) {
-            config.scss = b;
-        }
+    if let Ok(v) = env::var("SPRITERS_SCSS")
+        && let Ok(b) = parse_bool(&v)
+    {
+        config.scss = b;
     }
-    if let Ok(v) = env::var("SPRITERS_COCOS2D") {
-        if let Ok(b) = parse_bool(&v) {
-            config.cocos2d = b;
-        }
+    if let Ok(v) = env::var("SPRITERS_COCOS2D")
+        && let Ok(b) = parse_bool(&v)
+    {
+        config.cocos2d = b;
     }
-    if let Ok(v) = env::var("SPRITERS_NO_DUPLICATE") {
-        if let Ok(b) = parse_bool(&v) {
-            config.no_duplicate = b;
-        }
+    if let Ok(v) = env::var("SPRITERS_NO_DUPLICATE")
+        && let Ok(b) = parse_bool(&v)
+    {
+        config.no_duplicate = b;
     }
     if let Ok(v) = env::var("SPRITERS_PSEUDO_CLASS_SEPARATOR") {
         config.pseudo_class_separator = Some(v);
@@ -216,44 +216,44 @@ pub fn apply_env_vars(config: &mut Config) {
             .filter(|s| !s.is_empty())
             .collect();
     }
-    if let Ok(v) = env::var("SPRITERS_CSS_VARS") {
-        if let Ok(b) = parse_bool(&v) {
-            config.css_vars = b;
-        }
+    if let Ok(v) = env::var("SPRITERS_CSS_VARS")
+        && let Ok(b) = parse_bool(&v)
+    {
+        config.css_vars = b;
     }
-    if let Ok(v) = env::var("SPRITERS_DRY_RUN") {
-        if let Ok(b) = parse_bool(&v) {
-            config.dry_run = b;
-        }
+    if let Ok(v) = env::var("SPRITERS_DRY_RUN")
+        && let Ok(b) = parse_bool(&v)
+    {
+        config.dry_run = b;
     }
-    if let Ok(v) = env::var("SPRITERS_CHECK") {
-        if let Ok(b) = parse_bool(&v) {
-            config.check = b;
-        }
+    if let Ok(v) = env::var("SPRITERS_CHECK")
+        && let Ok(b) = parse_bool(&v)
+    {
+        config.check = b;
     }
-    if let Ok(v) = env::var("SPRITERS_TAILWIND") {
-        if let Ok(b) = parse_bool(&v) {
-            config.tailwind = b;
-        }
+    if let Ok(v) = env::var("SPRITERS_TAILWIND")
+        && let Ok(b) = parse_bool(&v)
+    {
+        config.tailwind = b;
     }
-    if let Ok(v) = env::var("SPRITERS_DTS") {
-        if let Ok(b) = parse_bool(&v) {
-            config.dts = b;
-        }
+    if let Ok(v) = env::var("SPRITERS_DTS")
+        && let Ok(b) = parse_bool(&v)
+    {
+        config.dts = b;
     }
 }
 
 /// Overlay file config values onto config. Higher priority than env vars and CLI.
 pub fn apply_file_config(config: &mut Config, fc: FileConfig) {
-    if let Some(v) = fc.algorithm {
-        if let Ok(a) = parse_algorithm(&v) {
-            config.algorithm = a;
-        }
+    if let Some(v) = fc.algorithm
+        && let Ok(a) = parse_algorithm(&v)
+    {
+        config.algorithm = a;
     }
-    if let Some(v) = fc.ordering {
-        if let Ok(o) = v.parse::<Ordering>() {
-            config.ordering = o;
-        }
+    if let Some(v) = fc.ordering
+        && let Ok(o) = v.parse::<Ordering>()
+    {
+        config.ordering = o;
     }
     if let Some(v) = fc.crop {
         config.crop = v;
