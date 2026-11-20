@@ -30,7 +30,7 @@ Packing many small images into a single file reduces HTTP requests and improves 
 | **Reproducibility**    | Byte-for-byte identical output for the same inputs, suitable for content-addressed CI caches                                                       |
 | **Performance**        | Rayon-parallel decode, crop, resize; parallel output generation; parallel project-mode builds                                                      |
 | **File exclusion**     | `--exclude <glob>` (repeatable) skips matching files; supports `*` and `?`; configurable via `SPRITERS_EXCLUDE`                                    |
-| **Stdin input**        | Newline-separated image paths on stdin replace directory walking — compose with `fd`, `find`, etc.                                                 |
+| **Stdin input**        | `--stdin` (or `-i -`) reads newline-separated image paths from stdin instead of walking a directory — compose with `fd`, `find`, etc.              |
 | **CSS custom props**   | `--css-vars` emits `<sprite>.vars.css` with `--name-x/y/w/h` tokens in `:root {}` for design-system / CSS token workflows                          |
 | **Dry-run**            | `--dry-run` prints detected images, sprite dimensions, and output paths without writing any files                                                  |
 | **Incremental builds** | Content-hash lockfile (`.{name}.spriters`) skips regeneration when inputs are unchanged; `--force` bypasses                                        |
@@ -82,8 +82,8 @@ spriters images/ dist/ --project
 # Exclude draft/temp files
 spriters icons/ dist/ --exclude "_draft_*" --exclude "*.tmp"
 
-# Compose with fd — pipe file list on stdin
-fd -e png -e svg . icons/ | spriters --output dist/
+# Compose with fd — pipe file list on stdin (-i still names the sprite)
+fd -e png -e svg . icons/ | spriters --stdin -i icons/ --output dist/
 
 # Emit CSS custom properties, Tailwind safelist, and TypeScript types
 spriters icons/ dist/ --css-vars --tailwind --dts

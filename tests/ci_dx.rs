@@ -693,6 +693,7 @@ fn bash_completion_covers_key_flags() {
         "--css-vars",
         "--format",
         "--algorithm",
+        "--stdin",
     ] {
         assert!(script.contains(flag), "bash completion missing flag {flag}");
     }
@@ -705,7 +706,7 @@ fn bash_completion_covers_key_flags() {
 #[test]
 fn zsh_completion_covers_key_flags() {
     let script = spriters::completions::ZSH;
-    for flag in &["--dry-run", "--check", "--exclude", "--css-vars"] {
+    for flag in &["--dry-run", "--check", "--exclude", "--css-vars", "--stdin"] {
         assert!(script.contains(flag), "zsh completion missing flag {flag}");
     }
     assert!(
@@ -717,7 +718,14 @@ fn zsh_completion_covers_key_flags() {
 #[test]
 fn fish_completion_covers_key_flags() {
     let script = spriters::completions::FISH;
-    for flag in &["dry-run", "check", "exclude", "css-vars", "algorithm"] {
+    for flag in &[
+        "dry-run",
+        "check",
+        "exclude",
+        "css-vars",
+        "algorithm",
+        "stdin",
+    ] {
         assert!(script.contains(flag), "fish completion missing flag {flag}");
     }
     assert!(

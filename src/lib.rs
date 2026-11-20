@@ -389,7 +389,7 @@ pub struct Config {
     /// Glob patterns (matched against filename) for files to skip during discovery.
     /// Repeatable: `--exclude "_draft_*" --exclude "*.tmp"`.
     pub exclude: Vec<String>,
-    /// Explicit file list, populated from stdin when stdin is a pipe.
+    /// Explicit file list, read from stdin with `--stdin` (or `-i -`).
     /// When non-empty, directory walking is skipped entirely.
     pub files: Vec<PathBuf>,
     /// Emit a `<sprite>.vars.css` file with CSS custom properties for each image.

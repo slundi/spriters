@@ -3,7 +3,7 @@ pub const BASH: &str = r#"_spriters() {
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    opts="--help --quiet --input --output --recursive --project --watch
+    opts="--help --quiet --input --output --stdin --recursive --project --watch
           --follow-links --force --dry-run --check
           --html --json --json-format --caat --cocos2d
           --less --scss --css-template --less-template --scss-template
@@ -58,6 +58,7 @@ _spriters() {
         '--follow-links[Follow symbolic links]'
         '--force[Force regeneration]'
         '--dry-run[Print what would be generated without writing files]'
+        '--stdin[Read newline-separated image paths from stdin]'
         '--check[Exit non-zero if output is missing or stale]'
         '--html[Generate HTML test page]'
         '--json[Generate JSON metadata]'
@@ -111,6 +112,7 @@ complete -c spriters      -l watch       -d 'Watch for changes'
 complete -c spriters      -l follow-links -d 'Follow symbolic links'
 complete -c spriters      -l force       -d 'Force regeneration'
 complete -c spriters      -l dry-run     -d 'Print what would be generated'
+complete -c spriters      -l stdin       -d 'Read image paths from stdin'
 complete -c spriters      -l check       -d 'Exit non-zero if output is stale'
 complete -c spriters      -l html        -d 'Generate HTML test page'
 complete -c spriters      -l json        -d 'Generate JSON metadata'

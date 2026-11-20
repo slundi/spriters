@@ -77,6 +77,17 @@ fn handle_completions(shell: Option<&str>) {
     }
 }
 
+/// Image paths from a newline-separated list; surrounding spaces and blank lines are ignored.
+fn read_file_list(reader: impl BufRead) -> Vec<std::path::PathBuf> {
+    reader
+        .lines()
+        .map_while(Result::ok)
+        .map(|line| line.trim().to_owned())
+        .filter(|line| !line.is_empty())
+        .map(std::path::PathBuf::from)
+        .collect()
+}
+
 /// Whether a watcher event only concerns files written by spriters itself: reacting to it
 /// would regenerate in a loop when the output directory is inside the watched source.
 fn is_own_output(config: &spriters::Config, event: &Event) -> bool {
@@ -134,15 +145,14 @@ fn main() -> ExitCode {
     let mut config =
         spriters::config::resolve(|config| cli.apply(config), |key| std::env::var(key).ok());
 
-    // When stdin is a pipe, read newline-delimited image paths from it.
-    // This lets spriters compose with other tools: `fd -e png . | spriters -o dist/`
-    if !std::io::stdin().is_terminal() {
-        for line in std::io::stdin().lock().lines().map_while(Result::ok) {
-            let line = line.trim().to_owned();
-            if !line.is_empty() {
-                config.files.push(std::path::PathBuf::from(line));
-            }
+    // Read newline-delimited image paths from stdin only when asked for, so spriters
+    // composes with other tools (`fd -e png . | spriters --stdin -o dist/`) without
+    // hanging when a caller leaves stdin open.
+    if cli.reads_stdin() {
+        if std::io::stdin().is_terminal() {
+            info!("Reading image paths from the terminal, end with Ctrl+D");
         }
+        config.files.extend(read_file_list(std::io::stdin().lock()));
     }
 
     if let Err(err) = config.check() {
@@ -201,7 +211,21 @@ fn main() -> ExitCode {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_bytes, is_own_output};
+    use super::{format_bytes, is_own_output, read_file_list};
+
+    #[test]
+    fn test_read_file_list() {
+        let input = "icons/a.png\n\n  icons/b c.png  \r\n\t\nicons/d.svg";
+        assert_eq!(
+            read_file_list(input.as_bytes()),
+            vec![
+                std::path::PathBuf::from("icons/a.png"),
+                std::path::PathBuf::from("icons/b c.png"),
+                std::path::PathBuf::from("icons/d.svg"),
+            ]
+        );
+        assert!(read_file_list("".as_bytes()).is_empty());
+    }
     use notify::{Event, EventKind, event::ModifyKind};
 
     #[test]

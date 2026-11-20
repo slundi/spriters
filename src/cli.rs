@@ -8,8 +8,10 @@ By default, it search images on the current working directory. The output is als
 General options:
 -h, --help:             print this message
 -q, --quiet:            don't print anything on the console
--i, --input:            input directory
+-i, --input:            input directory ('-' is the same as --stdin)
 -o, --output:           output directory
+--stdin:                read newline-separated image paths from stdin instead of walking the input directory
+                        (the input directory still names the sprite and holds spriters.toml)
 -r, --recursive:        read directories recursively and add all the images to the same sprite
 --project:              generate a sprite per working directory sub folder
 --watch:                watch working directory for changes (run in background)
@@ -71,8 +73,16 @@ type Setter = Box<dyn Fn(&mut Config)>;
 #[derive(Default)]
 pub(crate) struct CliArgs {
     setters: Vec<Setter>,
+    /// Read the image paths from stdin (`--stdin` or `-i -`).
+    read_stdin: bool,
 }
 impl CliArgs {
+    /// Whether image paths must be read from stdin. Never implied by stdin being a pipe:
+    /// many callers (Node `spawn`, `docker run -i`, CI runners) leave a pipe open forever.
+    pub(crate) fn reads_stdin(&self) -> bool {
+        self.read_stdin
+    }
+
     fn set(&mut self, setter: impl Fn(&mut Config) + 'static) {
         self.setters.push(Box::new(setter));
     }
@@ -237,9 +247,15 @@ fn parse_args_from(mut parser: lexopt::Parser) -> Result<CliArgs, lexopt::Error>
             Short('q') | Long("quiet") => cli.set(|config| config.quiet = true),
             Short('r') | Long("recursive") => cli.set(|config| config.recursive = true),
             Short('i') | Long("input") => {
-                let source = std::path::PathBuf::from(parser.value()?);
-                cli.set(move |config| config.source = source.clone());
+                let value = parser.value()?;
+                if value == "-" {
+                    cli.read_stdin = true;
+                } else {
+                    let source = std::path::PathBuf::from(value);
+                    cli.set(move |config| config.source = source.clone());
+                }
             }
+            Long("stdin") => cli.read_stdin = true,
             Short('o') | Long("output") => {
                 let output = std::path::PathBuf::from(parser.value()?);
                 cli.set(move |config| config.output = output.clone());
@@ -336,6 +352,25 @@ mod tests {
         assert_eq!(config.json_format, JsonFormat::Hash);
         assert_eq!(config.sprite_format, SpriteFormat::WebP);
         assert_eq!(config.ratios.as_deref(), Some("2,1"));
+    }
+
+    #[test]
+    fn test_stdin_is_only_read_on_request() {
+        // Review 3.6: stdin was read whenever it was not a terminal.
+        assert!(!parse(&[]).reads_stdin());
+        assert!(!parse(&["-i", "icons", "-o", "dist"]).reads_stdin());
+        assert!(parse(&["--stdin"]).reads_stdin());
+        assert!(parse(&["--stdin", "-i", "icons"]).reads_stdin());
+    }
+
+    #[test]
+    fn test_input_dash_reads_stdin_and_keeps_default_source() {
+        let cli = parse(&["-i", "-", "-o", "dist"]);
+        assert!(cli.reads_stdin());
+        let mut config = Config::default();
+        cli.apply(&mut config);
+        assert_eq!(config.source, Config::default().source);
+        assert_eq!(config.output, std::path::PathBuf::from("dist"));
     }
 
     #[test]
