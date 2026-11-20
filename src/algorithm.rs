@@ -132,6 +132,7 @@ mod tests {
             images: Vec::new(),
             margin: crate::util::Spacing::default(),
             padding: crate::util::Spacing::default(),
+            failed_images: Vec::new(),
             layout_hash: Default::default(),
         };
 

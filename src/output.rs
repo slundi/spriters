@@ -174,11 +174,10 @@ fn write_ratio_media_queries(
 
 /// Create an output file, logging the error instead of panicking (e.g. no write permission
 /// or a full disk): the other outputs are still generated.
-fn create_output(path: &std::path::Path) -> Option<BufWriter<File>> {
+fn create_output(path: &std::path::Path) -> std::io::Result<BufWriter<File>> {
     File::create(path)
         .map(BufWriter::new)
-        .map_err(|e| log::error!("Cannot create {:?}: {}", path, e))
-        .ok()
+        .inspect_err(|e| log::error!("Cannot create {:?}: {}", path, e))
 }
 
 /// Derive a CSS-safe label from an arbitrary file path (same logic as `ImageAndPosition::label()`).
@@ -207,12 +206,10 @@ fn implode_image_label(config: &Config, sprite: &Sprite) -> String {
     labels.join(",")
 }
 
-fn generate_css(config: &Config, sprite: &Sprite) {
+fn generate_css(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
     let name = sprite.name();
     let output_path = config.output.join(format!("{}.css", name));
-    let Some(mut f) = create_output(&output_path) else {
-        return;
-    };
+    let mut f = create_output(&output_path)?;
     let sprite_url = get_sprite_url(config, sprite);
     let selectors = implode_image_label(config, sprite).replace(",", ", .");
 
@@ -256,14 +253,13 @@ fn generate_css(config: &Config, sprite: &Sprite) {
     write_ratio_media_queries(&mut f, config, sprite, &selectors);
 
     log::info!("Generated CSS: {:?}", output_path);
+    Ok(())
 }
 
-fn generate_html(config: &Config, sprite: &Sprite) {
+fn generate_html(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
     let name = sprite.name();
     let output_path = config.output.join(format!("{}.html", name));
-    let Some(mut f) = create_output(&output_path) else {
-        return;
-    };
+    let mut f = create_output(&output_path)?;
     let total = sprite
         .images
         .iter()
@@ -296,6 +292,7 @@ fn generate_html(config: &Config, sprite: &Sprite) {
     <footer>Generated using <a href=\"https://codeberg.org/slundi/spriters\">Spriters v{}</a></footer>
     </body></html>", SPRITERS_VERSION);
     log::info!("Generated HTML: {:?}", output_path);
+    Ok(())
 }
 const _LESS_TEMPLATE: &str = "<% for image in &images { %>.<%= image.label %><%= image.pseudo %><%- if !image.last %>,\n<% } %><% } %>{
     background-image:url('<%= sprite_path %'); background-repeat:no-repeat;
@@ -316,12 +313,10 @@ const _LESS_TEMPLATE: &str = "<% for image in &images { %>.<%= image.label %><%=
 }
 <% } %>";
 
-fn generate_less(config: &Config, sprite: &Sprite) {
+fn generate_less(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
     let name = sprite.name();
     let output_path = config.output.join(format!("{}.less", name));
-    let Some(mut f) = create_output(&output_path) else {
-        return;
-    };
+    let mut f = create_output(&output_path)?;
     let sprite_url = get_sprite_url(config, sprite);
     let selectors = implode_image_label(config, sprite).replace(",", ", .");
     let _ = writeln!(
@@ -359,14 +354,13 @@ fn generate_less(config: &Config, sprite: &Sprite) {
     }
     write_ratio_media_queries(&mut f, config, sprite, &selectors);
     log::info!("Generated LESS: {:?}", output_path);
+    Ok(())
 }
 
-fn generate_scss(config: &Config, sprite: &Sprite) {
+fn generate_scss(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
     let name = sprite.name();
     let output_path = config.output.join(format!("{}.scss", name));
-    let Some(mut f) = create_output(&output_path) else {
-        return;
-    };
+    let mut f = create_output(&output_path)?;
     let (width, height) = sprite.dimensions();
     let sprite_url = get_sprite_url(config, sprite);
 
@@ -408,14 +402,13 @@ fn generate_scss(config: &Config, sprite: &Sprite) {
     // The mixin already sets `background-size`.
     let selectors = implode_image_label(config, sprite).replace(",", ", .");
     write_ratio_media_queries(&mut f, config, sprite, &selectors);
+    Ok(())
 }
 
-fn generate_css_vars(config: &Config, sprite: &Sprite) {
+fn generate_css_vars(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
     let name = sprite.name();
     let output_path = config.output.join(format!("{}.vars.css", name));
-    let Some(mut f) = create_output(&output_path) else {
-        return;
-    };
+    let mut f = create_output(&output_path)?;
     let sprite_url = get_sprite_url(config, sprite);
 
     let _ = writeln!(f, ":root {{");
@@ -451,14 +444,13 @@ fn generate_css_vars(config: &Config, sprite: &Sprite) {
 
     let _ = writeln!(f, "}}");
     log::info!("Generated CSS vars: {:?}", output_path);
+    Ok(())
 }
 
-fn generate_coco2d(config: &Config, sprite: &Sprite) {
+fn generate_coco2d(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
     let name = sprite.name();
     let output_path = config.output.join(format!("{}.plist", name));
-    let Some(mut f) = create_output(&output_path) else {
-        return;
-    };
+    let mut f = create_output(&output_path)?;
     let (width, height) = sprite.dimensions();
     let sprite_url = get_sprite_url(config, sprite);
 
@@ -525,14 +517,13 @@ fn generate_coco2d(config: &Config, sprite: &Sprite) {
     let _ = writeln!(f, "</plist>");
 
     log::info!("Generated Cocos2d plist: {:?}", output_path);
+    Ok(())
 }
 
-fn generate_json(config: &Config, sprite: &Sprite) {
+fn generate_json(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
     let name = sprite.name();
     let output_path = config.output.join(format!("{}.json", name));
-    let Some(mut f) = create_output(&output_path) else {
-        return;
-    };
+    let mut f = create_output(&output_path)?;
     let (width, height) = sprite.dimensions();
     let sprite_url = get_sprite_url(config, sprite);
 
@@ -581,14 +572,13 @@ fn generate_json(config: &Config, sprite: &Sprite) {
     }
 
     log::info!("Generated JSON: {:?}", output_path);
+    Ok(())
 }
 
-fn generate_caat(config: &Config, sprite: &Sprite) {
+fn generate_caat(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
     let name = sprite.name();
     let output_path = config.output.join(format!("{}.caat.json", name));
-    let Some(mut f) = create_output(&output_path) else {
-        return;
-    };
+    let mut f = create_output(&output_path)?;
     let (width, height) = sprite.dimensions();
     let sprite_filename = sprite_filename(config, sprite);
     let hash = compute_sprite_hash(config, sprite);
@@ -638,13 +628,16 @@ fn generate_caat(config: &Config, sprite: &Sprite) {
     let _ = writeln!(f, "}}");
 
     log::info!("Generated CAAT: {:?}", output_path);
+    Ok(())
 }
 
-fn generate_sprite_image(config: &Config, sprite: &Sprite) {
+/// Write the sprite image of every ratio. Returns whether all of them were written.
+fn generate_sprite_image(config: &Config, sprite: &Sprite) -> bool {
     let (width, height) = sprite.dimensions();
     if width == 0 || height == 0 {
+        // Only an empty sprite, reported as a failure by the manager.
         log::warn!("Sprite has zero dimensions, skipping image generation");
-        return;
+        return true;
     }
 
     // Pixels are at the highest ratio: lower ratios are scaled down from them.
@@ -660,6 +653,7 @@ fn generate_sprite_image(config: &Config, sprite: &Sprite) {
     if !written.is_empty() {
         remove_stale_hashed_sprites(config, sprite, &written);
     }
+    written.len() == sprite.ratios.len()
 }
 
 /// Length in pixels at `ratio` of `length` 1× units.
@@ -1248,29 +1242,31 @@ fn staleness_from(config: &Config, sprite: &Sprite, stored: &Metadata) -> Stalen
 /// Save the sprite hashes and image file name to the metadata file.
 ///
 /// `image_hash` and `image_file` are `None` when no image matching the current inputs
-/// exists on disk (e.g. `--no-img` on a fresh output directory).
+/// exists on disk (e.g. `--no-img` on a fresh output directory, or a failed write), and
+/// `outputs_hash` when a text output could not be written: the next run regenerates them.
 fn save_metadata(
     config: &Config,
     sprite: &Sprite,
     image_hash: Option<u64>,
     image_file: Option<&str>,
+    outputs_hash: Option<u64>,
 ) {
     let meta_path = get_meta_path(config, sprite);
-    let outputs_hash = compute_outputs_hash(config, sprite);
     let image_line = image_hash.map(|hash| hash.to_string()).unwrap_or_default();
+    let outputs_line = outputs_hash
+        .map(|hash| hash.to_string())
+        .unwrap_or_default();
     let image_file = image_file.unwrap_or_default();
 
     if let Ok(mut file) = File::create(&meta_path) {
-        let _ = writeln!(file, "{image_line}\n{outputs_hash}\n{image_file}");
+        let _ = writeln!(file, "{image_line}\n{outputs_line}\n{image_file}");
     }
 }
 
-fn generate_tailwind(config: &Config, sprite: &Sprite) {
+fn generate_tailwind(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
     let name = sprite.name();
     let output_path = config.output.join(format!("{}.tailwind.json", name));
-    let Some(mut f) = create_output(&output_path) else {
-        return;
-    };
+    let mut f = create_output(&output_path)?;
 
     let class_names: Vec<String> = sprite
         .images
@@ -1293,14 +1289,13 @@ fn generate_tailwind(config: &Config, sprite: &Sprite) {
     let _ = writeln!(f, "  ]");
     let _ = writeln!(f, "}}");
     log::info!("Generated Tailwind JSON: {:?}", output_path);
+    Ok(())
 }
 
-fn generate_dts(config: &Config, sprite: &Sprite) {
+fn generate_dts(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
     let name = sprite.name();
     let output_path = config.output.join(format!("{}.d.ts", name));
-    let Some(mut f) = create_output(&output_path) else {
-        return;
-    };
+    let mut f = create_output(&output_path)?;
 
     let labels: Vec<String> = sprite
         .images
@@ -1314,7 +1309,7 @@ fn generate_dts(config: &Config, sprite: &Sprite) {
 
     if labels.is_empty() {
         let _ = writeln!(f, "export type SpriteName = never;");
-        return;
+        return Ok(());
     }
 
     let _ = write!(f, "export type SpriteName");
@@ -1323,6 +1318,7 @@ fn generate_dts(config: &Config, sprite: &Sprite) {
         let _ = writeln!(f, "\n  | \"{}\"{}", lbl, semi);
     }
     log::info!("Generated TypeScript definitions: {:?}", output_path);
+    Ok(())
 }
 
 fn print_dry_run(config: &Config, sprite: &Sprite) {
@@ -1359,50 +1355,53 @@ fn print_dry_run(config: &Config, sprite: &Sprite) {
     }
 }
 
-pub fn generate_files(config: &Config, sprite: &Sprite) {
+/// Write the sprite image and the text outputs that are out of date. Returns whether every
+/// file that had to be written was written.
+pub fn generate_files(config: &Config, sprite: &Sprite) -> bool {
     if config.dry_run {
         print_dry_run(config, sprite);
-        return;
+        return true;
     }
 
     let stored = read_metadata(config, sprite);
     let stale = staleness_from(config, sprite, &stored);
     if !stale.any() {
         log::info!("Sprite is up to date, skipping generation");
-        return;
+        return true;
     }
 
-    if stale.image {
-        generate_sprite_image(config, sprite);
-    }
-    if stale.outputs {
-        generate_text_outputs(config, sprite);
-    }
+    let image_written = !stale.image || generate_sprite_image(config, sprite);
+    let outputs_written = !stale.outputs || generate_text_outputs(config, sprite);
 
     // With --no-img the image on disk is untouched, so keep what was previously stored.
-    if config.no_img {
-        save_metadata(
-            config,
-            sprite,
-            stored.image_hash,
-            stored.image_file.as_deref(),
-        );
-    } else {
-        save_metadata(
-            config,
-            sprite,
+    let (image_hash, image_file) = if config.no_img {
+        (stored.image_hash, stored.image_file)
+    } else if image_written {
+        (
             Some(compute_sprite_hash(config, sprite)),
-            Some(&sprite_filename(config, sprite)),
-        );
-    }
+            Some(sprite_filename(config, sprite)),
+        )
+    } else {
+        (None, None)
+    };
+    save_metadata(
+        config,
+        sprite,
+        image_hash,
+        image_file.as_deref(),
+        outputs_written.then(|| compute_outputs_hash(config, sprite)),
+    );
+    image_written && outputs_written
 }
 
-fn generate_text_outputs(config: &Config, sprite: &Sprite) {
+/// Write every enabled text output. Returns whether all of them were written.
+fn generate_text_outputs(config: &Config, sprite: &Sprite) -> bool {
     use rayon::prelude::*;
 
+    type Generator = fn(&Config, &Sprite) -> std::io::Result<()>;
     // Text-format outputs are all independent — generate them in parallel.
-    let tasks: Vec<fn(&Config, &Sprite)> = {
-        let mut t: Vec<fn(&Config, &Sprite)> = Vec::new();
+    let tasks: Vec<Generator> = {
+        let mut t: Vec<Generator> = Vec::new();
         if !config.no_css {
             t.push(generate_css);
         }
@@ -1435,7 +1434,12 @@ fn generate_text_outputs(config: &Config, sprite: &Sprite) {
         }
         t
     };
-    tasks.par_iter().for_each(|f| f(config, sprite));
+    // Counted rather than `all`: a failure must not stop the other outputs.
+    let failures = tasks
+        .par_iter()
+        .filter(|generate| generate(config, sprite).is_err())
+        .count();
+    failures == 0
 }
 
 #[cfg(test)]
@@ -1466,6 +1470,7 @@ mod tests {
                 }],
                 margin: crate::util::Spacing::default(),
                 padding: crate::util::Spacing::default(),
+                failed_images: Vec::new(),
                 layout_hash: Default::default(),
             }
         };

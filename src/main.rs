@@ -8,11 +8,11 @@ use std::time::Duration;
 pub mod cli;
 
 /// Build and save (or check) every sprite. `cache` keeps decoded images between `--watch`
-/// runs.
+/// runs. Returns whether every image could be loaded and every file written.
 fn run_sprite_generation(
     config: &spriters::Config,
     cache: Option<std::sync::Arc<spriters::ImageCache>>,
-) {
+) -> bool {
     let mut manager = spriters::Manager {
         project: config.project,
         config: config.clone(),
@@ -30,10 +30,10 @@ fn run_sprite_generation(
             );
             std::process::exit(1);
         }
-        return;
+        return true;
     }
 
-    manager.generate();
+    manager.generate()
 }
 
 fn handle_stats(output_dir: Option<&std::path::Path>) {
@@ -180,10 +180,12 @@ fn main() -> ExitCode {
         .watch
         .then(|| std::sync::Arc::new(spriters::ImageCache::default()));
 
-    // Initial sprite generation
-    run_sprite_generation(&config, cache.clone());
+    // Initial sprite generation. Errors are already logged; the exit code reports them, so
+    // that CI does not pass on a broken sprite.
+    let succeeded = run_sprite_generation(&config, cache.clone());
 
-    // If watch mode is enabled, start watching for changes
+    // If watch mode is enabled, start watching for changes (a failed run is fixed by
+    // the next change)
     if config.watch {
         info!(
             "Watching for changes in {:?}... (Ctrl+C to stop)",
@@ -222,7 +224,11 @@ fn main() -> ExitCode {
         }
     }
 
-    ExitCode::SUCCESS
+    if succeeded {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
 }
 
 #[cfg(test)]

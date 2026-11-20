@@ -448,6 +448,130 @@ fn check_mode_exit_codes() {
     });
 }
 
+// Review 6.1: these errors were only logged, and the exit code stayed 0.
+// Directories stand in for unreadable or unwritable files: unlike permissions, this also
+// fails when the tests run as root.
+
+#[test]
+fn corrupt_image_fails_but_other_images_are_generated() {
+    with_tmp_dir(|tmp| {
+        let (source, out) = source_and_output(tmp);
+        std::fs::write(source.join("broken.png"), b"not a png").unwrap();
+        let output = spriters(&[
+            "-i",
+            source.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+            "--json",
+        ]);
+
+        assert!(!output.status.success());
+        let message = stderr(&output);
+        assert!(message.contains("Cannot open image"), "{message}");
+        assert!(message.contains("broken.png"), "{message}");
+        assert!(out.join("icons.png").exists());
+        assert_eq!(json_frames(&out.join("icons.json")), 1);
+    });
+}
+
+#[test]
+fn unreadable_image_file_fails() {
+    with_tmp_dir(|tmp| {
+        let (source, out) = source_and_output(tmp);
+        std::fs::create_dir(source.join("folder.png")).unwrap();
+        let output = spriters(&["-i", source.to_str().unwrap(), "-o", out.to_str().unwrap()]);
+
+        assert!(!output.status.success());
+        assert!(
+            stderr(&output).contains("Cannot read"),
+            "{}",
+            stderr(&output)
+        );
+        assert!(out.join("icons.png").exists());
+    });
+}
+
+#[test]
+fn source_without_images_fails() {
+    with_tmp_dir(|tmp| {
+        let (source, out) = source_and_output(tmp);
+        std::fs::remove_file(source.join("red.png")).unwrap();
+        let output = spriters(&["-i", source.to_str().unwrap(), "-o", out.to_str().unwrap()]);
+
+        assert!(!output.status.success());
+        assert!(stderr(&output).contains("No images were found"));
+    });
+}
+
+#[test]
+fn unwritable_sprite_image_fails() {
+    with_tmp_dir(|tmp| {
+        let (source, out) = source_and_output(tmp);
+        std::fs::create_dir(out.join("icons.png")).unwrap();
+        let output = spriters(&["-i", source.to_str().unwrap(), "-o", out.to_str().unwrap()]);
+
+        assert!(!output.status.success());
+        let message = stderr(&output);
+        assert!(message.contains("Failed to save sprite image"), "{message}");
+        // The text outputs do not depend on the image file.
+        assert!(out.join("icons.css").is_file());
+    });
+}
+
+#[test]
+fn unwritable_text_output_fails_on_every_run() {
+    with_tmp_dir(|tmp| {
+        let (source, out) = source_and_output(tmp);
+        std::fs::create_dir(out.join("icons.css")).unwrap();
+        let args = ["-i", source.to_str().unwrap(), "-o", out.to_str().unwrap()];
+
+        let first = spriters(&args);
+        assert!(!first.status.success());
+        assert!(
+            stderr(&first).contains("Cannot create"),
+            "{}",
+            stderr(&first)
+        );
+        assert!(out.join("icons.png").is_file());
+
+        // The failed output is not recorded as written: the next run retries it instead
+        // of reporting the sprite as up to date.
+        let second = spriters(&args);
+        assert!(!second.status.success());
+        assert!(
+            !stderr(&second).contains("up to date"),
+            "{}",
+            stderr(&second)
+        );
+
+        std::fs::remove_dir(out.join("icons.css")).unwrap();
+        let fixed = spriters(&args);
+        assert!(fixed.status.success(), "{}", stderr(&fixed));
+        assert!(out.join("icons.css").is_file());
+    });
+}
+
+#[test]
+fn project_with_one_broken_sprite_fails_and_builds_the_others() {
+    with_tmp_dir(|tmp| {
+        let (source, out) = source_and_output(tmp);
+        let project = tmp.join("project");
+        std::fs::create_dir_all(project.join("broken")).unwrap();
+        std::fs::rename(&source, project.join("icons")).unwrap();
+        std::fs::write(project.join("broken").join("bad.png"), b"not a png").unwrap();
+        let output = spriters(&[
+            "--project",
+            "-i",
+            project.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+        ]);
+
+        assert!(!output.status.success());
+        assert!(out.join("icons.png").is_file());
+    });
+}
+
 #[test]
 fn unknown_option_fails_with_message() {
     let output = spriters(&["--bogus"]);

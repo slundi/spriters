@@ -553,6 +553,8 @@ pub struct Sprite {
     pub path: PathBuf,
     pub ratios: Vec<f32>,
     pub images: Vec<ImageAndPosition>,
+    /// Paths of the image files that could not be read or decoded, left out of the sprite.
+    pub failed_images: Vec<String>,
     pub margin: Spacing,
     pub padding: Spacing,
     /// Hash of the images and their layout, computed on first use by the outputs (they all
@@ -757,6 +759,12 @@ impl Sprite {
         sprite_name(&self.path)
     }
 
+    /// Whether the sprite holds every image found: none failed to load, and it is not
+    /// empty.
+    pub fn is_complete(&self) -> bool {
+        !self.images.is_empty() && self.failed_images.is_empty()
+    }
+
     /// Drop the decoded pixels of every image once the outputs are written; the layout
     /// (positions and sizes) is kept.
     pub fn release_pixels(&mut self) {
@@ -798,6 +806,7 @@ impl Sprite {
     ///
     /// The list of images will be ordered using the desired ordering algorithm. The default is 'Maxside'.
     fn discover_images(&mut self, cache: Option<&ImageCache>) {
+        use rayon::iter::Either;
         use rayon::prelude::*;
 
         // Phase 1a (sequential, cheap): list candidate paths, in walk order.
@@ -874,18 +883,17 @@ impl Sprite {
         let display_ratio = self.ratios.last().copied().unwrap_or(1.0);
         let processing = processing_key(&self.config, display_ratio);
 
-        // Phase 1b: read and hash in parallel; `collect` keeps the walk order. Files that are
-        // unchanged since a cached run (`--watch`) are neither read nor decoded again.
-        let read: Vec<Candidate> = paths
-            .par_iter()
-            .filter_map(|path| {
+        // Phase 1b: read and hash in parallel; `partition_map` keeps the walk order. Files
+        // that are unchanged since a cached run (`--watch`) are neither read nor decoded again.
+        let (read, mut failed): (Vec<Candidate>, Vec<String>) =
+            paths.par_iter().partition_map(|path| {
                 let stamp = std::fs::metadata(path)
                     .ok()
                     .and_then(|metadata| Some((metadata.modified().ok()?, metadata.len())));
                 if let (Some(cache), Some((modified, len))) = (cache, stamp)
                     && let Some((hash, image)) = cache.get(path, modified, len, processing)
                 {
-                    return Some(Candidate {
+                    return Either::Left(Candidate {
                         path: path.clone(),
                         len,
                         hash,
@@ -894,7 +902,7 @@ impl Sprite {
                     });
                 }
                 match std::fs::read(path) {
-                    Ok(bytes) => Some(Candidate {
+                    Ok(bytes) => Either::Left(Candidate {
                         path: path.clone(),
                         len: bytes.len() as u64,
                         hash: twox_hash::XxHash64::oneshot(713705, &bytes),
@@ -903,11 +911,10 @@ impl Sprite {
                     }),
                     Err(e) => {
                         error!("Cannot read {:?}: {}", path, e);
-                        None
+                        Either::Right(path.to_string_lossy().into_owned())
                     }
                 }
-            })
-            .collect();
+            });
 
         // Phase 1c: deduplicate in walk order, so the primary is always the first one seen.
         let mut seen: HashMap<(u64, u64), String> = HashMap::new();
@@ -931,9 +938,9 @@ impl Sprite {
 
         // Phase 2 (parallel): decode, resize, then crop each image independently.
         let config = &self.config;
-        self.images = candidates
+        let (images, failed_decoding): (Vec<ImageAndPosition>, Vec<String>) = candidates
             .into_par_iter()
-            .filter_map(|candidate| {
+            .partition_map(|candidate| {
                 let path = candidate.path.to_string_lossy().into_owned();
                 let source_hash = candidate.hash;
                 let load_result = match candidate.source {
@@ -992,7 +999,7 @@ impl Sprite {
                                 format!(" [aliases: {}]", aliases.len())
                             }
                         );
-                        Some(ImageAndPosition {
+                        Either::Left(ImageAndPosition {
                             path,
                             image: img2,
                             computed_width: logical_w,
@@ -1004,11 +1011,14 @@ impl Sprite {
                     }
                     Err(err) => {
                         error!("Cannot open image {}: {}", path, err);
-                        None
+                        Either::Right(path)
                     }
                 }
-            })
-            .collect();
+            });
+        self.images = images;
+        failed.extend(failed_decoding);
+        failed.sort();
+        self.failed_images = failed;
 
         if self.images.is_empty() {
             error!("No images were found in the source directory");
@@ -1157,20 +1167,22 @@ impl Manager {
     /// decoded sprite per thread instead of every sprite of the project.
     ///
     /// `sprites` keeps the layout of each sprite, without pixel data.
-    pub fn generate(&mut self) {
-        self.build_each(|config, sprite| {
-            crate::output::generate_files(config, sprite);
-            true
-        });
+    ///
+    /// Returns whether everything succeeded: each sprite has images, all of them could be
+    /// loaded, and every file was written.
+    pub fn generate(&mut self) -> bool {
+        self.build_each(crate::output::generate_files)
     }
 
     /// Like [`Manager::is_up_to_date`] (used by `--check`), building and releasing each
-    /// sprite in turn instead of holding all of them.
+    /// sprite in turn instead of holding all of them. Also `false` when a sprite has no
+    /// images or one of them could not be loaded.
     pub fn check(&mut self) -> bool {
         self.build_each(|config, sprite| !output::staleness(config, sprite).any())
     }
 
-    /// Build each sprite, run `action` on it, then drop its pixels. Returns whether `action`
+    /// Build each sprite, run `action` on it, then drop its pixels. Returns whether there
+    /// was at least one sprite, each one [complete](Sprite::is_complete), and `action`
     /// returned `true` for every sprite.
     fn build_each(&mut self, action: impl Fn(&Config, &Sprite) -> bool + Sync) -> bool {
         use rayon::prelude::*;
@@ -1182,7 +1194,7 @@ impl Manager {
             .into_par_iter()
             .map(|(sprite_config, path)| {
                 let mut sprite = Sprite::with_cache(&sprite_config, path, cache);
-                let result = action(config, &sprite);
+                let result = action(config, &sprite) && sprite.is_complete();
                 sprite.release_pixels();
                 (sprite, result)
             })
@@ -1190,7 +1202,7 @@ impl Manager {
         if results.is_empty() {
             error!("Input folder does not have images.");
         }
-        let all = results.iter().all(|(_, result)| *result);
+        let all = !results.is_empty() && results.iter().all(|(_, result)| *result);
         self.sprites = results.into_iter().map(|(sprite, _)| sprite).collect();
         all
     }
@@ -1242,12 +1254,19 @@ impl Manager {
         }
     }
 
-    /// Save all sprites inside this manager.
-    pub fn save(&self) {
+    /// Save all sprites inside this manager. Returns whether everything succeeded, as
+    /// [`Manager::generate`].
+    pub fn save(&self) -> bool {
         use rayon::prelude::*;
-        self.sprites
+        // Counted rather than `all`: a failure must not stop the other sprites.
+        let failures = self
+            .sprites
             .par_iter()
-            .for_each(|sprite| crate::output::generate_files(&self.config, sprite));
+            .filter(|sprite| {
+                !(crate::output::generate_files(&self.config, sprite) && sprite.is_complete())
+            })
+            .count();
+        !self.sprites.is_empty() && failures == 0
     }
 
     /// Returns `true` if every sprite in this manager is current (no regeneration needed).
@@ -2079,6 +2098,7 @@ mod tests {
             images: Vec::new(),
             margin: util::Spacing::default(),
             padding: util::Spacing::default(),
+            failed_images: Vec::new(),
             layout_hash: Default::default(),
         };
 
@@ -2430,6 +2450,7 @@ mod tests {
                 .collect(),
             margin: util::Spacing::default(),
             padding: util::Spacing::default(),
+            failed_images: Vec::new(),
             layout_hash: Default::default(),
         };
 
