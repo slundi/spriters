@@ -643,6 +643,27 @@ fn unwritable_metadata_fails() {
 }
 
 #[test]
+fn colliding_labels_fail_with_a_message() {
+    // Review 6.4: two images with the same label were silently given the same class.
+    with_tmp_dir(|tmp| {
+        let (source, out) = source_and_output(tmp);
+        std::fs::copy(source.join("red.png"), source.join("my_icon.png")).unwrap();
+        add_blue_icon(&source);
+        std::fs::rename(source.join("blue.png"), source.join("my-icon.png")).unwrap();
+        let output = spriters(&["-i", source.to_str().unwrap(), "-o", out.to_str().unwrap()]);
+
+        assert!(!output.status.success());
+        let message = stderr(&output);
+        assert!(
+            message.contains("'my-icon' is already used by"),
+            "{message}"
+        );
+        assert!(message.contains("my_icon.png is left out"), "{message}");
+        assert!(out.join("icons.css").is_file());
+    });
+}
+
+#[test]
 fn project_with_one_broken_sprite_fails_and_builds_the_others() {
     with_tmp_dir(|tmp| {
         let (source, out) = source_and_output(tmp);

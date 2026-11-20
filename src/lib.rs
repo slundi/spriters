@@ -531,14 +531,73 @@ pub struct ImageAndPosition {
     /// XxHash64 of the source file bytes, used to detect pixel changes between runs.
     pub source_hash: u64,
 }
+/// CSS-safe label of the image file `path`: its slugified file stem. Used for the image
+/// itself and for its aliases.
+pub(crate) fn label_from_path(path: &str) -> String {
+    slug::slugify(
+        std::path::Path::new(path)
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy(),
+    )
+}
+
+/// Leave out the images and aliases whose label is already taken by another image: both
+/// would get the same class name (and JSON key) at different positions, e.g. `my_image.png`
+/// and `my-image.png`, or `rss.png` in two folders with `--recursive`.
+///
+/// Images claim their label first, in path order, so the same one is kept whatever the walk
+/// order; then aliases. An alias with the label of its own image adds nothing and is dropped
+/// silently. Returns the paths left out.
+fn remove_label_collisions(images: &mut Vec<ImageAndPosition>) -> Vec<String> {
+    images.sort_by(|a, b| a.path.cmp(&b.path));
+    // Label -> path of the image whose position it designates.
+    let mut owners: HashMap<String, String> = HashMap::new();
+    let mut left_out = Vec::new();
+
+    images.retain(|image| {
+        let label = image.label();
+        if let Some(owner) = owners.get(&label) {
+            error!(
+                "{} is left out: its label '{}' is already used by {}, rename one of them",
+                image.path, label, owner
+            );
+            left_out.push(image.path.clone());
+            left_out.extend(image.aliases.iter().cloned());
+            return false;
+        }
+        owners.insert(label, image.path.clone());
+        true
+    });
+
+    for image in images.iter_mut() {
+        image.aliases.retain(|alias| {
+            let label = label_from_path(alias);
+            match owners.get(&label) {
+                Some(owner) if *owner == image.path => {
+                    debug!("{alias}: same label as {}, nothing to add", image.path);
+                    false
+                }
+                Some(owner) => {
+                    error!(
+                        "{alias} is left out: its label '{label}' is already used by {owner}, rename one of them"
+                    );
+                    left_out.push(alias.clone());
+                    false
+                }
+                None => {
+                    owners.insert(label, image.path.clone());
+                    true
+                }
+            }
+        });
+    }
+    left_out
+}
+
 impl ImageAndPosition {
     pub fn label(&self) -> String {
-        slug::slugify(
-            std::path::Path::new(&self.path)
-                .file_stem()
-                .unwrap()
-                .to_string_lossy(),
-        )
+        label_from_path(&self.path)
     }
 
     /// Where the image pixels start, in 1× units: inside the padding of its CSS box.
@@ -553,7 +612,8 @@ pub struct Sprite {
     pub path: PathBuf,
     pub ratios: Vec<f32>,
     pub images: Vec<ImageAndPosition>,
-    /// Paths of the image files that could not be read or decoded, left out of the sprite.
+    /// Paths of the image files left out of the sprite: they could not be read or decoded,
+    /// or their label is already used by another image.
     pub failed_images: Vec<String>,
     pub margin: Spacing,
     pub padding: Spacing,
@@ -759,8 +819,8 @@ impl Sprite {
         sprite_name(&self.path)
     }
 
-    /// Whether the sprite holds every image found: none failed to load, and it is not
-    /// empty.
+    /// Whether the sprite holds every image found: none was left out (see
+    /// [`Sprite::failed_images`]), and it is not empty.
     pub fn is_complete(&self) -> bool {
         !self.images.is_empty() && self.failed_images.is_empty()
     }
@@ -1017,6 +1077,7 @@ impl Sprite {
             });
         self.images = images;
         failed.extend(failed_decoding);
+        failed.extend(remove_label_collisions(&mut self.images));
         failed.sort();
         self.failed_images = failed;
 
@@ -2086,6 +2147,97 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(iap3.label(), "icon-arrow-left");
+    }
+
+    /// Image `path` with `aliases`, for the label collision tests.
+    fn labelled(path: &str, aliases: &[&str]) -> ImageAndPosition {
+        ImageAndPosition {
+            path: String::from(path),
+            aliases: aliases.iter().map(|alias| String::from(*alias)).collect(),
+            ..Default::default()
+        }
+    }
+
+    fn paths(images: &[ImageAndPosition]) -> Vec<(&str, Vec<&str>)> {
+        images
+            .iter()
+            .map(|image| {
+                let aliases = image.aliases.iter().map(String::as_str).collect();
+                (image.path.as_str(), aliases)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_label_collisions_keep_the_first_path() {
+        // Review 6.4: both images got the class `my-image` at different positions.
+        // Given in reverse order: the kept image must not depend on the walk order.
+        let mut images = vec![
+            labelled("icons/rss.png", &[]),
+            labelled("icons/my_image.png", &[]),
+            labelled("icons/blog/rss.png", &[]),
+            labelled("icons/my-image.png", &[]),
+            labelled("icons/other.png", &[]),
+        ];
+        let left_out = remove_label_collisions(&mut images);
+
+        assert_eq!(
+            paths(&images),
+            [
+                ("icons/blog/rss.png", vec![]),
+                ("icons/my-image.png", vec![]),
+                ("icons/other.png", vec![]),
+            ]
+        );
+        assert_eq!(left_out, ["icons/my_image.png", "icons/rss.png"]);
+    }
+
+    #[test]
+    fn test_label_collisions_with_aliases() {
+        let mut images = vec![
+            // Same content in two folders: same label, same position.
+            labelled("icons/rss.png", &["icons/blog/rss.png", "icons/feed.png"]),
+            // The alias `home` collides with an image: images claim labels first.
+            labelled("icons/house.png", &["icons/old/home.png"]),
+            labelled("icons/home.png", &[]),
+            // The alias `feed` was claimed by the alias of `rss.png`.
+            labelled("icons/stream.png", &["icons/blog/feed.png"]),
+            // A left-out image takes its aliases with it.
+            labelled("icons/zz/other.png", &["icons/zz/other-copy.png"]),
+            labelled("icons/other.png", &[]),
+        ];
+        let mut left_out = remove_label_collisions(&mut images);
+        left_out.sort();
+
+        assert_eq!(
+            paths(&images),
+            [
+                ("icons/home.png", vec![]),
+                ("icons/house.png", vec![]),
+                ("icons/other.png", vec![]),
+                ("icons/rss.png", vec!["icons/feed.png"]),
+                ("icons/stream.png", vec![]),
+            ]
+        );
+        assert_eq!(
+            left_out,
+            [
+                "icons/blog/feed.png",
+                "icons/old/home.png",
+                "icons/zz/other-copy.png",
+                "icons/zz/other.png",
+            ]
+        );
+    }
+
+    #[test]
+    fn test_unique_labels_are_untouched() {
+        let mut images = vec![labelled("b.png", &["b-copy.png"]), labelled("a.png", &[])];
+        assert!(remove_label_collisions(&mut images).is_empty());
+        assert_eq!(
+            paths(&images),
+            [("a.png", vec![]), ("b.png", vec!["b-copy.png"])]
+        );
     }
 
     #[test]

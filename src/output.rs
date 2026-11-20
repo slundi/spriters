@@ -3,7 +3,7 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
 
-use crate::{Config, JsonFormat, Sprite, SpriteFormat};
+use crate::{Config, JsonFormat, Sprite, SpriteFormat, label_from_path};
 
 const SPRITERS_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -234,16 +234,6 @@ fn write_output(
         Err(e) => log::error!("Cannot write {kind} {:?}: {}", path, e),
     }
     result
-}
-
-/// Derive a CSS-safe label from an arbitrary file path (same logic as `ImageAndPosition::label()`).
-fn label_from_path(path: &str) -> String {
-    slug::slugify(
-        std::path::Path::new(path)
-            .file_stem()
-            .unwrap_or_default()
-            .to_string_lossy(),
-    )
 }
 
 fn implode_image_label(config: &Config, sprite: &Sprite) -> String {

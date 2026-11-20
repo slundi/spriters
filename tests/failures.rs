@@ -134,3 +134,79 @@ fn save_reports_failures_of_every_sprite() {
         assert!(!manager.save());
     });
 }
+
+/// Save a 4×4 image of `color` at `path`, creating its folder.
+fn save_icon(path: &Path, color: [u8; 4]) {
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    image::RgbaImage::from_pixel(4, 4, image::Rgba(color))
+        .save(path)
+        .unwrap();
+}
+
+fn file_names(paths: &[String]) -> Vec<&str> {
+    paths
+        .iter()
+        .map(|path| Path::new(path).file_name().unwrap().to_str().unwrap())
+        .collect()
+}
+
+#[test]
+fn colliding_labels_leave_one_image_out() {
+    // Review 6.4: `my_image.png` and `my-image.png` both became `.sprite-icons-my-image`,
+    // two rules for one class at different positions.
+    with_tmp_dir(|tmp| {
+        let (source, output) = source_and_output(tmp);
+        save_icon(&source.join("my_image.png"), [0, 255, 0, 255]);
+        save_icon(&source.join("my-image.png"), [255, 255, 0, 255]);
+        let mut manager = manager(&source, &output);
+
+        assert!(!manager.generate());
+        let sprite = &manager.sprites[0];
+        // The first path is kept: '-' sorts before '_'.
+        assert_eq!(file_names(&sprite.failed_images), ["my_image.png"]);
+        assert_eq!(sprite.images.len(), 3);
+        let css = std::fs::read_to_string(output.join("icons.css")).unwrap();
+        assert_eq!(css.matches(".sprite-icons-my-image {").count(), 1, "{css}");
+    });
+}
+
+#[test]
+fn same_file_name_in_two_folders_collides_with_recursive() {
+    with_tmp_dir(|tmp| {
+        let (source, output) = source_and_output(tmp);
+        save_icon(&source.join("rss.png"), [0, 255, 0, 255]);
+        save_icon(&source.join("blog").join("rss.png"), [255, 255, 0, 255]);
+        let mut manager = manager(&source, &output);
+        manager.config.recursive = true;
+        manager.config.json = true;
+        manager.config.json_format = spriters::JsonFormat::Hash;
+
+        assert!(!manager.generate());
+        assert_eq!(manager.sprites[0].failed_images.len(), 1);
+        assert!(manager.sprites[0].failed_images[0].ends_with("rss.png"));
+        // `blog/rss.png` sorts first and is kept.
+        let kept = &manager.sprites[0].images;
+        assert!(kept.iter().any(|image| image.path.contains("blog")));
+        let json = std::fs::read_to_string(output.join("icons.json")).unwrap();
+        assert_eq!(json.matches("\"rss\":").count(), 1, "{json}");
+    });
+}
+
+#[test]
+fn identical_files_with_the_same_label_are_not_a_collision() {
+    with_tmp_dir(|tmp| {
+        let (source, output) = source_and_output(tmp);
+        save_icon(&source.join("rss.png"), [0, 255, 0, 255]);
+        save_icon(&source.join("blog").join("rss.png"), [0, 255, 0, 255]);
+        let mut manager = manager(&source, &output);
+        manager.config.recursive = true;
+        manager.config.json = true;
+        manager.config.json_format = spriters::JsonFormat::Hash;
+
+        // Same content, same label: one region, one class.
+        assert!(manager.generate());
+        assert!(manager.sprites[0].failed_images.is_empty());
+        let json = std::fs::read_to_string(output.join("icons.json")).unwrap();
+        assert_eq!(json.matches("\"rss\":").count(), 1, "{json}");
+    });
+}
