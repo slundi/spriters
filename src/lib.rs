@@ -1127,7 +1127,21 @@ fn rasterize_svg(
     image::load_from_memory(&png).map_err(|e| format!("Image load error: {e}"))
 }
 
+/// Result of cropping an image with nothing left to keep (fully transparent, or entirely
+/// the crop colour): a 1×1 pixel taken from the image, so the icon keeps a sprite entry
+/// (e.g. a placeholder) instead of producing a zero-sized one.
+fn blank_placeholder(image: &DynamicImage) -> DynamicImage {
+    warn!(
+        "Image ({}x{}) has no pixel left after crop, keeping a 1x1 placeholder",
+        image.width(),
+        image.height()
+    );
+    image.crop_imm(0, 0, 1, 1)
+}
+
 /// Crop an image. When no color is provided, it crops white or transparent areas (when alpha channel is available).
+///
+/// An image with nothing to keep is reduced to a 1×1 placeholder.
 pub fn crop(image: DynamicImage, color: Option<u32>) -> DynamicImage {
     let mut cropable_color: u32 = 0xffffffff; // default is white
     let mut crop_alpha = false;
@@ -1159,6 +1173,9 @@ pub fn crop(image: DynamicImage, color: Option<u32>) -> DynamicImage {
                 break;
             }
             left += 1;
+        }
+        if left == image.width() {
+            return blank_placeholder(&image);
         }
         // right
         for x in (0..image.width()).rev() {
@@ -1192,6 +1209,9 @@ pub fn crop(image: DynamicImage, color: Option<u32>) -> DynamicImage {
                 break;
             }
             top += 1;
+        }
+        if top == image.height() {
+            return blank_placeholder(&image);
         }
         // bottom
         for y in (0..image.height()).rev() {
@@ -1464,6 +1484,43 @@ mod tests {
         // Two single pixels: the result is their bounding box, gaps included.
         let cropped = crop(transparent_with(12, 9, &[(3, 1, 1, 1), (7, 6, 1, 1)]), None);
         assert_eq!((cropped.width(), cropped.height()), (5, 6));
+    }
+
+    #[test]
+    fn test_crop_fully_transparent_gives_placeholder() {
+        // Review 3.2: left = right = width overflowed `width - left - right`.
+        let cropped = crop(transparent_with(10, 10, &[]), None);
+        assert_eq!((cropped.width(), cropped.height()), (1, 1));
+        assert_eq!(
+            cropped.get_pixel(0, 0).0[3],
+            0,
+            "placeholder stays transparent"
+        );
+    }
+
+    #[test]
+    fn test_crop_transparent_single_column_or_row() {
+        // One-pixel-wide images skip one axis: the other axis must not overflow either.
+        let column = crop(transparent_with(1, 10, &[]), None);
+        assert_eq!((column.width(), column.height()), (1, 1));
+        let row = crop(transparent_with(10, 1, &[]), None);
+        assert_eq!((row.width(), row.height()), (1, 1));
+    }
+
+    #[test]
+    fn test_crop_single_pixel_is_unchanged() {
+        let transparent = crop(transparent_with(1, 1, &[]), None);
+        assert_eq!((transparent.width(), transparent.height()), (1, 1));
+        let opaque = crop(transparent_with(1, 1, &[(0, 0, 1, 1)]), None);
+        assert_eq!(opaque.get_pixel(0, 0), image::Rgba([255, 0, 0, 255]));
+    }
+
+    #[test]
+    fn test_crop_image_entirely_of_crop_color() {
+        let canvas = image::RgbaImage::from_pixel(8, 6, image::Rgba([255, 255, 255, 255]));
+        let cropped = crop(DynamicImage::ImageRgba8(canvas), Some(0xffffffff));
+        assert_eq!((cropped.width(), cropped.height()), (1, 1));
+        assert_eq!(cropped.get_pixel(0, 0), image::Rgba([255, 255, 255, 255]));
     }
 
     #[test]

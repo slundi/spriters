@@ -607,6 +607,36 @@ fn sprite_stats_finds_hashed_sprite() {
     });
 }
 
+// ─── Crop of blank images ────────────────────────────────────────────────────
+
+#[test]
+fn crop_keeps_blank_icon_as_one_pixel_placeholder() {
+    with_tmp_dir(|tmp| {
+        let source = make_icons_source(tmp);
+        image::RgbaImage::new(16, 16)
+            .save(source.join("blank.png"))
+            .unwrap();
+        let out = tmp.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        let mut config = base_config(source.to_str().unwrap(), &out);
+        config.crop = true;
+
+        let manager = run(config);
+
+        let blank = manager.sprites[0]
+            .images
+            .iter()
+            .find(|img| img.path.ends_with("blank.png"))
+            .expect("blank icon must stay in the sprite");
+        assert_eq!((blank.computed_width, blank.computed_height), (1, 1));
+
+        let css = std::fs::read_to_string(out.join("icons.css")).unwrap();
+        assert!(css.contains("blank"), "blank icon must keep a CSS rule");
+        assert!(!css.contains("width: 0px"), "no zero-sized rule: {css}");
+        assert!(!css.contains("height: 0px"), "no zero-sized rule: {css}");
+    });
+}
+
 // ─── 4.4 Stats ───────────────────────────────────────────────────────────────
 
 #[test]
