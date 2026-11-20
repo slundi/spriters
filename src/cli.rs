@@ -53,7 +53,7 @@ Output options:
 Image processing options:
 -a, --algorithm:        algorithm to order images in the sprite: square (default), vertical, horizontal, diagonal, vertical-right, horizontal-bottom
 --ordering:             sort order for images: maxside (default), width, height, area, filename. Prefix with '-' for reverse (e.g., -maxside)
---png8:                 generate grascale image(s)
+--png8:                 generate 8-bit palette PNG (up to 256 colours, transparency kept)
 --ratios:               generate sprites at multiple ratios for different DPIs (e.g., '2,1' or '2,1.5,1')
 --retina:               shortcut for --ratios=2,1
 -c, --crop:             crop unnecessary transparent spaces

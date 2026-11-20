@@ -27,6 +27,7 @@ image = { version = "0.25", features = ["avif"] }
 lexopt = "0.3"
 log = "0.4"
 notify = "8"
+png = "0.18"
 rayon = "1"
 resvg = "0.50"
 serde = { version = "1", features = ["derive"] }

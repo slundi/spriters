@@ -334,7 +334,8 @@ pub struct Config {
     /// `$ spriters source output --css-template=my_template.jinja`
     pub css_template: Option<std::path::PathBuf>,
     pub img: Option<std::path::PathBuf>,
-    /// By using the flag `png8` the output image format will be `png8` instead of `png32`.
+    /// By using the flag `png8` the output image format will be `png8` instead of `png32`:
+    /// an 8-bit palette PNG of up to 256 colours, transparency included (PNG output only).
     pub png8: bool,
     /// **less** is a dynamic stylesheet language that extends CSS with dynamic behaviors. **spriters** can also create `.less` files adding the `--less` option. This
     /// files contain exactly the same CSS code. This option only changes the file format.

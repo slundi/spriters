@@ -129,7 +129,7 @@ spriters icons/ dist/ --check
 | `-m`, `--margin`     | Transparent space between images, outside their CSS box                                                 |
 | `--ratios`           | Comma-separated ratios, e.g. `2,1` or `2,1.5,1`. Source images are at the highest ratio; one sprite is written per ratio (`name.png`, `name@2x.png`, …) and the CSS uses 1× px with `background-size` and media queries. Padding and margin are in CSS px |
 | `--retina`           | Shortcut for `--ratios=2,1`                                                                             |
-| `--png8`             | Grayscale PNG output                                                                                    |
+| `--png8`             | 8-bit palette PNG (up to 256 colours, transparency kept) instead of 32-bit RGBA                         |
 
 ### Output
 

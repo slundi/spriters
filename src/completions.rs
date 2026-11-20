@@ -82,7 +82,7 @@ _spriters() {
         '--url[Base URL for sprite images]:url'
         {-a,--algorithm}'[Layout algorithm]:algo:(square vertical horizontal diagonal vertical-right horizontal-bottom)'
         '--ordering[Sort order]:order:(maxside -maxside width -width height -height area -area filename -filename)'
-        '--png8[Grayscale output]'
+        '--png8[8-bit palette PNG output]'
         '--ratios[Comma-separated ratios]:ratios'
         '--retina[Shortcut for --ratios=2,1]'
         {-c,--crop}'[Crop transparent borders]'
@@ -134,7 +134,7 @@ complete -c spriters      -l namespace   -d 'Global CSS namespace'     -r
 complete -c spriters      -l url         -d 'Base URL for images'      -r
 complete -c spriters -s a -l algorithm   -d 'Layout algorithm'         -r -a 'square vertical horizontal diagonal vertical-right horizontal-bottom'
 complete -c spriters      -l ordering    -d 'Sort order'               -r -a 'maxside -maxside width -width height -height area -area filename -filename'
-complete -c spriters      -l png8        -d 'Grayscale output'
+complete -c spriters      -l png8        -d '8-bit palette PNG output'
 complete -c spriters      -l ratios      -d 'Comma-separated ratios'   -r
 complete -c spriters      -l retina      -d 'Shortcut for --ratios=2,1'
 complete -c spriters -s c -l crop        -d 'Crop transparent borders'
