@@ -2,6 +2,7 @@ use serde::Deserialize;
 use std::path::Path;
 
 use crate::{Algorithm, Config, JsonFormat, Ordering, SpriteFormat};
+use image::imageops::FilterType;
 
 /// TOML-deserializable config with all fields optional.
 /// Loaded from `spriters.toml` in the source directory.
@@ -91,30 +92,24 @@ pub fn apply_env_vars(config: &mut Config) {
 /// [`apply_env_vars`] reads them from the process environment; tests pass their own
 /// lookup instead, since mutating the environment is `unsafe` and racy across threads.
 pub fn apply_env_with(config: &mut Config, lookup: impl Fn(&str) -> Option<String>) {
-    if let Some(v) = lookup("SPRITERS_ALGORITHM")
-        && let Ok(a) = parse_algorithm(&v)
-    {
-        config.algorithm = a;
+    let algorithm = lookup("SPRITERS_ALGORITHM");
+    if let Some(value) = checked(ENV, "SPRITERS_ALGORITHM", algorithm, parse_algorithm) {
+        config.algorithm = value;
     }
-    if let Some(v) = lookup("SPRITERS_ORDERING")
-        && let Ok(o) = v.parse::<Ordering>()
-    {
-        config.ordering = o;
+    let ordering = lookup("SPRITERS_ORDERING");
+    if let Some(value) = checked(ENV, "SPRITERS_ORDERING", ordering, parse_ordering) {
+        config.ordering = value;
     }
-    if let Some(v) = lookup("SPRITERS_CROP")
-        && let Ok(b) = parse_bool(&v)
-    {
-        config.crop = b;
+    if let Some(value) = checked(ENV, "SPRITERS_CROP", lookup("SPRITERS_CROP"), parse_bool) {
+        config.crop = value;
     }
-    if let Some(v) = lookup("SPRITERS_MAX_WIDTH")
-        && let Ok(n) = v.parse::<u32>()
-    {
-        config.max_width = Some(n);
+    let max_width = lookup("SPRITERS_MAX_WIDTH");
+    if let Some(value) = checked(ENV, "SPRITERS_MAX_WIDTH", max_width, parse_number) {
+        config.max_width = Some(value);
     }
-    if let Some(v) = lookup("SPRITERS_MAX_HEIGHT")
-        && let Ok(n) = v.parse::<u32>()
-    {
-        config.max_height = Some(n);
+    let max_height = lookup("SPRITERS_MAX_HEIGHT");
+    if let Some(value) = checked(ENV, "SPRITERS_MAX_HEIGHT", max_height, parse_number) {
+        config.max_height = Some(value);
     }
     if let Some(v) = lookup("SPRITERS_PADDING") {
         config.padding = Some(v);
@@ -137,103 +132,117 @@ pub fn apply_env_with(config: &mut Config, lookup: impl Fn(&str) -> Option<Strin
     if let Some(v) = lookup("SPRITERS_URL") {
         config.url = Some(v);
     }
-    if let Some(v) = lookup("SPRITERS_JSON_FORMAT") {
-        config.json_format = if v.to_lowercase() == "hash" {
-            JsonFormat::Hash
-        } else {
-            JsonFormat::Array
-        };
+    let json_format = lookup("SPRITERS_JSON_FORMAT");
+    if let Some(value) = checked(ENV, "SPRITERS_JSON_FORMAT", json_format, parse_json_format) {
+        config.json_format = value;
     }
-    if let Some(v) = lookup("SPRITERS_CACHEBUSTER")
-        && let Ok(b) = parse_bool(&v)
-    {
-        config.cachebuster = b;
+    if let Some(value) = checked(
+        ENV,
+        "SPRITERS_CACHEBUSTER",
+        lookup("SPRITERS_CACHEBUSTER"),
+        parse_bool,
+    ) {
+        config.cachebuster = value;
     }
-    if let Some(v) = lookup("SPRITERS_CACHEBUSTER_FILENAME")
-        && let Ok(b) = parse_bool(&v)
-    {
-        config.cachebuster_filename = b;
+    if let Some(value) = checked(
+        ENV,
+        "SPRITERS_CACHEBUSTER_FILENAME",
+        lookup("SPRITERS_CACHEBUSTER_FILENAME"),
+        parse_bool,
+    ) {
+        config.cachebuster_filename = value;
     }
-    if let Some(v) = lookup("SPRITERS_CACHEBUSTER_FILENAME_ONLY_SPRITES")
-        && let Ok(b) = parse_bool(&v)
-    {
-        config.cachebuster_filename_only_sprites = b;
+    if let Some(value) = checked(
+        ENV,
+        "SPRITERS_CACHEBUSTER_FILENAME_ONLY_SPRITES",
+        lookup("SPRITERS_CACHEBUSTER_FILENAME_ONLY_SPRITES"),
+        parse_bool,
+    ) {
+        config.cachebuster_filename_only_sprites = value;
     }
-    if let Some(v) = lookup("SPRITERS_FORCE")
-        && let Ok(b) = parse_bool(&v)
-    {
-        config.force = b;
+    if let Some(value) = checked(ENV, "SPRITERS_FORCE", lookup("SPRITERS_FORCE"), parse_bool) {
+        config.force = value;
     }
-    if let Some(v) = lookup("SPRITERS_FOLLOW_LINKS")
-        && let Ok(b) = parse_bool(&v)
-    {
-        config.follow_links = b;
+    if let Some(value) = checked(
+        ENV,
+        "SPRITERS_FOLLOW_LINKS",
+        lookup("SPRITERS_FOLLOW_LINKS"),
+        parse_bool,
+    ) {
+        config.follow_links = value;
     }
-    if let Some(v) = lookup("SPRITERS_RECURSIVE")
-        && let Ok(b) = parse_bool(&v)
-    {
-        config.recursive = b;
+    if let Some(value) = checked(
+        ENV,
+        "SPRITERS_RECURSIVE",
+        lookup("SPRITERS_RECURSIVE"),
+        parse_bool,
+    ) {
+        config.recursive = value;
     }
-    if let Some(v) = lookup("SPRITERS_PROJECT")
-        && let Ok(b) = parse_bool(&v)
-    {
-        config.project = b;
+    if let Some(value) = checked(
+        ENV,
+        "SPRITERS_PROJECT",
+        lookup("SPRITERS_PROJECT"),
+        parse_bool,
+    ) {
+        config.project = value;
     }
-    if let Some(v) = lookup("SPRITERS_NO_CSS")
-        && let Ok(b) = parse_bool(&v)
-    {
-        config.no_css = b;
+    if let Some(value) = checked(
+        ENV,
+        "SPRITERS_NO_CSS",
+        lookup("SPRITERS_NO_CSS"),
+        parse_bool,
+    ) {
+        config.no_css = value;
     }
-    if let Some(v) = lookup("SPRITERS_NO_IMG")
-        && let Ok(b) = parse_bool(&v)
-    {
-        config.no_img = b;
+    if let Some(value) = checked(
+        ENV,
+        "SPRITERS_NO_IMG",
+        lookup("SPRITERS_NO_IMG"),
+        parse_bool,
+    ) {
+        config.no_img = value;
     }
-    if let Some(v) = lookup("SPRITERS_PNG8")
-        && let Ok(b) = parse_bool(&v)
-    {
-        config.png8 = b;
+    if let Some(value) = checked(ENV, "SPRITERS_PNG8", lookup("SPRITERS_PNG8"), parse_bool) {
+        config.png8 = value;
     }
-    if let Some(v) = lookup("SPRITERS_HTML")
-        && let Ok(b) = parse_bool(&v)
-    {
-        config.html = b;
+    if let Some(value) = checked(ENV, "SPRITERS_HTML", lookup("SPRITERS_HTML"), parse_bool) {
+        config.html = value;
     }
-    if let Some(v) = lookup("SPRITERS_JSON")
-        && let Ok(b) = parse_bool(&v)
-    {
-        config.json = b;
+    if let Some(value) = checked(ENV, "SPRITERS_JSON", lookup("SPRITERS_JSON"), parse_bool) {
+        config.json = value;
     }
-    if let Some(v) = lookup("SPRITERS_CAAT")
-        && let Ok(b) = parse_bool(&v)
-    {
-        config.caat = b;
+    if let Some(value) = checked(ENV, "SPRITERS_CAAT", lookup("SPRITERS_CAAT"), parse_bool) {
+        config.caat = value;
     }
-    if let Some(v) = lookup("SPRITERS_LESS")
-        && let Ok(b) = parse_bool(&v)
-    {
-        config.less = b;
+    if let Some(value) = checked(ENV, "SPRITERS_LESS", lookup("SPRITERS_LESS"), parse_bool) {
+        config.less = value;
     }
-    if let Some(v) = lookup("SPRITERS_SCSS")
-        && let Ok(b) = parse_bool(&v)
-    {
-        config.scss = b;
+    if let Some(value) = checked(ENV, "SPRITERS_SCSS", lookup("SPRITERS_SCSS"), parse_bool) {
+        config.scss = value;
     }
-    if let Some(v) = lookup("SPRITERS_COCOS2D")
-        && let Ok(b) = parse_bool(&v)
-    {
-        config.cocos2d = b;
+    if let Some(value) = checked(
+        ENV,
+        "SPRITERS_COCOS2D",
+        lookup("SPRITERS_COCOS2D"),
+        parse_bool,
+    ) {
+        config.cocos2d = value;
     }
-    if let Some(v) = lookup("SPRITERS_NO_DUPLICATE")
-        && let Ok(b) = parse_bool(&v)
-    {
-        config.no_duplicate = b;
+    if let Some(value) = checked(
+        ENV,
+        "SPRITERS_NO_DUPLICATE",
+        lookup("SPRITERS_NO_DUPLICATE"),
+        parse_bool,
+    ) {
+        config.no_duplicate = value;
     }
     if let Some(v) = lookup("SPRITERS_PSEUDO_CLASS_SEPARATOR") {
         config.pseudo_class_separator = Some(v);
     }
-    if let Some(v) = lookup("SPRITERS_FORMAT") {
-        config.sprite_format = parse_sprite_format(&v);
+    let format = lookup("SPRITERS_FORMAT");
+    if let Some(value) = checked(ENV, "SPRITERS_FORMAT", format, parse_sprite_format) {
+        config.sprite_format = value;
     }
     if let Some(v) = lookup("SPRITERS_EXCLUDE") {
         config.exclude.extend(
@@ -242,45 +251,46 @@ pub fn apply_env_with(config: &mut Config, lookup: impl Fn(&str) -> Option<Strin
                 .filter(|s| !s.is_empty()),
         );
     }
-    if let Some(v) = lookup("SPRITERS_CSS_VARS")
-        && let Ok(b) = parse_bool(&v)
-    {
-        config.css_vars = b;
+    if let Some(value) = checked(
+        ENV,
+        "SPRITERS_CSS_VARS",
+        lookup("SPRITERS_CSS_VARS"),
+        parse_bool,
+    ) {
+        config.css_vars = value;
     }
-    if let Some(v) = lookup("SPRITERS_DRY_RUN")
-        && let Ok(b) = parse_bool(&v)
-    {
-        config.dry_run = b;
+    if let Some(value) = checked(
+        ENV,
+        "SPRITERS_DRY_RUN",
+        lookup("SPRITERS_DRY_RUN"),
+        parse_bool,
+    ) {
+        config.dry_run = value;
     }
-    if let Some(v) = lookup("SPRITERS_CHECK")
-        && let Ok(b) = parse_bool(&v)
-    {
-        config.check = b;
+    if let Some(value) = checked(ENV, "SPRITERS_CHECK", lookup("SPRITERS_CHECK"), parse_bool) {
+        config.check = value;
     }
-    if let Some(v) = lookup("SPRITERS_TAILWIND")
-        && let Ok(b) = parse_bool(&v)
-    {
-        config.tailwind = b;
+    if let Some(value) = checked(
+        ENV,
+        "SPRITERS_TAILWIND",
+        lookup("SPRITERS_TAILWIND"),
+        parse_bool,
+    ) {
+        config.tailwind = value;
     }
-    if let Some(v) = lookup("SPRITERS_DTS")
-        && let Ok(b) = parse_bool(&v)
-    {
-        config.dts = b;
+    if let Some(value) = checked(ENV, "SPRITERS_DTS", lookup("SPRITERS_DTS"), parse_bool) {
+        config.dts = value;
     }
 }
 
 /// Overlay file config values onto config. Lowest priority after the defaults: env vars
 /// and the command line override it (see [`resolve`]).
 pub fn apply_file_config(config: &mut Config, fc: FileConfig) {
-    if let Some(v) = fc.algorithm
-        && let Ok(a) = parse_algorithm(&v)
-    {
-        config.algorithm = a;
+    if let Some(value) = checked(FILE, "algorithm", fc.algorithm, parse_algorithm) {
+        config.algorithm = value;
     }
-    if let Some(v) = fc.ordering
-        && let Ok(o) = v.parse::<Ordering>()
-    {
-        config.ordering = o;
+    if let Some(value) = checked(FILE, "ordering", fc.ordering, parse_ordering) {
+        config.ordering = value;
     }
     if let Some(v) = fc.crop {
         config.crop = v;
@@ -333,15 +343,11 @@ pub fn apply_file_config(config: &mut Config, fc: FileConfig) {
     if let Some(v) = fc.json {
         config.json = v;
     }
-    if let Some(v) = fc.json_format {
-        config.json_format = if v.to_lowercase() == "hash" {
-            JsonFormat::Hash
-        } else {
-            JsonFormat::Array
-        };
+    if let Some(value) = checked(FILE, "json_format", fc.json_format, parse_json_format) {
+        config.json_format = value;
     }
-    if let Some(v) = fc.sprite_format {
-        config.sprite_format = parse_sprite_format(&v);
+    if let Some(value) = checked(FILE, "sprite_format", fc.sprite_format, parse_sprite_format) {
+        config.sprite_format = value;
     }
     if let Some(v) = fc.caat {
         config.caat = v;
@@ -396,7 +402,45 @@ pub fn apply_file_config(config: &mut Config, fc: FileConfig) {
     }
 }
 
-fn parse_algorithm(s: &str) -> Result<Algorithm, ()> {
+/// A setting whose value is not one of the accepted ones.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("invalid {setting} '{value}', expected {expected}")]
+pub struct InvalidValue {
+    /// What the value is for, e.g. `image format`.
+    pub setting: &'static str,
+    pub value: String,
+    /// The accepted values.
+    pub expected: &'static str,
+}
+
+fn invalid(setting: &'static str, value: &str, expected: &'static str) -> InvalidValue {
+    InvalidValue {
+        setting,
+        value: value.to_owned(),
+        expected,
+    }
+}
+
+/// Origins of a setting, for the messages of [`checked`].
+const ENV: &str = "the environment";
+const FILE: &str = "spriters.toml";
+
+/// `value` of the setting `key` from `origin`, parsed with `parse`. An invalid value is
+/// reported and ignored (the command line rejects it instead); it used to fall back to a
+/// default in silence.
+fn checked<T>(
+    origin: &str,
+    key: &str,
+    value: Option<String>,
+    parse: fn(&str) -> Result<T, InvalidValue>,
+) -> Option<T> {
+    parse(&value?)
+        .inspect_err(|e| log::warn!("Ignoring {key} from {origin}: {e}"))
+        .ok()
+}
+
+/// Parse an algorithm name (case-insensitive).
+pub fn parse_algorithm(s: &str) -> Result<Algorithm, InvalidValue> {
     match s.to_lowercase().as_str() {
         "square" => Ok(Algorithm::Square),
         "vertical" => Ok(Algorithm::Vertical),
@@ -404,24 +448,71 @@ fn parse_algorithm(s: &str) -> Result<Algorithm, ()> {
         "diagonal" => Ok(Algorithm::Diagonal),
         "verticalright" | "vertical-right" => Ok(Algorithm::VerticalRight),
         "horizontalbottom" | "horizontal-bottom" => Ok(Algorithm::HorizontalBottom),
-        _ => Err(()),
+        _ => Err(invalid(
+            "algorithm",
+            s,
+            "square, vertical, horizontal, diagonal, vertical-right or horizontal-bottom",
+        )),
     }
 }
 
-fn parse_bool(s: &str) -> Result<bool, ()> {
+/// Parse an ordering name (case-insensitive), see [`Ordering`].
+pub fn parse_ordering(s: &str) -> Result<Ordering, InvalidValue> {
+    s.parse::<Ordering>().map_err(|()| {
+        invalid(
+            "ordering",
+            s,
+            "maxside, width, height, area or filename, prefixed with '-' for reverse",
+        )
+    })
+}
+
+/// Parse a sprite image format (case-insensitive).
+pub fn parse_sprite_format(s: &str) -> Result<SpriteFormat, InvalidValue> {
+    match s.to_lowercase().as_str() {
+        "png" => Ok(SpriteFormat::Png),
+        "webp" => Ok(SpriteFormat::WebP),
+        "avif" => Ok(SpriteFormat::Avif),
+        _ => Err(invalid("image format", s, "png, webp or avif")),
+    }
+}
+
+/// Parse a JSON output format (case-insensitive).
+pub fn parse_json_format(s: &str) -> Result<JsonFormat, InvalidValue> {
+    match s.to_lowercase().as_str() {
+        "array" => Ok(JsonFormat::Array),
+        "hash" => Ok(JsonFormat::Hash),
+        _ => Err(invalid("JSON format", s, "array or hash")),
+    }
+}
+
+/// Parse a resize filter name (case-insensitive).
+pub fn parse_resize_algorithm(s: &str) -> Result<FilterType, InvalidValue> {
+    match s.to_lowercase().as_str() {
+        "nearest" => Ok(FilterType::Nearest),
+        "triangle" => Ok(FilterType::Triangle),
+        "gaussian" => Ok(FilterType::Gaussian),
+        "lanczos3" => Ok(FilterType::Lanczos3),
+        "catmullrom" | "catmull-rom" => Ok(FilterType::CatmullRom),
+        _ => Err(invalid(
+            "resize algorithm",
+            s,
+            "nearest, triangle, gaussian, lanczos3 or catmullrom",
+        )),
+    }
+}
+
+fn parse_bool(s: &str) -> Result<bool, InvalidValue> {
     match s.to_lowercase().as_str() {
         "1" | "true" | "yes" | "on" => Ok(true),
         "0" | "false" | "no" | "off" => Ok(false),
-        _ => Err(()),
+        _ => Err(invalid("boolean", s, "true/false, yes/no, on/off or 1/0")),
     }
 }
 
-pub(crate) fn parse_sprite_format(s: &str) -> SpriteFormat {
-    match s.to_lowercase().as_str() {
-        "webp" => SpriteFormat::WebP,
-        "avif" => SpriteFormat::Avif,
-        _ => SpriteFormat::Png,
-    }
+fn parse_number(s: &str) -> Result<u32, InvalidValue> {
+    s.parse()
+        .map_err(|_| invalid("number", s, "a non-negative integer"))
 }
 
 #[cfg(test)]
@@ -463,13 +554,107 @@ mod tests {
 
     #[test]
     fn test_parse_sprite_format() {
-        assert_eq!(parse_sprite_format("webp"), SpriteFormat::WebP);
-        assert_eq!(parse_sprite_format("WEBP"), SpriteFormat::WebP);
-        assert_eq!(parse_sprite_format("avif"), SpriteFormat::Avif);
-        assert_eq!(parse_sprite_format("AVIF"), SpriteFormat::Avif);
-        assert_eq!(parse_sprite_format("png"), SpriteFormat::Png);
-        assert_eq!(parse_sprite_format("unknown"), SpriteFormat::Png);
-        assert_eq!(parse_sprite_format(""), SpriteFormat::Png);
+        assert_eq!(parse_sprite_format("webp"), Ok(SpriteFormat::WebP));
+        assert_eq!(parse_sprite_format("WEBP"), Ok(SpriteFormat::WebP));
+        assert_eq!(parse_sprite_format("avif"), Ok(SpriteFormat::Avif));
+        assert_eq!(parse_sprite_format("AVIF"), Ok(SpriteFormat::Avif));
+        assert_eq!(parse_sprite_format("png"), Ok(SpriteFormat::Png));
+        // Review 6.8: unknown values used to give PNG.
+        assert!(parse_sprite_format("unknown").is_err());
+        assert!(parse_sprite_format("").is_err());
+    }
+
+    #[test]
+    fn test_parse_json_format() {
+        assert_eq!(parse_json_format("array"), Ok(JsonFormat::Array));
+        assert_eq!(parse_json_format("HASH"), Ok(JsonFormat::Hash));
+        assert!(parse_json_format("object").is_err());
+    }
+
+    #[test]
+    fn test_parse_resize_algorithm() {
+        for (name, filter) in [
+            ("nearest", FilterType::Nearest),
+            ("Triangle", FilterType::Triangle),
+            ("gaussian", FilterType::Gaussian),
+            ("lanczos3", FilterType::Lanczos3),
+            ("catmullrom", FilterType::CatmullRom),
+            ("catmull-rom", FilterType::CatmullRom),
+        ] {
+            assert_eq!(parse_resize_algorithm(name), Ok(filter), "{name}");
+        }
+        // The help text used to say "nearesr", which gave CatmullRom.
+        assert!(parse_resize_algorithm("nearesr").is_err());
+    }
+
+    #[test]
+    fn test_parse_ordering_bool_and_number() {
+        assert_eq!(parse_ordering("-Area"), Ok(Ordering::AreaReverse));
+        assert!(parse_ordering("size").is_err());
+        assert_eq!(parse_bool("On"), Ok(true));
+        assert_eq!(parse_bool("0"), Ok(false));
+        assert!(parse_bool("maybe").is_err());
+        assert_eq!(parse_number("32"), Ok(32));
+        assert!(parse_number("-1").is_err());
+        assert!(parse_number("wide").is_err());
+    }
+
+    #[test]
+    fn test_invalid_value_message_lists_accepted_values() {
+        let message = parse_sprite_format("gif").unwrap_err().to_string();
+        assert_eq!(
+            message,
+            "invalid image format 'gif', expected png, webp or avif"
+        );
+        let message = parse_algorithm("spiral").unwrap_err().to_string();
+        assert!(message.starts_with("invalid algorithm 'spiral', expected square"));
+    }
+
+    #[test]
+    fn test_invalid_env_and_file_values_keep_lower_layers() {
+        // An invalid value is ignored (with a warning), so the value from the layer below
+        // (here spriters.toml, then the default) stays.
+        let config = config_from_env(&[
+            ("SPRITERS_FORMAT", "gif"),
+            ("SPRITERS_JSON_FORMAT", "object"),
+            ("SPRITERS_MAX_WIDTH", "wide"),
+            ("SPRITERS_ORDERING", "size"),
+        ]);
+        let default = Config::default();
+        assert_eq!(config.sprite_format, default.sprite_format);
+        assert_eq!(config.json_format, default.json_format);
+        assert_eq!(config.max_width, None);
+        assert_eq!(config.ordering, default.ordering);
+
+        let dir = source_with_toml(
+            "invalid",
+            "sprite_format = \"webp\"\njson_format = \"hash\"\n",
+        );
+        let config = resolve_with(
+            &dir,
+            |_| {},
+            &[
+                ("SPRITERS_FORMAT", "gif"),
+                ("SPRITERS_JSON_FORMAT", "object"),
+            ],
+        );
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(config.sprite_format, SpriteFormat::WebP);
+        assert_eq!(config.json_format, JsonFormat::Hash);
+
+        let mut config = Config::default();
+        apply_file_config(
+            &mut config,
+            FileConfig {
+                sprite_format: Some(String::from("gif")),
+                algorithm: Some(String::from("spiral")),
+                json_format: Some(String::from("hash")),
+                ..Default::default()
+            },
+        );
+        assert_eq!(config.sprite_format, SpriteFormat::Png);
+        assert_eq!(config.algorithm, Algorithm::Square);
+        assert_eq!(config.json_format, JsonFormat::Hash);
     }
 
     /// Apply `vars` as if they were the process environment.

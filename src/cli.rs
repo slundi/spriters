@@ -1,5 +1,4 @@
-use image::imageops::FilterType;
-use spriters::{Algorithm, Config, JsonFormat, Ordering, SpriteFormat};
+use spriters::{Config, config};
 
 const HELP_MSG: &str = "spriters [OPTIONS] [SOURCE_DIR] [OUTPUT_DIR]
 
@@ -60,7 +59,7 @@ Image processing options:
 --exclude:              skip files whose name matches a glob pattern (repeatable, e.g. --exclude '_draft_*' --exclude '*.tmp')
 --max-width:            image max width in the sprite
 --max-height:           image max height in the sprite
---resize-algorithm:     resize algorithm are nearesr, triangle, gaussian, lanczos3, catmullrom (default)
+--resize-algorithm:     resize algorithm: nearest, triangle, gaussian, lanczos3, catmullrom (default)
 -p, --padding:          padding around each image (included in dimensions). Formats: 10, '5 10', '1 2 3 4'
 -m, --margin:           margin around each image (not included in dimensions). Formats: 10, '5 10', '1 2 3 4'";
 
@@ -119,34 +118,13 @@ fn parse_args_from(mut parser: lexopt::Parser) -> Result<CliArgs, lexopt::Error>
     while let Some(arg) = parser.next()? {
         match arg {
             Short('a') | Long("algorithm") => {
-                let algo: String = parser.value()?.parse()?;
-                let algorithm = match algo.to_lowercase().as_str() {
-                    "square" => Algorithm::Square,
-                    "vertical" => Algorithm::Vertical,
-                    "horizontal" => Algorithm::Horizontal,
-                    "diagonal" => Algorithm::Diagonal,
-                    "verticalright" | "vertical-right" => Algorithm::VerticalRight,
-                    "horizontalbottom" | "horizontal-bottom" => Algorithm::HorizontalBottom,
-                    _ => {
-                        eprintln!("Unknown algorithm");
-                        std::process::exit(1);
-                    }
-                };
+                let algorithm = parse_value(&mut parser, config::parse_algorithm)?;
                 cli.set(move |config| config.algorithm = algorithm);
             }
             Short('c') | Long("crop") => cli.set(|config| config.crop = true),
             Long("ordering") => {
-                let ord: String = parser.value()?.parse()?;
-                match ord.parse::<Ordering>() {
-                    Ok(ordering) => cli.set(move |config| config.ordering = ordering),
-                    Err(_) => {
-                        eprintln!(
-                            "Unknown ordering: {}. Valid options: maxside, width, height, area, filename (prefix with '-' for reverse)",
-                            ord
-                        );
-                        std::process::exit(1);
-                    }
-                }
+                let ordering = parse_value(&mut parser, config::parse_ordering)?;
+                cli.set(move |config| config.ordering = ordering);
             }
             Long("exclude") => {
                 let pattern = parser.value()?.to_string_lossy().into_owned();
@@ -169,14 +147,7 @@ fn parse_args_from(mut parser: lexopt::Parser) -> Result<CliArgs, lexopt::Error>
                 cli.set(move |config| config.margin = Some(margin.clone()));
             }
             Long("resize-algorithm") => {
-                let fa: String = parser.value()?.parse()?;
-                let filter = match fa.to_lowercase().as_str() {
-                    "nearest" => FilterType::Nearest,
-                    "triangle" => FilterType::Triangle,
-                    "gaussian" => FilterType::Gaussian,
-                    "lanczos3" => FilterType::Lanczos3,
-                    _ => FilterType::CatmullRom,
-                };
+                let filter = parse_value(&mut parser, config::parse_resize_algorithm)?;
                 cli.set(move |config| config.resize_algorithm = filter);
             }
             Long("project") => cli.set(|config| config.project = true),
@@ -188,12 +159,7 @@ fn parse_args_from(mut parser: lexopt::Parser) -> Result<CliArgs, lexopt::Error>
             Long("html") => cli.set(|config| config.html = true),
             Long("json") => cli.set(|config| config.json = true),
             Long("json-format") => {
-                let fmt: String = parser.value()?.parse()?;
-                let json_format = if fmt.to_lowercase() == "hash" {
-                    JsonFormat::Hash
-                } else {
-                    JsonFormat::Array
-                };
+                let json_format = parse_value(&mut parser, config::parse_json_format)?;
                 cli.set(move |config| config.json_format = json_format);
             }
             Long("caat") => cli.set(|config| config.caat = true),
@@ -230,12 +196,7 @@ fn parse_args_from(mut parser: lexopt::Parser) -> Result<CliArgs, lexopt::Error>
                 cli.set(move |config| config.img = Some(path.clone()));
             }
             Long("format") => {
-                let fmt: String = parser.value()?.parse()?;
-                let sprite_format = match fmt.to_lowercase().as_str() {
-                    "webp" => SpriteFormat::WebP,
-                    "avif" => SpriteFormat::Avif,
-                    _ => SpriteFormat::Png,
-                };
+                let sprite_format = parse_value(&mut parser, config::parse_sprite_format)?;
                 cli.set(move |config| config.sprite_format = sprite_format);
             }
             Long("png8") => cli.set(|config| config.png8 = true),
@@ -324,6 +285,17 @@ fn parse_args_from(mut parser: lexopt::Parser) -> Result<CliArgs, lexopt::Error>
     Ok(cli)
 }
 
+/// Value of the current option, parsed with `parse`. Unlike `spriters.toml` and env vars,
+/// an invalid value on the command line is an error: it used to fall back to a default
+/// in silence (`--format foo` wrote a PNG).
+fn parse_value<T>(
+    parser: &mut lexopt::Parser,
+    parse: fn(&str) -> Result<T, config::InvalidValue>,
+) -> Result<T, lexopt::Error> {
+    let value: String = lexopt::ValueExt::parse(&parser.value()?)?;
+    parse(&value).map_err(|e| lexopt::Error::Custom(e.into()))
+}
+
 /// A directory given both with an option and as a positional argument.
 fn conflict(what: &str, option: &str, positional: &std::path::Path) -> lexopt::Error {
     lexopt::Error::Custom(
@@ -338,6 +310,8 @@ fn conflict(what: &str, option: &str, positional: &std::path::Path) -> lexopt::E
 #[cfg(test)]
 mod tests {
     use super::*;
+    use image::imageops::FilterType;
+    use spriters::{Algorithm, JsonFormat, Ordering, SpriteFormat};
 
     fn parse(args: &[&str]) -> CliArgs {
         parse_args_from(lexopt::Parser::from_args(args.iter().copied())).unwrap()
@@ -400,6 +374,48 @@ mod tests {
             Ok(_) => panic!("{args:?} must be rejected"),
             Err(err) => err.to_string(),
         }
+    }
+
+    #[test]
+    fn test_invalid_values_are_errors() {
+        // `--format foo` gave PNG, `--resize-algorithm foo` CatmullRom and
+        // `--json-format foo` array, without any message.
+        for (args, expected) in [
+            (["--format", "gif"], "invalid image format 'gif'"),
+            (
+                ["--resize-algorithm", "bicubic"],
+                "invalid resize algorithm 'bicubic'",
+            ),
+            (["--json-format", "object"], "invalid JSON format 'object'"),
+            // These two printed a message and called `process::exit`.
+            (["-a", "spiral"], "invalid algorithm 'spiral'"),
+            (["--ordering", "size"], "invalid ordering 'size'"),
+        ] {
+            let message = parse_error(&args);
+            assert!(message.contains(expected), "{args:?}: {message}");
+            assert!(message.contains("expected"), "{args:?}: {message}");
+        }
+    }
+
+    #[test]
+    fn test_valid_values_are_case_insensitive() {
+        let config = parsed_config(&[
+            "--format",
+            "AVIF",
+            "--resize-algorithm",
+            "Lanczos3",
+            "--json-format",
+            "Array",
+            "-a",
+            "Horizontal-Bottom",
+        ]);
+        assert_eq!(config.sprite_format, SpriteFormat::Avif);
+        assert_eq!(config.resize_algorithm, FilterType::Lanczos3);
+        assert_eq!(config.json_format, JsonFormat::Array);
+        assert_eq!(config.algorithm, Algorithm::HorizontalBottom);
+        // The default filter can also be given explicitly.
+        let config = parsed_config(&["--resize-algorithm", "catmullrom"]);
+        assert_eq!(config.resize_algorithm, FilterType::CatmullRom);
     }
 
     #[test]

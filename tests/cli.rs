@@ -763,6 +763,83 @@ fn project_with_one_broken_sprite_fails_and_builds_the_others() {
     });
 }
 
+// Invalid values silently fell back to a default.
+
+#[test]
+fn invalid_value_on_the_command_line_is_an_error() {
+    with_tmp_dir(|tmp| {
+        let (source, out) = source_and_output(tmp);
+        let output = spriters(&[
+            "-i",
+            source.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+            "--format",
+            "gif",
+        ]);
+
+        assert!(!output.status.success());
+        let message = stderr(&output);
+        assert!(
+            message.contains("invalid image format 'gif', expected png, webp or avif"),
+            "{message}"
+        );
+        // `--format foo` used to write a PNG.
+        assert!(!out.join("icons.png").exists());
+    });
+}
+
+#[test]
+fn invalid_env_value_is_reported_and_ignored() {
+    with_tmp_dir(|tmp| {
+        let (source, out) = source_and_output(tmp);
+        let output = command(&["-i", source.to_str().unwrap(), "-o", out.to_str().unwrap()])
+            .env("SPRITERS_FORMAT", "gif")
+            .env("SPRITERS_CROP", "maybe")
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+
+        assert!(output.status.success(), "{}", stderr(&output));
+        let message = stderr(&output);
+        assert!(
+            message.contains(
+                "Ignoring SPRITERS_FORMAT from the environment: invalid image format 'gif'"
+            ),
+            "{message}"
+        );
+        assert!(
+            message
+                .contains("Ignoring SPRITERS_CROP from the environment: invalid boolean 'maybe'"),
+            "{message}"
+        );
+        assert!(out.join("icons.png").exists());
+    });
+}
+
+#[test]
+fn invalid_spriters_toml_value_is_reported_and_ignored() {
+    with_tmp_dir(|tmp| {
+        let (source, out) = source_and_output(tmp);
+        std::fs::write(
+            source.join("spriters.toml"),
+            "json = true\njson_format = \"object\"\n",
+        )
+        .unwrap();
+        let output = spriters(&["-i", source.to_str().unwrap(), "-o", out.to_str().unwrap()]);
+
+        assert!(output.status.success(), "{}", stderr(&output));
+        let message = stderr(&output);
+        assert!(
+            message
+                .contains("Ignoring json_format from spriters.toml: invalid JSON format 'object'"),
+            "{message}"
+        );
+        // The rest of the file still applies.
+        assert!(out.join("icons.json").exists());
+    });
+}
+
 #[test]
 fn unknown_option_fails_with_message() {
     let output = spriters(&["--bogus"]);
