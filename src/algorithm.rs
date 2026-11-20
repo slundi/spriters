@@ -39,16 +39,12 @@ impl Algorithm {
         }
     }
     pub fn vertical_right(sprite: &mut Sprite) {
-        if sprite.images.is_empty() {
-            return;
-        }
         let max_width = sprite
             .images
             .iter()
-            .max_by_key(|img| img.image.height())
-            .unwrap()
-            .image
-            .width();
+            .map(|img| img.image.width())
+            .max()
+            .unwrap_or(0);
         let mut y = 0u32;
         for image in sprite.images.iter_mut() {
             image.x = max_width - image.image.width();
@@ -66,16 +62,12 @@ impl Algorithm {
         }
     }
     pub fn horizontal_bottom(sprite: &mut Sprite) {
-        if sprite.images.is_empty() {
-            return;
-        }
         let max_height = sprite
             .images
             .iter()
-            .max_by_key(|img| img.image.height())
-            .unwrap()
-            .image
-            .height();
+            .map(|img| img.image.height())
+            .max()
+            .unwrap_or(0);
         let mut x = 0u32;
         for image in sprite.images.iter_mut() {
             image.y = max_height - image.image.height();
@@ -207,14 +199,10 @@ mod tests {
 
     #[test]
     fn test_vertical_right_layout() {
-        // Note: vertical_right uses max_by_key on height but gets width from that image
-        // Using images where the tallest is also the widest to avoid overflow
         let mut sprite = create_test_sprite_with_images(vec![(10, 20), (15, 30), (8, 25)]);
         Algorithm::vertical_right(&mut sprite);
 
-        // The image with max height (30) has width 15, so max_width = 15
-
-        // Images should be offset from right
+        // Images should be offset from right (max width = 15)
         assert_eq!(sprite.images[0].x, 15 - 10); // 5
         assert_eq!(sprite.images[1].x, 15 - 15); // 0
         assert_eq!(sprite.images[2].x, 15 - 8); // 7
@@ -223,6 +211,35 @@ mod tests {
         assert_eq!(sprite.images[0].y, 0);
         assert_eq!(sprite.images[1].y, 20);
         assert_eq!(sprite.images[2].y, 50);
+    }
+
+    #[test]
+    fn test_vertical_right_widest_is_not_tallest() {
+        // Review 2.6: the right edge came from the tallest image (4 wide), so the
+        // 100-wide image underflowed `max_width - width`.
+        let mut sprite = create_test_sprite_with_images(vec![(4, 100), (100, 4), (10, 10)]);
+        Algorithm::vertical_right(&mut sprite);
+
+        assert_eq!(sprite.images[0].x, 96);
+        assert_eq!(sprite.images[1].x, 0);
+        assert_eq!(sprite.images[2].x, 90);
+        // Every image ends on the same right edge.
+        for img in &sprite.images {
+            assert_eq!(img.x + img.computed_width, 100);
+        }
+        assert_eq!(sprite.dimensions(), (100, 114));
+    }
+
+    #[test]
+    fn test_horizontal_bottom_tallest_is_not_widest() {
+        let mut sprite = create_test_sprite_with_images(vec![(100, 4), (4, 100), (10, 10)]);
+        Algorithm::horizontal_bottom(&mut sprite);
+
+        // Every image ends on the same bottom edge.
+        for img in &sprite.images {
+            assert_eq!(img.y + img.computed_height, 100);
+        }
+        assert_eq!(sprite.dimensions(), (114, 100));
     }
 
     #[test]

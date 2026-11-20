@@ -2,6 +2,15 @@ use spriters::util::{Spacing, absolute_length, horizontal_spacing, vertical_spac
 use spriters::{Algorithm, Config, Ordering, Sprite};
 use std::path::{Path, PathBuf};
 
+const ALGORITHMS: [Algorithm; 6] = [
+    Algorithm::Square,
+    Algorithm::Vertical,
+    Algorithm::Horizontal,
+    Algorithm::Diagonal,
+    Algorithm::VerticalRight,
+    Algorithm::HorizontalBottom,
+];
+
 const ORDERINGS: [Ordering; 10] = [
     Ordering::Maxside,
     Ordering::MaxsideReverse,
@@ -30,7 +39,7 @@ const SIZES: [(u32, u32); 9] = [
 
 fn with_tmp_dir<F: FnOnce(&Path)>(test: F) {
     let tmp = std::env::temp_dir().join(format!(
-        "spriters_square_{}",
+        "spriters_layout_{}",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -92,29 +101,90 @@ fn assert_no_overlap(sprite: &Sprite, context: &str) {
     }
 }
 
+/// The canvas must stay within a generous bound: a wrapped-around coordinate (unsigned
+/// underflow in release builds) would produce a multi-gigapixel sprite.
+fn assert_within_canvas(sprite: &Sprite, context: &str) {
+    let (width, height) = sprite.dimensions();
+    let bound = SIZES
+        .iter()
+        .map(|(img_width, img_height)| img_width + img_height)
+        .sum::<u32>()
+        * 4;
+    assert!(
+        width <= bound && height <= bound,
+        "[{context}] canvas {width}x{height} is unreasonably large"
+    );
+}
+
 #[test]
-fn square_never_overlaps_for_any_ordering_and_spacing() {
+fn no_algorithm_overlaps_for_any_ordering_and_spacing() {
     with_tmp_dir(|tmp| {
         let source = make_source(tmp);
         let spacings: [(Option<&str>, Option<&str>); 3] =
             [(None, None), (Some("2"), None), (Some("1 3"), Some("2"))];
 
-        for ordering in ORDERINGS {
-            for (padding, margin) in spacings {
-                let config = Config {
-                    source: source.clone(),
-                    algorithm: Algorithm::Square,
-                    ordering,
-                    padding: padding.map(String::from),
-                    margin: margin.map(String::from),
-                    ..Default::default()
-                };
+        for algorithm in ALGORITHMS {
+            for ordering in ORDERINGS {
+                for (padding, margin) in spacings {
+                    let config = Config {
+                        source: source.clone(),
+                        algorithm,
+                        ordering,
+                        padding: padding.map(String::from),
+                        margin: margin.map(String::from),
+                        ..Default::default()
+                    };
 
-                let sprite = Sprite::new(&config, source.clone());
-                assert_eq!(sprite.images.len(), SIZES.len());
-                assert_no_overlap(
-                    &sprite,
-                    &format!("{ordering:?}, padding={padding:?}, margin={margin:?}"),
+                    let sprite = Sprite::new(&config, source.clone());
+                    let context = format!(
+                        "{algorithm:?}, {ordering:?}, padding={padding:?}, margin={margin:?}"
+                    );
+                    assert_eq!(sprite.images.len(), SIZES.len());
+                    assert_no_overlap(&sprite, &context);
+                    assert_within_canvas(&sprite, &context);
+                }
+            }
+        }
+    });
+}
+
+#[test]
+fn aligned_layouts_share_an_edge() {
+    with_tmp_dir(|tmp| {
+        let source = make_source(tmp);
+        let widest = SIZES.iter().map(|size| size.0).max().unwrap();
+        let tallest = SIZES.iter().map(|size| size.1).max().unwrap();
+
+        for ordering in ORDERINGS {
+            let config = Config {
+                source: source.clone(),
+                algorithm: Algorithm::VerticalRight,
+                ordering,
+                ..Default::default()
+            };
+            let sprite = Sprite::new(&config, source.clone());
+            for img in &sprite.images {
+                assert_eq!(
+                    img.x + img.computed_width,
+                    widest,
+                    "[VerticalRight, {ordering:?}] {} not right-aligned",
+                    img.path
+                );
+            }
+
+            let config = Config {
+                source: source.clone(),
+                algorithm: Algorithm::HorizontalBottom,
+                ordering,
+                ..Default::default()
+            };
+            let sprite = Sprite::new(&config, source.clone());
+            for img in &sprite.images {
+                assert_eq!(
+                    img.y + img.computed_height,
+                    tallest,
+                    "[HorizontalBottom, {ordering:?}] {} not bottom-aligned",
+                    img.path
                 );
             }
         }
