@@ -284,10 +284,11 @@ fn generate_html(config: &Config, sprite: &Sprite) {
         for label in
             std::iter::once(image.label()).chain(image.aliases.iter().map(|p| label_from_path(p)))
         {
+            // Same class names as the generated stylesheet (namespace, separator…).
             let _ = writeln!(
                 &mut f,
-                "<tr><td>.{label}</td><td><div class=\"{label}\"></div></td></tr>",
-                label = label
+                "<tr><td>.{class}</td><td><div class=\"{class}\"></div></td></tr>",
+                class = build_class_name(config, &name, &label)
             );
         }
     }

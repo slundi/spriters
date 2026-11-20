@@ -1261,6 +1261,65 @@ fn test_html_output() {
     });
 }
 
+/// Every `class="…"` of the HTML test page.
+fn html_classes(html: &str) -> Vec<String> {
+    html.split("class=\"")
+        .skip(1)
+        .map(|rest| rest[..rest.find('"').unwrap()].to_owned())
+        .collect()
+}
+
+/// Every class selector of a generated stylesheet (`.a, .b {` lines).
+fn css_selectors(css: &str) -> std::collections::HashSet<String> {
+    css.lines()
+        .filter_map(|line| line.trim().strip_suffix('{'))
+        .filter(|selectors| !selectors.trim_start().starts_with('@'))
+        .flat_map(|selectors| selectors.split(','))
+        .filter_map(|selector| selector.trim().strip_prefix('.'))
+        .map(str::to_owned)
+        .collect()
+}
+
+#[test]
+fn test_html_classes_exist_in_css() {
+    // Review 3.11: the page used `class="us"` while the CSS defines `.sprite-america-us`.
+    let dup_src = setup_dup_dir("tests/images/america/us.png", &["us.png", "us-copy.png"]);
+    std::fs::copy("tests/images/america/ca.png", dup_src.join("ca.png")).unwrap();
+    let variants: [(Option<&str>, Option<&str>, &str); 4] = [
+        (None, None, "-"),
+        (Some("icon"), None, "-"),
+        (Some(""), Some("set-%(sprite)s"), "_"),
+        (None, Some(""), "__"),
+    ];
+    for (namespace, sprite_namespace, separator) in variants {
+        with_tmp_dir(|out| {
+            let mut config = make_config(dup_src.to_str().unwrap(), out);
+            config.no_css = false;
+            config.html = true;
+            config.namespace = namespace.map(String::from);
+            config.sprite_namespace = sprite_namespace.map(String::from);
+            config.separator = separator.to_owned();
+            run_manager(config);
+
+            let name = dup_src.file_name().unwrap().to_string_lossy().into_owned();
+            let html = std::fs::read_to_string(format!("{}/{}.html", out, name)).unwrap();
+            let css = std::fs::read_to_string(format!("{}/{}.css", out, name)).unwrap();
+            let classes = html_classes(&html);
+            let selectors = css_selectors(&css);
+            // us, its alias us-copy, and ca.
+            assert_eq!(classes.len(), 3, "{html}");
+            for class in &classes {
+                assert!(
+                    selectors.contains(class),
+                    "[{namespace:?}, {sprite_namespace:?}, {separator:?}] .{class} missing from CSS: {selectors:?}"
+                );
+                assert!(html.contains(&format!("<td>.{class}</td>")), "{html}");
+            }
+        });
+    }
+    std::fs::remove_dir_all(&dup_src).ok();
+}
+
 #[test]
 fn test_dry_run_no_files_written() {
     with_tmp_dir(|out| {
