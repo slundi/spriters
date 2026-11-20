@@ -23,6 +23,12 @@ fn with_tmp_dir<F: FnOnce(&Path)>(test: F) {
 fn command(args: &[&str]) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_spriters"));
     command.args(args);
+    without_spriters_env(&mut command);
+    command
+}
+
+/// Remove every `SPRITERS_*` variable from the environment of `command`.
+fn without_spriters_env(command: &mut Command) -> &mut Command {
     for (key, _) in std::env::vars() {
         if key.starts_with("SPRITERS_") {
             command.env_remove(key);
@@ -551,33 +557,68 @@ fn unwritable_text_output_fails_on_every_run() {
     });
 }
 
-/// On a full disk, files were left truncated without any message. Each
-/// generated file in turn is a link to `/dev/full`, which fails every write with "no
-/// space left on device". (Not the metadata file: it is read first, and reading
-/// `/dev/full` never ends.)
+/// Run the binary with `args` as on a full disk: a file size limit of 0 makes every
+/// write to a regular file fail (`SIGXFSZ` is ignored, so writes return `EFBIG` instead
+/// of killing the process). Writes to stderr, a pipe, still work.
+#[cfg(target_os = "linux")]
+fn spriters_on_full_disk(args: &[&str]) -> Output {
+    let mut shell = Command::new("sh");
+    shell
+        .arg("-c")
+        .arg(r#"ulimit -f 0 && trap '' XFSZ && exec "$0" "$@""#)
+        .arg(env!("CARGO_BIN_EXE_spriters"))
+        .args(args);
+    without_spriters_env(&mut shell)
+        .stdin(Stdio::null())
+        .output()
+        .expect("failed to run spriters")
+}
+
+/// Review 6.2 and 6.3: on a full disk, files were truncated (`File::create` empties them
+/// first) and left so without any message. The previous outputs must survive a failed run.
 #[cfg(target_os = "linux")]
 #[test]
-fn full_disk_is_reported_for_every_generated_file() {
-    for (file, extra, message) in [
-        ("icons.css", None, "Cannot write CSS"),
-        ("icons.json", Some("--json"), "Cannot write JSON"),
-        ("icons.png", None, "Failed to save sprite image"),
-        ("icons.png", Some("--png8"), "Failed to save sprite image"),
-    ] {
+fn full_disk_keeps_the_previous_outputs() {
+    for extra in [None, Some("--png8")] {
         with_tmp_dir(|tmp| {
             let (source, out) = source_and_output(tmp);
-            std::os::unix::fs::symlink("/dev/full", out.join(file)).unwrap();
-            let mut args = vec!["-i", source.to_str().unwrap(), "-o", out.to_str().unwrap()];
+            let mut args = vec![
+                "-i",
+                source.to_str().unwrap(),
+                "-o",
+                out.to_str().unwrap(),
+                "--json",
+            ];
             args.extend(extra);
-            let output = spriters(&args);
+            let first = spriters(&args);
+            assert!(first.status.success(), "{}", stderr(&first));
+            let files = ["icons.png", "icons.css", "icons.json", ".icons.spriters"];
+            let snapshot =
+                |out: &Path| files.map(|file| std::fs::read(out.join(file)).unwrap_or_default());
+            let before = snapshot(&out);
 
-            assert!(!output.status.success(), "{file} {extra:?}");
-            let stderr = stderr(&output);
-            assert!(stderr.contains(message), "{file} {extra:?}: {stderr}");
-            assert!(
-                stderr.contains("No space left"),
-                "{file} {extra:?}: {stderr}"
+            add_blue_icon(&source);
+            let full = spriters_on_full_disk(&args);
+            assert!(!full.status.success(), "{extra:?}");
+            let message = stderr(&full);
+            assert!(message.contains("Failed to save sprite image"), "{message}");
+            assert!(message.contains("Cannot write CSS"), "{message}");
+            assert!(message.contains("File too large"), "{message}");
+            assert_eq!(snapshot(&out), before, "{extra:?}: outputs were modified");
+            let mut entries: Vec<String> = std::fs::read_dir(&out)
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+                .collect();
+            entries.sort();
+            assert_eq!(
+                entries,
+                [".icons.spriters", "icons.css", "icons.json", "icons.png"]
             );
+
+            // Nothing was recorded as done: the next run generates everything.
+            let fixed = spriters(&args);
+            assert!(fixed.status.success(), "{}", stderr(&fixed));
+            assert_eq!(json_frames(&out.join("icons.json")), 2);
         });
     }
 }

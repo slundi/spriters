@@ -173,20 +173,62 @@ fn write_ratio_media_queries(
     Ok(())
 }
 
-/// Write the `kind` output file `path` with `write`, then flush it. Errors (no write
-/// permission, full disk) are logged instead of panicking: the other outputs are still
-/// generated.
+/// Temporary file `.<file name>.<pid>.tmp` in which `path` is written before being renamed
+/// (see [`replace_file`]): hidden, in the same directory so that the rename stays on one
+/// file system, and unique per process so that concurrent runs do not mix their content.
+fn temp_path(path: &std::path::Path) -> PathBuf {
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    path.with_file_name(format!(".{name}.{}.tmp", std::process::id()))
+}
+
+/// Name of the file whose temporary file (see [`temp_path`]) is `file_name`, if it is one.
+fn temp_target(file_name: &str) -> Option<&str> {
+    let (target, pid) = file_name
+        .strip_prefix('.')?
+        .strip_suffix(".tmp")?
+        .rsplit_once('.')?;
+    (!target.is_empty() && !pid.is_empty() && pid.bytes().all(|b| b.is_ascii_digit()))
+        .then_some(target)
+}
+
+/// Write `file` through a buffer with `write`, then flush it explicitly: dropping a
+/// `BufWriter` ignores the error of its last flush (e.g. a full disk).
+fn write_buffered(
+    file: File,
+    write: impl FnOnce(&mut BufWriter<File>) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    let mut writer = BufWriter::new(file);
+    write(&mut writer)?;
+    writer.flush()
+}
+
+/// Replace `path` atomically: the content is written to a temporary file next to it (see
+/// [`temp_path`]), renamed over `path` once complete. A crash or a write error never leaves
+/// a truncated file: `path` keeps its previous content, and the temporary file is removed.
+fn replace_file(
+    path: &std::path::Path,
+    write: impl FnOnce(&mut BufWriter<File>) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    let temp = temp_path(path);
+    let result = File::create(&temp)
+        .and_then(|file| write_buffered(file, write))
+        .and_then(|()| std::fs::rename(&temp, path));
+    if result.is_err() {
+        // Nothing to clean when it could not even be created.
+        std::fs::remove_file(&temp).ok();
+    }
+    result
+}
+
+/// Write the `kind` output file `path` with `write` (see [`replace_file`]). Errors (no
+/// write permission, full disk) are logged instead of panicking: the other outputs are
+/// still generated.
 fn write_output(
     path: &std::path::Path,
     kind: &str,
     write: impl FnOnce(&mut dyn Write) -> std::io::Result<()>,
 ) -> std::io::Result<()> {
-    let result = File::create(path).and_then(|file| {
-        let mut writer = BufWriter::new(file);
-        write(&mut writer)?;
-        // Explicit: dropping a `BufWriter` ignores the error of its last flush.
-        writer.flush()
-    });
+    let result = replace_file(path, |writer| write(writer));
     match &result {
         Ok(()) => log::info!("Generated {kind}: {:?}", path),
         Err(e) => log::error!("Cannot write {kind} {:?}: {}", path, e),
@@ -627,18 +669,20 @@ fn generate_sprite_image(config: &Config, sprite: &Sprite) -> bool {
 
     // Pixels are at the highest ratio: lower ratios are scaled down from them.
     let max_ratio = sprite.ratios.last().copied().unwrap_or(1.0);
-    let mut written = Vec::with_capacity(sprite.ratios.len());
-    for &ratio in &sprite.ratios {
+    let filenames = sprite_filenames(config, sprite);
+    let mut written = 0;
+    for (&ratio, filename) in sprite.ratios.iter().zip(&filenames) {
         let canvas = render_sprite(config, sprite, ratio, max_ratio);
-        let filename = sprite_filename_at(config, sprite, ratio);
-        if save_sprite_image(config, canvas, &config.output.join(&filename)) {
-            written.push(filename);
+        if save_sprite_image(config, canvas, &config.output.join(filename)) {
+            written += 1;
         }
     }
-    if !written.is_empty() {
-        remove_stale_hashed_sprites(config, sprite, &written);
+    if written > 0 {
+        // Every current file is kept, written or not: one that failed to be replaced still
+        // holds its previous, complete content.
+        remove_stale_hashed_sprites(config, sprite, &filenames);
     }
-    written.len() == sprite.ratios.len()
+    written == sprite.ratios.len()
 }
 
 /// Length in pixels at `ratio` of `length` 1× units.
@@ -686,11 +730,13 @@ fn save_sprite_image(config: &Config, canvas: RgbaImage, output_path: &std::path
     let (width, height) = canvas.dimensions();
     // png8 only applies to PNG; WebP and AVIF handle compression natively.
     let png8 = config.png8 && config.sprite_format == SpriteFormat::Png;
-    let save_result = if png8 {
-        save_png8(&canvas, output_path)
-    } else {
-        save_image(&canvas, output_path, config.sprite_format.image_format())
-    };
+    let save_result = replace_file(output_path, |writer| {
+        if png8 {
+            encode_png8(&canvas, writer)
+        } else {
+            encode_image(&canvas, config.sprite_format.image_format(), writer)
+        }
+    });
 
     match save_result {
         Err(e) => {
@@ -711,27 +757,23 @@ fn save_sprite_image(config: &Config, canvas: RgbaImage, output_path: &std::path
     }
 }
 
-/// Write `canvas` in `format`. Unlike `RgbaImage::save`, the buffered file is flushed
-/// explicitly, so that a write error (e.g. a full disk) on the last bytes is reported.
-fn save_image(
+/// Encode `canvas` in `format` into `writer`.
+fn encode_image(
     canvas: &RgbaImage,
-    path: &std::path::Path,
     format: image::ImageFormat,
-) -> Result<(), String> {
-    let file = File::create(path).map_err(|e| e.to_string())?;
-    let mut writer = BufWriter::new(file);
-    canvas
-        .write_to(&mut writer, format)
-        .map_err(|e| e.to_string())?;
-    writer.flush().map_err(|e| e.to_string())
+    writer: &mut (impl Write + std::io::Seek),
+) -> std::io::Result<()> {
+    canvas.write_to(writer, format).map_err(|e| match e {
+        image::ImageError::IoError(e) => e,
+        other => std::io::Error::other(other),
+    })
 }
 
-/// Write `canvas` as an 8-bit palette PNG (`--png8`): up to 256 colours, transparency kept
-/// through the `tRNS` chunk.
-fn save_png8(canvas: &RgbaImage, path: &std::path::Path) -> Result<(), String> {
+/// Encode `canvas` as an 8-bit palette PNG (`--png8`) into `writer`: up to 256 colours,
+/// transparency kept through the `tRNS` chunk.
+fn encode_png8(canvas: &RgbaImage, writer: &mut impl Write) -> std::io::Result<()> {
     let (palette, indices) = quantize(canvas);
-    let file = File::create(path).map_err(|e| e.to_string())?;
-    let mut encoder = png::Encoder::new(BufWriter::new(file), canvas.width(), canvas.height());
+    let mut encoder = png::Encoder::new(writer, canvas.width(), canvas.height());
     encoder.set_color(png::ColorType::Indexed);
     encoder.set_depth(png::BitDepth::Eight);
     encoder.set_palette(
@@ -748,12 +790,14 @@ fn save_png8(canvas: &RgbaImage, path: &std::path::Path) -> Result<(), String> {
     if !alpha.is_empty() {
         encoder.set_trns(alpha);
     }
-    let mut writer = encoder.write_header().map_err(|e| e.to_string())?;
-    writer
-        .write_image_data(&indices)
-        .map_err(|e| e.to_string())?;
+    let png_error = |e: png::EncodingError| match e {
+        png::EncodingError::IoError(e) => e,
+        other => std::io::Error::other(other),
+    };
+    let mut writer = encoder.write_header().map_err(png_error)?;
+    writer.write_image_data(&indices).map_err(png_error)?;
     // Writes the end chunk and flushes; dropping the writer would ignore their errors.
-    writer.finish().map_err(|e| e.to_string())
+    writer.finish().map_err(png_error)
 }
 
 /// Reduce `canvas` to a palette of at most 256 RGBA colours and one palette index per pixel.
@@ -1166,8 +1210,12 @@ const GENERATED_SUFFIXES: [&str; 13] = [
 ];
 
 /// Whether `file_name` is a file spriters writes for one of `sprite_names`: sprite image
-/// (plain or cache-busted, see [`sprite_filename`]), text output or metadata file.
+/// (plain or cache-busted, see [`sprite_filename`]), text output, metadata file, or the
+/// temporary file of one of them (see [`temp_path`]).
 pub(crate) fn is_generated_file_name(file_name: &str, sprite_names: &[String]) -> bool {
+    if let Some(target) = temp_target(file_name) {
+        return is_generated_file_name(target, sprite_names);
+    }
     sprite_names.iter().any(|name| {
         file_name == meta_file_name(name)
             || file_name
@@ -1272,9 +1320,9 @@ fn staleness_from(config: &Config, sprite: &Sprite, stored: &Metadata) -> Stalen
 
 /// Save the sprite hashes and image file name to the metadata file.
 ///
-/// `image_hash` and `image_file` are `None` when no image matching the current inputs
-/// exists on disk (e.g. `--no-img` on a fresh output directory, or a failed write), and
-/// `outputs_hash` when a text output could not be written: the next run regenerates them.
+/// `image_hash` and `image_file` describe the image on disk, `None` when there is none
+/// (e.g. `--no-img` on a fresh output directory), and `outputs_hash` is `None` when a text
+/// output could not be written: the next run regenerates them.
 fn save_metadata(
     config: &Config,
     sprite: &Sprite,
@@ -1289,11 +1337,9 @@ fn save_metadata(
         .unwrap_or_default();
     let image_file = image_file.unwrap_or_default();
 
-    // A single unbuffered write: nothing is left to flush.
-    std::fs::write(
-        &meta_path,
-        format!("{image_line}\n{outputs_line}\n{image_file}\n"),
-    )
+    replace_file(&meta_path, |writer| {
+        writer.write_all(format!("{image_line}\n{outputs_line}\n{image_file}\n").as_bytes())
+    })
     .inspect_err(|e| log::error!("Cannot write {:?}: {}", meta_path, e))
 }
 
@@ -1399,16 +1445,16 @@ pub fn generate_files(config: &Config, sprite: &Sprite) -> bool {
     let image_written = !stale.image || generate_sprite_image(config, sprite);
     let outputs_written = !stale.outputs || generate_text_outputs(config, sprite);
 
-    // With --no-img the image on disk is untouched, so keep what was previously stored.
-    let (image_hash, image_file) = if config.no_img {
+    // With --no-img the image on disk is untouched, and a failed write leaves the previous
+    // image intact (see `replace_file`): keep what was previously stored. The hash then
+    // differs from the current one, so the next run tries again.
+    let (image_hash, image_file) = if config.no_img || !image_written {
         (stored.image_hash, stored.image_file)
-    } else if image_written {
+    } else {
         (
             Some(compute_sprite_hash(config, sprite)),
             Some(sprite_filename(config, sprite)),
         )
-    } else {
-        (None, None)
     };
     let metadata_written = save_metadata(
         config,
@@ -1567,15 +1613,156 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn test_full_disk_is_reported_on_flush() {
-        let full = std::path::Path::new("/dev/full");
+        let full = || File::create("/dev/full").unwrap();
         // A few buffered bytes only fail when the `BufWriter` is flushed.
-        assert!(write_output(full, "CSS", |f| f.write_all(b".a {}")).is_err());
+        assert!(write_buffered(full(), |f| f.write_all(b".a {}")).is_err());
 
         let canvas = RgbaImage::from_pixel(4, 4, image::Rgba([255, 0, 0, 255]));
         for format in [image::ImageFormat::Png, image::ImageFormat::WebP] {
-            assert!(save_image(&canvas, full, format).is_err(), "{format:?}");
+            let result = write_buffered(full(), |f| encode_image(&canvas, format, f));
+            assert!(result.is_err(), "{format:?}");
         }
-        assert!(save_png8(&canvas, full).is_err());
+        assert!(write_buffered(full(), |f| encode_png8(&canvas, f)).is_err());
+    }
+
+    /// Names of the files in `dir`, sorted.
+    fn dir_entries(dir: &std::path::Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn test_replace_file_keeps_previous_content_on_error() {
+        // Review 6.3: `File::create` truncated the file first, so a failed or interrupted
+        // write left a partial file behind.
+        let dir = std::env::temp_dir().join(format!("spriters_replace_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("icons.css");
+        std::fs::write(&path, ".old {}").unwrap();
+
+        let failed = replace_file(&path, |f| {
+            f.write_all(b".new")?;
+            f.flush()?; // the partial content reaches the disk
+            Err(std::io::Error::other("interrupted"))
+        });
+        assert!(failed.is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), ".old {}");
+        assert_eq!(
+            dir_entries(&dir),
+            ["icons.css"],
+            "temporary file left behind"
+        );
+
+        replace_file(&path, |f| f.write_all(b".new {}")).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), ".new {}");
+        assert_eq!(dir_entries(&dir), ["icons.css"]);
+
+        // A new file appears complete or not at all.
+        let created = dir.join("icons.json");
+        assert!(replace_file(&created, |_| Err(std::io::Error::other("boom"))).is_err());
+        assert!(!created.exists());
+        // The content is complete while it is written: never visible under its name.
+        replace_file(&created, |f| {
+            assert!(!created.exists());
+            f.write_all(b"{}")
+        })
+        .unwrap();
+        assert_eq!(dir_entries(&dir), ["icons.css", "icons.json"]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_failed_image_keeps_previous_image_and_metadata() {
+        let dir = std::env::temp_dir().join(format!("spriters_keep_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config = Config {
+            output: dir.clone(),
+            force: true,
+            ..Default::default()
+        };
+        let sprite = sprite_for_writers(&config);
+        assert!(generate_files(&config, &sprite));
+        let retina = dir.join("icons@2x.png");
+        let previous = std::fs::read(&retina).unwrap();
+        let stored = read_metadata(&config, &sprite);
+        assert_eq!(
+            stored.image_hash,
+            Some(compute_sprite_hash(&config, &sprite))
+        );
+
+        // Another layout, whose @2x image cannot be written: its temporary file is taken.
+        let mut moved = sprite_for_writers(&config);
+        moved.images[1].x = 8;
+        std::fs::create_dir(temp_path(&retina)).unwrap();
+        assert!(!generate_files(&config, &moved));
+        std::fs::remove_dir(temp_path(&retina)).unwrap();
+
+        // The stale-sprite cleanup must not remove the image that failed to be replaced.
+        assert_eq!(std::fs::read(&retina).unwrap(), previous);
+        // The image on disk is still described by the previous hash, so the next run
+        // regenerates it.
+        let after = read_metadata(&config, &moved);
+        assert_eq!(after.image_hash, stored.image_hash);
+        assert_eq!(after.image_file.as_deref(), Some("icons.png"));
+        assert!(
+            staleness_from(
+                &Config {
+                    force: false,
+                    ..config.clone()
+                },
+                &moved,
+                &after
+            )
+            .image
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_temp_path_round_trip() {
+        let temp = temp_path(std::path::Path::new("out/icons.css"));
+        assert_eq!(temp.parent(), Some(std::path::Path::new("out")));
+        let name = temp.file_name().unwrap().to_str().unwrap();
+        assert_eq!(name, format!(".icons.css.{}.tmp", std::process::id()));
+        assert_eq!(temp_target(name), Some("icons.css"));
+        assert_eq!(
+            temp_target("..icons.spriters.12.tmp"),
+            Some(".icons.spriters")
+        );
+
+        for name in [
+            "icons.css",
+            ".icons.css",
+            "icons.css.12.tmp",
+            ".icons.css.tmp",
+            ".icons.css.12a.tmp",
+            "..12.tmp",
+            ".icons.css..tmp",
+        ] {
+            assert_eq!(temp_target(name), None, "{name}");
+        }
+    }
+
+    #[test]
+    fn test_temp_files_are_generated_files() {
+        // Otherwise `--watch` regenerates on its own temporary files, and discovery could
+        // see them when the output directory is the source.
+        let names = vec![String::from("icons")];
+        for file in [
+            ".icons.css.42.tmp",
+            ".icons.png.42.tmp",
+            ".icons_0123abcd@2x.png.42.tmp",
+            "..icons.spriters.42.tmp",
+        ] {
+            assert!(is_generated_file_name(file, &names), "{file}");
+        }
+        for file in [".other.css.42.tmp", ".red.png.42.tmp", ".icons.css.tmp"] {
+            assert!(!is_generated_file_name(file, &names), "{file}");
+        }
     }
 
     #[test]
