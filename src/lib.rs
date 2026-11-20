@@ -405,46 +405,34 @@ pub struct Config {
     /// Emit a `<sprite>.d.ts` TypeScript definition file with a `SpriteName` union type.
     pub dts: bool,
 }
+
+/// Invalid configuration detected by [`Config::check`].
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub enum ConfigError {
+    #[error("source directory does not exist or is not accessible: {}", .0.display())]
+    SourceNotDir(PathBuf),
+    #[error("output directory does not exist or is not accessible: {}", .0.display())]
+    OutputNotDir(PathBuf),
+    #[error("max-width must be greater than 0")]
+    ZeroMaxWidth,
+    #[error("max-height must be greater than 0")]
+    ZeroMaxHeight,
+}
+
 impl Config {
     /// Check mandatory arguments and some values
-    pub fn check(&self) -> Result<(), lexopt::Error> {
+    pub fn check(&self) -> Result<(), ConfigError> {
         if self.files.is_empty() && !self.source.is_dir() {
-            error!(
-                "Source directory does not exist or is not accessible: {:?}",
-                self.source
-            );
-            return Err(lexopt::Error::UnexpectedValue {
-                option: "source".to_owned(),
-                value: self.source.clone().into_os_string(),
-            });
+            return Err(ConfigError::SourceNotDir(self.source.clone()));
         }
         if !self.output.is_dir() {
-            error!(
-                "Output directory does not exist or is not accessible: {:?}",
-                self.output
-            );
-            return Err(lexopt::Error::UnexpectedValue {
-                option: "output".to_owned(),
-                value: self.output.clone().into_os_string(),
-            });
+            return Err(ConfigError::OutputNotDir(self.output.clone()));
         }
-        if let Some(mw) = self.max_width
-            && mw == 0
-        {
-            error!("max-width must be greater than 0");
-            return Err(lexopt::Error::UnexpectedValue {
-                option: "max-width".to_owned(),
-                value: "0".into(),
-            });
+        if self.max_width == Some(0) {
+            return Err(ConfigError::ZeroMaxWidth);
         }
-        if let Some(mh) = self.max_height
-            && mh == 0
-        {
-            error!("max-height must be greater than 0");
-            return Err(lexopt::Error::UnexpectedValue {
-                option: "max-height".to_owned(),
-                value: "0".into(),
-            });
+        if self.max_height == Some(0) {
+            return Err(ConfigError::ZeroMaxHeight);
         }
         Ok(())
     }
@@ -1705,7 +1693,12 @@ mod tests {
         };
         let err = config.check();
         std::fs::remove_dir_all(&dir).ok();
-        assert!(err.is_err());
+        assert_eq!(
+            err,
+            Err(ConfigError::OutputNotDir(PathBuf::from(
+                "/nonexistent/__spriters_test__"
+            )))
+        );
     }
 
     #[test]
@@ -1718,7 +1711,39 @@ mod tests {
         };
         let err = config.check();
         std::fs::remove_dir_all(&dir).ok();
-        assert!(err.is_err());
+        assert_eq!(
+            err,
+            Err(ConfigError::SourceNotDir(PathBuf::from(
+                "/nonexistent/__spriters_test__"
+            )))
+        );
+    }
+
+    #[test]
+    fn test_config_check_missing_source_is_fine_in_file_list_mode() {
+        let dir = tmp_dir("chk_files");
+        let config = Config {
+            source: PathBuf::from("/nonexistent/__spriters_test__"),
+            output: dir.clone(),
+            files: vec![PathBuf::from("icon.png")],
+            ..Default::default()
+        };
+        let result = config.check();
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(result, Ok(()));
+    }
+
+    #[test]
+    fn test_config_error_messages() {
+        let source = ConfigError::SourceNotDir(PathBuf::from("/missing/icons"));
+        assert_eq!(
+            source.to_string(),
+            "source directory does not exist or is not accessible: /missing/icons"
+        );
+        assert_eq!(
+            ConfigError::ZeroMaxWidth.to_string(),
+            "max-width must be greater than 0"
+        );
     }
 
     #[test]
@@ -1732,7 +1757,7 @@ mod tests {
         };
         let err = config.check();
         std::fs::remove_dir_all(&dir).ok();
-        assert!(err.is_err());
+        assert_eq!(err, Err(ConfigError::ZeroMaxWidth));
     }
 
     #[test]
@@ -1746,7 +1771,7 @@ mod tests {
         };
         let err = config.check();
         std::fs::remove_dir_all(&dir).ok();
-        assert!(err.is_err());
+        assert_eq!(err, Err(ConfigError::ZeroMaxHeight));
     }
 
     #[test]

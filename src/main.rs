@@ -1,6 +1,7 @@
 use log::*;
 use notify::{Event, RecursiveMode, Watcher};
 use std::io::{BufRead, IsTerminal};
+use std::process::ExitCode;
 use std::sync::mpsc::channel;
 use std::time::Duration;
 
@@ -86,22 +87,38 @@ fn format_bytes(n: u64) -> String {
     }
 }
 
-fn main() -> Result<(), lexopt::Error> {
+fn main() -> ExitCode {
     // Detect subcommands before full argument parsing.
     let raw: Vec<String> = std::env::args().collect();
     match raw.get(1).map(String::as_str) {
         Some("stats") => {
             handle_stats(raw.get(2).map(String::as_str));
-            return Ok(());
+            return ExitCode::SUCCESS;
         }
         Some("completions") => {
             handle_completions(raw.get(2).map(String::as_str));
-            return Ok(());
+            return ExitCode::SUCCESS;
         }
         _ => {}
     }
 
-    let cli = cli::parse_args()?;
+    let cli = match cli::parse_args() {
+        Ok(cli) => cli,
+        Err(err) => {
+            eprintln!("Error: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    // Start logging before reading spriters.toml and env vars, so their warnings are shown.
+    // `quiet` can only be set on the command line.
+    stderrlog::new()
+        .module(module_path!())
+        .verbosity(log::Level::Info)
+        .quiet(cli.quiet())
+        .init()
+        .unwrap();
+
     let mut config =
         spriters::config::resolve(|config| cli.apply(config), |key| std::env::var(key).ok());
 
@@ -116,13 +133,11 @@ fn main() -> Result<(), lexopt::Error> {
         }
     }
 
-    config.check()?;
-    stderrlog::new()
-        .module(module_path!())
-        .verbosity(log::Level::Info)
-        .quiet(config.quiet)
-        .init()
-        .unwrap();
+    if let Err(err) = config.check() {
+        // Printed directly: the error must be visible even with --quiet.
+        eprintln!("Error: {err}");
+        return ExitCode::FAILURE;
+    }
     if config.files.is_empty() {
         info!("Input directory: {}", config.source.to_string_lossy());
     } else {
@@ -167,7 +182,7 @@ fn main() -> Result<(), lexopt::Error> {
         }
     }
 
-    Ok(())
+    ExitCode::SUCCESS
 }
 
 #[cfg(test)]

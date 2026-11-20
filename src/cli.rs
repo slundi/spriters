@@ -83,6 +83,13 @@ impl CliArgs {
             setter(config);
         }
     }
+
+    /// Whether `--quiet` was given (needed to set up logging before resolving the config).
+    pub(crate) fn quiet(&self) -> bool {
+        let mut config = Config::default();
+        self.apply(&mut config);
+        config.quiet
+    }
 }
 
 pub(crate) fn parse_args() -> Result<CliArgs, lexopt::Error> {
