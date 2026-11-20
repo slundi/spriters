@@ -660,69 +660,217 @@ fn compute_sprite_hash(config: &Config, sprite: &Sprite) -> u64 {
     hasher.finish()
 }
 
-/// Check if sprite needs regeneration based on cached metadata
-pub(crate) fn should_regenerate(config: &Config, sprite: &Sprite) -> bool {
-    if config.force {
-        log::debug!("Force flag set, regenerating sprite");
-        return true;
+/// Compute a hash of all inputs that affect the text outputs (CSS, JSON, LESS, ...).
+///
+/// It extends [`compute_sprite_hash`] (positions and cachebuster come from the image)
+/// with every option that only changes the generated text.
+fn compute_outputs_hash(config: &Config, sprite: &Sprite) -> u64 {
+    use std::hash::{Hash, Hasher};
+    use twox_hash::XxHash64;
+
+    // Exhaustive on purpose: adding a field to `Config` must be a compile error here
+    // until it is classified, otherwise a new option could leave stale outputs behind.
+    let Config {
+        // Covered by `compute_sprite_hash`, directly or through image paths/positions.
+        algorithm: _,
+        ordering: _,
+        crop: _,
+        max_width: _,
+        max_height: _,
+        resize_algorithm: _,
+        margin: _,
+        padding: _,
+        ratios: _,
+        png8: _,
+        sprite_format: _,
+        recursive: _,
+        follow_links: _,
+        exclude: _,
+        files: _,
+        source: _,
+        project: _,
+        no_duplicate: _,
+        // No effect on generated content.
+        force: _,
+        quiet: _,
+        output: _,
+        no_img: _,
+        watch: _,
+        dry_run: _,
+        check: _,
+        // Text outputs only.
+        cachebuster,
+        cachebuster_filename,
+        cachebuster_filename_only_sprites,
+        namespace,
+        sprite_namespace,
+        separator,
+        pseudo_class_separator,
+        url,
+        css,
+        img,
+        css_template,
+        less_template,
+        scss_template,
+        css_vars_template,
+        no_css,
+        html,
+        less,
+        scss,
+        cocos2d,
+        json,
+        json_format,
+        caat,
+        css_vars,
+        tailwind,
+        dts,
+    } = config;
+
+    let mut hasher = XxHash64::with_seed(0);
+    compute_sprite_hash(config, sprite).hash(&mut hasher);
+    (
+        cachebuster,
+        cachebuster_filename,
+        cachebuster_filename_only_sprites,
+    )
+        .hash(&mut hasher);
+    (
+        namespace,
+        sprite_namespace,
+        separator,
+        pseudo_class_separator,
+    )
+        .hash(&mut hasher);
+    (url, css, img).hash(&mut hasher);
+    (
+        css_template,
+        less_template,
+        scss_template,
+        css_vars_template,
+    )
+        .hash(&mut hasher);
+    (no_css, html, less, scss, cocos2d, json, json_format).hash(&mut hasher);
+    (caat, css_vars, tailwind, dts).hash(&mut hasher);
+    hasher.finish()
+}
+
+/// File names of the text outputs enabled in `config`.
+fn text_output_names(config: &Config, name: &str) -> Vec<String> {
+    [
+        (!config.no_css, "css"),
+        (config.less, "less"),
+        (config.scss, "scss"),
+        (config.json, "json"),
+        (config.html, "html"),
+        (config.cocos2d, "plist"),
+        (config.caat, "caat.json"),
+        (config.css_vars, "vars.css"),
+        (config.tailwind, "tailwind.json"),
+        (config.dts, "d.ts"),
+    ]
+    .into_iter()
+    .filter(|(enabled, _)| *enabled)
+    .map(|(_, ext)| format!("{name}.{ext}"))
+    .collect()
+}
+
+/// Hashes stored in the metadata file by the previous run.
+#[derive(Debug, Default)]
+struct Metadata {
+    image_hash: Option<u64>,
+    outputs_hash: Option<u64>,
+}
+
+/// Read the metadata file: first line is the image hash, second line the outputs hash.
+fn read_metadata(config: &Config, sprite: &Sprite) -> Metadata {
+    let Ok(file) = File::open(get_meta_path(config, sprite)) else {
+        return Metadata::default();
+    };
+    let mut contents = String::new();
+    if BufReader::new(file).read_to_string(&mut contents).is_err() {
+        return Metadata::default();
     }
-
-    let meta_path = get_meta_path(config, sprite);
-    let sprite_path = config.output.join(format!(
-        "{}.{}",
-        sprite
-            .path
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy(),
-        config.sprite_format.extension()
-    ));
-
-    // If sprite doesn't exist, regenerate
-    if !sprite_path.exists() {
-        log::debug!("Sprite file doesn't exist, generating");
-        return true;
-    }
-
-    // If meta file doesn't exist, regenerate
-    if !meta_path.exists() {
-        log::debug!("Metadata file doesn't exist, regenerating");
-        return true;
-    }
-
-    // Read stored hash from metadata file
-    let stored_hash: Option<u64> = File::open(&meta_path).ok().and_then(|f| {
-        let mut reader = BufReader::new(f);
-        let mut contents = String::new();
-        reader.read_to_string(&mut contents).ok()?;
-        contents.trim().parse().ok()
-    });
-
-    match stored_hash {
-        Some(hash) => {
-            let current_hash = compute_sprite_hash(config, sprite);
-            if hash == current_hash {
-                log::info!("Sprite is up to date, skipping generation");
-                false
-            } else {
-                log::debug!("Hash mismatch, regenerating sprite");
-                true
-            }
-        }
-        None => {
-            log::debug!("Could not read metadata, regenerating");
-            true
-        }
+    let mut lines = contents.lines().map(|line| line.trim().parse().ok());
+    Metadata {
+        image_hash: lines.next().flatten(),
+        outputs_hash: lines.next().flatten(),
     }
 }
 
-/// Save the sprite hash to metadata file
-fn save_metadata(config: &Config, sprite: &Sprite) {
+/// What has to be (re)generated for a sprite.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Staleness {
+    pub image: bool,
+    pub outputs: bool,
+}
+impl Staleness {
+    pub fn any(self) -> bool {
+        self.image || self.outputs
+    }
+}
+
+/// Compare the current inputs with the cached metadata to find what needs regeneration.
+pub(crate) fn staleness(config: &Config, sprite: &Sprite) -> Staleness {
+    staleness_from(config, sprite, &read_metadata(config, sprite))
+}
+
+fn staleness_from(config: &Config, sprite: &Sprite, stored: &Metadata) -> Staleness {
+    if config.force {
+        log::debug!("Force flag set, regenerating sprite");
+        return Staleness {
+            image: !config.no_img,
+            outputs: true,
+        };
+    }
+
+    let name = sprite
+        .path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy();
+
+    let image = !config.no_img && {
+        let sprite_path = config
+            .output
+            .join(format!("{name}.{}", config.sprite_format.extension()));
+        if !sprite_path.exists() {
+            log::debug!("Sprite file doesn't exist, generating");
+            true
+        } else if stored.image_hash != Some(compute_sprite_hash(config, sprite)) {
+            log::debug!("Image hash mismatch, regenerating sprite image");
+            true
+        } else {
+            false
+        }
+    };
+
+    let missing_output = text_output_names(config, &name)
+        .into_iter()
+        .find(|file| !config.output.join(file).exists());
+    let outputs = if let Some(file) = missing_output {
+        log::debug!("Output file {file} doesn't exist, generating");
+        true
+    } else if stored.outputs_hash != Some(compute_outputs_hash(config, sprite)) {
+        log::debug!("Outputs hash mismatch, regenerating text outputs");
+        true
+    } else {
+        false
+    };
+
+    Staleness { image, outputs }
+}
+
+/// Save the sprite hashes to the metadata file.
+///
+/// `image_hash` is `None` when no image matching the current inputs exists on disk
+/// (e.g. `--no-img` on a fresh output directory).
+fn save_metadata(config: &Config, sprite: &Sprite, image_hash: Option<u64>) {
     let meta_path = get_meta_path(config, sprite);
-    let hash = compute_sprite_hash(config, sprite);
+    let outputs_hash = compute_outputs_hash(config, sprite);
+    let image_line = image_hash.map(|hash| hash.to_string()).unwrap_or_default();
 
     if let Ok(mut file) = File::create(&meta_path) {
-        let _ = writeln!(file, "{}", hash);
+        let _ = writeln!(file, "{image_line}\n{outputs_hash}");
     }
 }
 
@@ -810,56 +958,42 @@ fn print_dry_run(config: &Config, sprite: &Sprite) {
     if !config.no_img {
         println!("  {name}.{ext}", ext = config.sprite_format.extension());
     }
-    if !config.no_css {
-        println!("  {name}.css");
-    }
-    if config.less {
-        println!("  {name}.less");
-    }
-    if config.scss {
-        println!("  {name}.scss");
-    }
-    if config.json {
-        println!("  {name}.json");
-    }
-    if config.html {
-        println!("  {name}.html");
-    }
-    if config.cocos2d {
-        println!("  {name}.plist");
-    }
-    if config.caat {
-        println!("  {name}.caat.json");
-    }
-    if config.css_vars {
-        println!("  {name}.vars.css");
-    }
-    if config.tailwind {
-        println!("  {name}.tailwind.json");
-    }
-    if config.dts {
-        println!("  {name}.d.ts");
+    for file in text_output_names(config, &name) {
+        println!("  {file}");
     }
 }
 
 pub fn generate_files(config: &Config, sprite: &Sprite) {
-    use rayon::prelude::*;
-
     if config.dry_run {
         print_dry_run(config, sprite);
         return;
     }
 
-    // Check if sprite needs regeneration (unless generating only metadata files)
-    if !config.no_img && !should_regenerate(config, sprite) {
+    let stored = read_metadata(config, sprite);
+    let stale = staleness_from(config, sprite, &stored);
+    if !stale.any() {
+        log::info!("Sprite is up to date, skipping generation");
         return;
     }
 
-    // Image generation and metadata must happen sequentially (metadata depends on image).
-    if !config.no_img {
+    if stale.image {
         generate_sprite_image(config, sprite);
-        save_metadata(config, sprite);
     }
+    if stale.outputs {
+        generate_text_outputs(config, sprite);
+    }
+
+    // With --no-img the image on disk is untouched, so keep its previously stored hash.
+    let image_hash = if config.no_img {
+        stored.image_hash
+    } else {
+        Some(compute_sprite_hash(config, sprite))
+    };
+    save_metadata(config, sprite, image_hash);
+}
+
+fn generate_text_outputs(config: &Config, sprite: &Sprite) {
+    use rayon::prelude::*;
 
     // Text-format outputs are all independent — generate them in parallel.
     let tasks: Vec<fn(&Config, &Sprite)> = {

@@ -5,7 +5,7 @@ use std::{
     str::FromStr,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub enum JsonFormat {
     #[default]
     Array,
@@ -966,7 +966,7 @@ impl Manager {
     pub fn is_up_to_date(&self) -> bool {
         self.sprites
             .iter()
-            .all(|s| !output::should_regenerate(&self.config, s))
+            .all(|s| !output::staleness(&self.config, s).any())
     }
 }
 

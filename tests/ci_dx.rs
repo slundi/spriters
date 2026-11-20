@@ -248,6 +248,161 @@ fn algorithm_change_triggers_regeneration() {
     });
 }
 
+// ─── Text outputs on an up-to-date sprite ────────────────────────────────────
+
+fn mtime(path: &std::path::Path) -> std::time::SystemTime {
+    std::fs::metadata(path).unwrap().modified().unwrap()
+}
+
+/// Generate `<tmp>/icons` into `<tmp>/out` once and return a non-forced config for it.
+fn generated_icons(tmp: &std::path::Path) -> (Config, PathBuf) {
+    let source = make_icons_source(tmp);
+    let out = tmp.join("out");
+    std::fs::create_dir_all(&out).unwrap();
+    let mut config = base_config(source.to_str().unwrap(), &out);
+    config.force = false;
+    run(config.clone());
+    assert!(is_up_to_date(&config));
+    (config, out)
+}
+
+#[test]
+fn adding_output_flag_on_up_to_date_sprite_creates_file() {
+    with_tmp_dir(|tmp| {
+        let (mut config, out) = generated_icons(tmp);
+
+        config.json = true;
+        assert!(!is_up_to_date(&config), "a missing output must be stale");
+        run(config.clone());
+
+        assert!(out.join("icons.json").exists(), "JSON must be generated");
+        assert!(is_up_to_date(&config));
+    });
+}
+
+#[test]
+fn namespace_change_rewrites_css() {
+    with_tmp_dir(|tmp| {
+        let (mut config, out) = generated_icons(tmp);
+
+        config.namespace = Some(String::from("brandnew"));
+        assert!(!is_up_to_date(&config));
+        run(config.clone());
+
+        let css = std::fs::read_to_string(out.join("icons.css")).unwrap();
+        assert!(css.contains("brandnew"), "CSS must use the new namespace");
+        assert!(is_up_to_date(&config));
+    });
+}
+
+#[test]
+fn url_change_rewrites_css() {
+    with_tmp_dir(|tmp| {
+        let (mut config, out) = generated_icons(tmp);
+
+        config.url = Some(String::from("https://cdn.example.com/sprites/"));
+        assert!(!is_up_to_date(&config));
+        run(config.clone());
+
+        let css = std::fs::read_to_string(out.join("icons.css")).unwrap();
+        assert!(
+            css.contains("https://cdn.example.com/sprites/"),
+            "CSS must use the new URL"
+        );
+    });
+}
+
+#[test]
+fn deleted_output_is_regenerated() {
+    with_tmp_dir(|tmp| {
+        let (config, out) = generated_icons(tmp);
+
+        std::fs::remove_file(out.join("icons.css")).unwrap();
+        assert!(!is_up_to_date(&config));
+        run(config.clone());
+
+        assert!(out.join("icons.css").exists());
+    });
+}
+
+#[test]
+fn text_only_change_does_not_rewrite_image() {
+    with_tmp_dir(|tmp| {
+        let (mut config, out) = generated_icons(tmp);
+        let image_mtime = mtime(&out.join("icons.png"));
+
+        config.namespace = Some(String::from("other"));
+        run(config.clone());
+
+        assert_eq!(
+            image_mtime,
+            mtime(&out.join("icons.png")),
+            "a text-only option must not regenerate the image"
+        );
+    });
+}
+
+#[test]
+fn unchanged_run_rewrites_nothing() {
+    with_tmp_dir(|tmp| {
+        let (config, out) = generated_icons(tmp);
+        let image_mtime = mtime(&out.join("icons.png"));
+        let css_mtime = mtime(&out.join("icons.css"));
+
+        run(config.clone());
+
+        assert_eq!(image_mtime, mtime(&out.join("icons.png")));
+        assert_eq!(css_mtime, mtime(&out.join("icons.css")));
+    });
+}
+
+#[test]
+fn every_output_format_is_up_to_date_after_generation() {
+    with_tmp_dir(|tmp| {
+        let source = make_icons_source(tmp);
+        let out = tmp.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        let mut config = base_config(source.to_str().unwrap(), &out);
+        config.force = false;
+        config.html = true;
+        config.less = true;
+        config.scss = true;
+        config.json = true;
+        config.cocos2d = true;
+        config.caat = true;
+        config.css_vars = true;
+        config.tailwind = true;
+        config.dts = true;
+
+        run(config.clone());
+
+        // Fails if an expected file name drifts from the one a generator writes.
+        assert!(is_up_to_date(&config));
+    });
+}
+
+#[test]
+fn no_img_run_then_full_run_generates_image() {
+    with_tmp_dir(|tmp| {
+        let source = make_icons_source(tmp);
+        let out = tmp.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        let mut config = base_config(source.to_str().unwrap(), &out);
+        config.force = false;
+        config.no_img = true;
+
+        run(config.clone());
+        assert!(out.join("icons.css").exists());
+        assert!(!out.join("icons.png").exists());
+
+        config.no_img = false;
+        assert!(!is_up_to_date(&config), "the image is still missing");
+        run(config.clone());
+        assert!(out.join("icons.png").exists());
+        assert!(is_up_to_date(&config));
+    });
+}
+
 // ─── 4.4 Stats ───────────────────────────────────────────────────────────────
 
 #[test]
