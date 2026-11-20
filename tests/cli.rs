@@ -381,6 +381,68 @@ fn stats_ignores_bare_metadata_file() {
     });
 }
 
+/// Run the binary with `args` from the working directory `dir`.
+fn spriters_in(dir: &Path, args: &[&str]) -> Output {
+    command(args)
+        .current_dir(dir)
+        .stdin(Stdio::null())
+        .output()
+        .expect("failed to run spriters")
+}
+
+#[test]
+fn source_directory_named_like_a_subcommand() {
+    // `stats` as first argument always ran the subcommand.
+    with_tmp_dir(|tmp| {
+        let (source, out) = source_and_output(tmp);
+        std::fs::rename(&source, tmp.join("stats")).unwrap();
+
+        for (args, sprite) in [
+            (["--", "stats", "out"], "stats.png"),
+            (["./stats", "out", "--force"], "stats.png"),
+        ] {
+            std::fs::remove_file(out.join(sprite)).ok();
+            let output = spriters_in(tmp, &args);
+            assert!(output.status.success(), "{args:?}: {}", stderr(&output));
+            assert!(out.join(sprite).is_file(), "{args:?}");
+        }
+
+        // The subcommand still wins in first position, with a note on how to reach the
+        // directory.
+        let output = spriters_in(tmp, &["stats", "out"]);
+        assert!(output.status.success(), "{}", stderr(&output));
+        assert!(String::from_utf8_lossy(&output.stdout).contains("Sprite:     stats"));
+        let message = stderr(&output);
+        assert!(
+            message.contains("running the 'stats' subcommand")
+                && message.contains("./stats")
+                && message.contains("spriters -- stats"),
+            "{message}"
+        );
+    });
+}
+
+#[test]
+fn no_subcommand_note_without_a_same_named_directory() {
+    with_tmp_dir(|tmp| {
+        let output = spriters_in(tmp, &["completions", "bash"]);
+        assert!(output.status.success());
+        assert!(!stderr(&output).contains("Note:"), "{}", stderr(&output));
+    });
+}
+
+#[test]
+fn help_documents_subcommands() {
+    let output = spriters(&["--help"]);
+    let help = String::from_utf8_lossy(&output.stdout);
+    assert!(help.contains("spriters stats [OUTPUT_DIR]"), "{help}");
+    assert!(
+        help.contains("spriters completions <bash|zsh|fish>"),
+        "{help}"
+    );
+    assert!(help.contains("spriters ./stats dist/"), "{help}");
+}
+
 #[test]
 fn stats_fails_and_explains_a_missing_sprite_image() {
     // It printed "Could not load image" and exited with 0.

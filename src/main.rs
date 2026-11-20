@@ -232,6 +232,45 @@ fn watch(config: &spriters::Config, cache: Option<std::sync::Arc<spriters::Image
     }
 }
 
+/// A subcommand and its argument.
+#[derive(Debug, PartialEq, Eq)]
+enum Subcommand<'a> {
+    Stats(Option<&'a std::path::Path>),
+    Completions(Option<&'a str>),
+}
+
+/// The subcommand of the command line `args` (program name first), if any.
+///
+/// Only the first argument is a subcommand (as with `git`): a source directory with the
+/// same name is given as a path (`./stats`) or after `--`, or after any option.
+fn subcommand(args: &[std::ffi::OsString]) -> Option<Subcommand<'_>> {
+    let argument = args.get(2);
+    match args.get(1)?.to_str()? {
+        "stats" => Some(Subcommand::Stats(argument.map(std::path::Path::new))),
+        "completions" => Some(Subcommand::Completions(
+            argument.and_then(|arg| arg.to_str()),
+        )),
+        _ => None,
+    }
+}
+
+/// The note printed when the subcommand `name` runs while a directory of that name exists
+/// in the working directory: it was maybe meant as the source directory.
+fn same_named_directory_hint(name: &str) -> Option<String> {
+    std::path::Path::new(name).is_dir().then(|| {
+        format!(
+            "Note: running the '{name}' subcommand. To build a sprite from the directory '{name}', \
+             write it as ./{name} or after '--' (spriters -- {name} ...)."
+        )
+    })
+}
+
+fn hint_same_named_directory(name: &str) {
+    if let Some(hint) = same_named_directory_hint(name) {
+        eprintln!("{hint}");
+    }
+}
+
 fn format_bytes(n: u64) -> String {
     if n < 1_024 {
         format!("{} B", n)
@@ -246,13 +285,17 @@ fn main() -> ExitCode {
     // Detect subcommands before full argument parsing. `args_os`: `args` panics on
     // arguments that are not valid UTF-8 (lexopt reports those properly).
     let raw: Vec<std::ffi::OsString> = std::env::args_os().collect();
-    match raw.get(1).and_then(|arg| arg.to_str()) {
-        Some("stats") => return handle_stats(raw.get(2).map(std::path::Path::new)),
-        Some("completions") => {
-            handle_completions(raw.get(2).and_then(|arg| arg.to_str()));
+    match subcommand(&raw) {
+        Some(Subcommand::Stats(output_dir)) => {
+            hint_same_named_directory("stats");
+            return handle_stats(output_dir);
+        }
+        Some(Subcommand::Completions(shell)) => {
+            hint_same_named_directory("completions");
+            handle_completions(shell);
             return ExitCode::SUCCESS;
         }
-        _ => {}
+        None => {}
     }
 
     let cli = match cli::parse_args() {
@@ -412,6 +455,39 @@ mod tests {
         let error = watch_action(&config, &source, Err(notify::Error::generic("lost")));
         assert_eq!(error, WatchAction::Ignore);
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_subcommand_only_in_first_position() {
+        use super::{Subcommand, subcommand};
+        use std::path::Path;
+
+        let args = |list: &[&str]| -> Vec<std::ffi::OsString> {
+            std::iter::once("spriters")
+                .chain(list.iter().copied())
+                .map(std::ffi::OsString::from)
+                .collect()
+        };
+        assert_eq!(
+            subcommand(&args(&["stats", "dist"])),
+            Some(Subcommand::Stats(Some(Path::new("dist"))))
+        );
+        assert_eq!(subcommand(&args(&["stats"])), Some(Subcommand::Stats(None)));
+        assert_eq!(
+            subcommand(&args(&["completions", "zsh"])),
+            Some(Subcommand::Completions(Some("zsh")))
+        );
+        // R source directory named `stats` must stay reachable.
+        for list in [
+            &["--", "stats", "dist"][..],
+            &["./stats", "dist"],
+            &["-o", "dist", "stats"],
+            &["icons", "stats"],
+            &["Stats"],
+            &[],
+        ] {
+            assert_eq!(subcommand(&args(list)), None, "{list:?}");
+        }
     }
 
     #[test]

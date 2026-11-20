@@ -175,6 +175,14 @@ spriters icons/ dist/ --check
 spriters completions zsh > ~/.zfunc/_spriters
 ```
 
+Subcommands are only recognised as the first argument. To build a sprite from a directory
+named like a subcommand, write it as a path or after `--`:
+
+```sh
+spriters ./stats dist/
+spriters -- stats dist/
+```
+
 ---
 
 ## Configuration file

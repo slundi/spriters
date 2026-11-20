@@ -1,9 +1,16 @@
 use spriters::{Config, config};
 
 const HELP_MSG: &str = "spriters [OPTIONS] [SOURCE_DIR] [OUTPUT_DIR]
+spriters stats [OUTPUT_DIR]
+spriters completions <bash|zsh|fish>
 
 By default, it search images on the current working directory. The output is alson on the working directory.
 SOURCE_DIR and OUTPUT_DIR can also be given with -i and -o (but not both ways).
+
+Subcommands are only recognised as the first argument:
+stats:                  report the dimensions, file size and packing efficiency of generated sprites
+completions:            print the shell completion script
+A SOURCE_DIR named like a subcommand is written as a path or after '--': spriters ./stats dist/
 
 General options:
 -h, --help:             print this message
