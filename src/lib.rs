@@ -138,7 +138,7 @@ impl FromStr for Ordering {
 
 /// Used to order the images before adding them to the canvas can be tuned. By default the algorithm is `Square``,
 /// but in some situations using another ordering like vertical or horizontal could be useful depending on the kind of images you are spriting.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum Algorithm {
     /// The square algorithm was inspired by the Binary Tree Bin Packing Algorithm Article by Jake Gordon.
@@ -516,6 +516,8 @@ pub struct ImageAndPosition {
     pub computed_height: u32,
     /// Paths of images with identical content that consolidate into this region.
     pub aliases: Vec<String>,
+    /// XxHash64 of the source file bytes, used to detect pixel changes between runs.
+    pub source_hash: u64,
 }
 impl ImageAndPosition {
     pub fn label(&self) -> String {
@@ -594,7 +596,7 @@ impl Sprite {
         // only the primary is decoded and placed in the sprite.
         let mut seen: HashMap<(u64, u64), String> = HashMap::new();
         let mut alias_map: HashMap<String, Vec<String>> = HashMap::new();
-        let mut candidates: Vec<(String, Vec<u8>)> = Vec::new();
+        let mut candidates: Vec<(String, Vec<u8>, u64)> = Vec::new();
 
         let exclude_patterns: Vec<glob::Pattern> = self
             .config
@@ -655,7 +657,7 @@ impl Sprite {
                             continue;
                         }
                         seen.insert((size, hash), path.clone());
-                        candidates.push((path, bytes));
+                        candidates.push((path, bytes, hash));
                     }
                     Err(e) => error!("Cannot read {:?}: {}", entry.path(), e),
                 }
@@ -696,7 +698,7 @@ impl Sprite {
                             continue;
                         }
                         seen.insert((size, hash), path.clone());
-                        candidates.push((path, bytes));
+                        candidates.push((path, bytes, hash));
                     }
                     Err(e) => error!("Cannot read {:?}: {}", path_buf, e),
                 }
@@ -712,7 +714,7 @@ impl Sprite {
         let display_ratio = self.ratios.last().copied().unwrap_or(1.0);
         self.images = candidates
             .into_par_iter()
-            .filter_map(|(path, bytes)| {
+            .filter_map(|(path, bytes, source_hash)| {
                 let is_svg = path.to_lowercase().ends_with(".svg");
 
                 // SVG: rasterized directly to the target size (no post-load resize needed).
@@ -768,6 +770,7 @@ impl Sprite {
                             computed_width: final_w,
                             computed_height: final_h,
                             aliases,
+                            source_hash,
                             ..Default::default()
                         })
                     }

@@ -147,6 +147,107 @@ fn force_flag_marks_sprite_as_requiring_regeneration() {
     });
 }
 
+// ─── Content-based regeneration hash ─────────────────────────────────────────
+
+fn write_solid_png(path: &std::path::Path, color: [u8; 4]) {
+    image::RgbaImage::from_pixel(4, 4, image::Rgba(color))
+        .save(path)
+        .unwrap();
+}
+
+/// Build a source folder `<root>/icons` containing two distinct 4×4 images.
+fn make_icons_source(root: &std::path::Path) -> PathBuf {
+    let source = root.join("icons");
+    std::fs::create_dir_all(&source).unwrap();
+    write_solid_png(&source.join("a.png"), [255, 0, 0, 255]);
+    write_solid_png(&source.join("b.png"), [0, 0, 255, 255]);
+    source
+}
+
+fn is_up_to_date(config: &Config) -> bool {
+    let mut manager = Manager {
+        config: config.clone(),
+        ..Default::default()
+    };
+    manager.find_sprites();
+    manager.is_up_to_date()
+}
+
+#[test]
+fn pixel_change_with_same_size_triggers_regeneration() {
+    with_tmp_dir(|tmp| {
+        let source = make_icons_source(tmp);
+        let out = tmp.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        let mut config = base_config(source.to_str().unwrap(), &out);
+        config.force = false;
+        config.cachebuster = true;
+
+        run(config.clone());
+        assert!(is_up_to_date(&config));
+        let first_sprite = std::fs::read(out.join("icons.png")).unwrap();
+        let first_css = std::fs::read_to_string(out.join("icons.css")).unwrap();
+
+        // Same dimensions, different colour.
+        write_solid_png(&source.join("a.png"), [0, 255, 0, 255]);
+        assert!(
+            !is_up_to_date(&config),
+            "changing pixels without changing size must invalidate the sprite"
+        );
+
+        run(config.clone());
+        let second_sprite = std::fs::read(out.join("icons.png")).unwrap();
+        let second_css = std::fs::read_to_string(out.join("icons.css")).unwrap();
+        assert_ne!(first_sprite, second_sprite, "sprite must be regenerated");
+        assert_ne!(first_css, second_css, "cachebuster must change");
+        assert!(is_up_to_date(&config));
+    });
+}
+
+#[test]
+fn resize_algorithm_change_triggers_regeneration() {
+    with_tmp_dir(|tmp| {
+        let source = make_icons_source(tmp);
+        let out = tmp.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        let mut config = base_config(source.to_str().unwrap(), &out);
+        config.force = false;
+
+        run(config.clone());
+        assert!(is_up_to_date(&config));
+
+        config.resize_algorithm = image::imageops::FilterType::Nearest;
+        assert!(
+            !is_up_to_date(&config),
+            "changing the resize filter must invalidate the sprite"
+        );
+    });
+}
+
+#[test]
+fn algorithm_change_triggers_regeneration() {
+    with_tmp_dir(|tmp| {
+        let source = tmp.join("icons");
+        std::fs::create_dir_all(&source).unwrap();
+        // A single image has the same position under every layout algorithm.
+        write_solid_png(&source.join("a.png"), [255, 0, 0, 255]);
+        let out = tmp.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        let mut config = base_config(source.to_str().unwrap(), &out);
+        config.force = false;
+        config.algorithm = spriters::Algorithm::Vertical;
+
+        run(config.clone());
+        assert!(is_up_to_date(&config));
+
+        config.algorithm = spriters::Algorithm::Horizontal;
+        assert!(
+            !is_up_to_date(&config),
+            "changing the layout algorithm must invalidate the sprite"
+        );
+    });
+}
+
 // ─── 4.4 Stats ───────────────────────────────────────────────────────────────
 
 #[test]

@@ -633,6 +633,8 @@ fn compute_sprite_hash(config: &Config, sprite: &Sprite) -> u64 {
     SPRITERS_VERSION.hash(&mut hasher);
 
     // Hash relevant config options
+    config.algorithm.hash(&mut hasher);
+    config.resize_algorithm.hash(&mut hasher);
     config.sprite_format.extension().hash(&mut hasher);
     config.png8.hash(&mut hasher);
     config.crop.hash(&mut hasher);
@@ -642,9 +644,10 @@ fn compute_sprite_hash(config: &Config, sprite: &Sprite) -> u64 {
     config.margin.hash(&mut hasher);
     config.ratios.hash(&mut hasher);
 
-    // Hash each source image path, layout position, dimensions, and aliases
+    // Hash each source image path, content, layout position, dimensions, and aliases
     for img in &sprite.images {
         img.path.hash(&mut hasher);
+        img.source_hash.hash(&mut hasher);
         img.x.hash(&mut hasher);
         img.y.hash(&mut hasher);
         img.computed_width.hash(&mut hasher);
