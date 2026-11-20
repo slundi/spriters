@@ -2,14 +2,15 @@ use spriters::{Config, Manager};
 use std::path::PathBuf;
 
 fn make_config(source: &str, output: &str) -> Config {
-    let mut config = Config::default();
-    config.source = PathBuf::from(source);
-    config.output = PathBuf::from(output);
-    config.no_img = true;
-    config.no_css = true;
-    config.force = true;
-    config.css_vars = true;
-    config
+    Config {
+        source: PathBuf::from(source),
+        output: PathBuf::from(output),
+        no_img: true,
+        no_css: true,
+        force: true,
+        css_vars: true,
+        ..Default::default()
+    }
 }
 
 fn with_tmp_dir<F: FnOnce(&str)>(test: F) {

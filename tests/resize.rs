@@ -3,9 +3,11 @@ use std::path::PathBuf;
 
 fn europe_config() -> (Config, PathBuf) {
     let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/images/europe");
-    let mut config = Config::default();
-    config.source = src.clone();
-    config.output = std::env::temp_dir();
+    let config = Config {
+        source: src.clone(),
+        output: std::env::temp_dir(),
+        ..Default::default()
+    };
     (config, src)
 }
 

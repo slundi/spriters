@@ -2,13 +2,14 @@ use spriters::{Config, JsonFormat, Manager, SpriteFormat};
 use std::path::PathBuf;
 
 fn make_config(source: &str, output: &str) -> Config {
-    let mut config = Config::default();
-    config.source = PathBuf::from(source);
-    config.output = PathBuf::from(output);
-    config.no_img = true; // skip PNG generation for most tests
-    config.no_css = true;
-    config.force = true;
-    config
+    Config {
+        source: PathBuf::from(source),
+        output: PathBuf::from(output),
+        no_img: true, // skip PNG generation for most tests
+        no_css: true,
+        force: true,
+        ..Default::default()
+    }
 }
 
 fn with_tmp_dir<F: FnOnce(&str)>(test: F) {
@@ -171,18 +172,29 @@ fn test_cachebuster_filename_only_sprites() {
             });
         assert!(hashed, "a hashed sprite PNG must exist");
 
-        // CSS must reference plain filename (no hash in URL)
+        // The CSS filename stays plain, but its URL must point to the hashed sprite on disk.
         let css = std::fs::read_to_string(format!("{}/america.css", out)).unwrap();
-        // CSS url must not contain '_' before '.png' (the hash pattern)
         let url_line = css
             .lines()
             .find(|l| l.contains("background-image"))
             .unwrap_or("");
         assert!(
-            !url_line.contains("america_"),
-            "CSS URL must not contain hashed image filename"
+            url_line.contains("america_"),
+            "CSS URL must reference the hashed sprite: {url_line}"
         );
+        assert_css_url_exists(&css, out);
     });
+}
+
+/// The file referenced by the first `url('...')` of `css` must exist in `out`.
+fn assert_css_url_exists(css: &str, out: &str) {
+    let start = css.find("url('").expect("CSS must contain url('...')") + 5;
+    let url = &css[start..start + css[start..].find('\'').unwrap()];
+    let file = url.split('?').next().unwrap();
+    assert!(
+        std::path::Path::new(out).join(file).exists(),
+        "CSS references missing file {file}"
+    );
 }
 
 // ─── Config file (spriters.toml) ─────────────────────────────────────────────
@@ -234,9 +246,11 @@ namespace = "toml-ns"
         )
         .unwrap();
 
-        let mut config = Config::default();
         // Simulate CLI set json_format to Array (should be overridden by file config)
-        config.json_format = JsonFormat::Array;
+        let mut config = Config {
+            json_format: JsonFormat::Array,
+            ..Default::default()
+        };
 
         let fc = spriters::config::load_file_config(std::path::Path::new(dir)).unwrap();
         spriters::config::apply_file_config(&mut config, fc);
@@ -256,26 +270,25 @@ namespace = "toml-ns"
 
 #[test]
 fn test_apply_env_vars() {
-    // Isolate this test by setting and then restoring env vars
-    // We only test a few representative vars
-    std::env::set_var("SPRITERS_CROP", "true");
-    std::env::set_var("SPRITERS_NAMESPACE", "env-ns");
-    std::env::set_var("SPRITERS_JSON_FORMAT", "hash");
-    std::env::set_var("SPRITERS_SEPARATOR", "_");
+    // A lookup stands in for the process environment: mutating it is unsafe and racy.
+    let vars: std::collections::HashMap<&str, &str> = [
+        ("SPRITERS_CROP", "true"),
+        ("SPRITERS_NAMESPACE", "env-ns"),
+        ("SPRITERS_JSON_FORMAT", "hash"),
+        ("SPRITERS_SEPARATOR", "_"),
+    ]
+    .into_iter()
+    .collect();
 
     let mut config = Config::default();
-    spriters::config::apply_env_vars(&mut config);
+    spriters::config::apply_env_with(&mut config, |key| {
+        vars.get(key).map(|value| value.to_string())
+    });
 
     assert!(config.crop);
     assert_eq!(config.namespace.as_deref(), Some("env-ns"));
     assert_eq!(config.json_format, JsonFormat::Hash);
     assert_eq!(config.separator, "_");
-
-    // Cleanup
-    std::env::remove_var("SPRITERS_CROP");
-    std::env::remove_var("SPRITERS_NAMESPACE");
-    std::env::remove_var("SPRITERS_JSON_FORMAT");
-    std::env::remove_var("SPRITERS_SEPARATOR");
 }
 
 // ─── Phase 2: parallel correctness ───────────────────────────────────────────
@@ -391,10 +404,9 @@ fn parse_widths_from_json(json: &str) -> Vec<u32> {
         if let Some(num) = part
             .split_once(|c: char| !c.is_ascii_digit())
             .map(|(n, _)| n)
+            && let Ok(v) = num.parse::<u32>()
         {
-            if let Ok(v) = num.parse::<u32>() {
-                widths.push(v);
-            }
+            widths.push(v);
         }
     }
     widths
@@ -406,10 +418,9 @@ fn parse_heights_from_json(json: &str) -> Vec<u32> {
         if let Some(num) = part
             .split_once(|c: char| !c.is_ascii_digit())
             .map(|(n, _)| n)
+            && let Ok(v) = num.parse::<u32>()
         {
-            if let Ok(v) = num.parse::<u32>() {
-                heights.push(v);
-            }
+            heights.push(v);
         }
     }
     heights
@@ -669,14 +680,15 @@ fn test_cachebuster_only_sprites_webp() {
             });
         assert!(hashed, "a hashed .webp sprite must exist");
 
-        // CSS must still reference clean filename (no hash)
+        // CSS must reference the hashed .webp sprite that was written
         let css = std::fs::read_to_string(format!("{}/america.css", out)).unwrap();
         let url_line = css
             .lines()
             .find(|l| l.contains("background-image"))
             .unwrap_or("");
-        assert!(!url_line.contains("america_"), "CSS URL must not be hashed");
-        assert!(url_line.contains("america.webp"), "CSS URL must use .webp");
+        assert!(url_line.contains("america_"), "CSS URL must be hashed");
+        assert!(url_line.contains(".webp"), "CSS URL must use .webp");
+        assert_css_url_exists(&css, out);
     });
 }
 
@@ -852,20 +864,24 @@ fn two_run_css(source: &str) -> (String, String) {
         .to_string_lossy()
         .to_string();
 
-    let mut config1 = Config::default();
-    config1.source = std::path::PathBuf::from(source);
-    config1.output = out1.clone();
-    config1.no_img = true;
-    config1.no_css = false;
-    config1.force = true;
+    let config1 = Config {
+        source: std::path::PathBuf::from(source),
+        output: out1.clone(),
+        no_img: true,
+        no_css: false,
+        force: true,
+        ..Default::default()
+    };
     run_manager(config1);
 
-    let mut config2 = Config::default();
-    config2.source = std::path::PathBuf::from(source);
-    config2.output = out2.clone();
-    config2.no_img = true;
-    config2.no_css = false;
-    config2.force = true;
+    let config2 = Config {
+        source: std::path::PathBuf::from(source),
+        output: out2.clone(),
+        no_img: true,
+        no_css: false,
+        force: true,
+        ..Default::default()
+    };
     run_manager(config2);
 
     let css1 = std::fs::read_to_string(out1.join(format!("{}.css", stem))).unwrap();
@@ -912,14 +928,15 @@ fn test_reproducible_cachebuster_query() {
     std::fs::create_dir_all(&out2).unwrap();
 
     let make = |out: &std::path::Path| {
-        let mut c = Config::default();
-        c.source = std::path::PathBuf::from("tests/images/america");
-        c.output = out.to_path_buf();
-        c.no_img = true;
-        c.no_css = false;
-        c.force = true;
-        c.cachebuster = true;
-        run_manager(c);
+        run_manager(Config {
+            source: std::path::PathBuf::from("tests/images/america"),
+            output: out.to_path_buf(),
+            no_img: true,
+            no_css: false,
+            force: true,
+            cachebuster: true,
+            ..Default::default()
+        });
         std::fs::read_to_string(out.join("america.css")).unwrap()
     };
 
@@ -992,14 +1009,15 @@ fn test_reproducible_json() {
     std::fs::create_dir_all(&out2).unwrap();
 
     let make = |out: &std::path::Path| {
-        let mut c = Config::default();
-        c.source = std::path::PathBuf::from("tests/images/europe");
-        c.output = out.to_path_buf();
-        c.no_img = true;
-        c.no_css = true;
-        c.force = true;
-        c.json = true;
-        run_manager(c);
+        run_manager(Config {
+            source: std::path::PathBuf::from("tests/images/europe"),
+            output: out.to_path_buf(),
+            no_img: true,
+            no_css: true,
+            force: true,
+            json: true,
+            ..Default::default()
+        });
         std::fs::read_to_string(out.join("europe.json")).unwrap()
     };
 

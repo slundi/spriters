@@ -1560,57 +1560,67 @@ mod tests {
 
     #[test]
     fn test_config_check_valid() {
-        let d = tmp_dir("chk_ok");
-        let mut c = Config::default();
-        c.source = d.clone();
-        c.output = d.clone();
-        assert!(c.check().is_ok());
-        std::fs::remove_dir_all(&d).ok();
+        let dir = tmp_dir("chk_ok");
+        let config = Config {
+            source: dir.clone(),
+            output: dir.clone(),
+            ..Default::default()
+        };
+        assert!(config.check().is_ok());
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn test_config_check_output_not_dir() {
-        let d = tmp_dir("chk_out");
-        let mut c = Config::default();
-        c.source = d.clone();
-        c.output = PathBuf::from("/nonexistent/__spriters_test__");
-        let err = c.check();
-        std::fs::remove_dir_all(&d).ok();
+        let dir = tmp_dir("chk_out");
+        let config = Config {
+            source: dir.clone(),
+            output: PathBuf::from("/nonexistent/__spriters_test__"),
+            ..Default::default()
+        };
+        let err = config.check();
+        std::fs::remove_dir_all(&dir).ok();
         assert!(err.is_err());
     }
 
     #[test]
     fn test_config_check_source_not_dir() {
-        let d = tmp_dir("chk_src");
-        let mut c = Config::default();
-        c.source = PathBuf::from("/nonexistent/__spriters_test__");
-        c.output = d.clone();
-        let err = c.check();
-        std::fs::remove_dir_all(&d).ok();
+        let dir = tmp_dir("chk_src");
+        let config = Config {
+            source: PathBuf::from("/nonexistent/__spriters_test__"),
+            output: dir.clone(),
+            ..Default::default()
+        };
+        let err = config.check();
+        std::fs::remove_dir_all(&dir).ok();
         assert!(err.is_err());
     }
 
     #[test]
     fn test_config_check_max_width_zero() {
-        let d = tmp_dir("chk_mw0");
-        let mut c = Config::default();
-        c.source = d.clone();
-        c.output = d.clone();
-        c.max_width = Some(0);
-        let err = c.check();
-        std::fs::remove_dir_all(&d).ok();
+        let dir = tmp_dir("chk_mw0");
+        let config = Config {
+            source: dir.clone(),
+            output: dir.clone(),
+            max_width: Some(0),
+            ..Default::default()
+        };
+        let err = config.check();
+        std::fs::remove_dir_all(&dir).ok();
         assert!(err.is_err());
     }
 
     #[test]
     fn test_config_check_max_height_zero() {
-        let d = tmp_dir("chk_mh0");
-        let mut c = Config::default();
-        c.source = d.clone();
-        c.output = d.clone();
-        c.max_height = Some(0);
-        let err = c.check();
-        std::fs::remove_dir_all(&d).ok();
+        let dir = tmp_dir("chk_mh0");
+        let config = Config {
+            source: dir.clone(),
+            output: dir.clone(),
+            max_height: Some(0),
+            ..Default::default()
+        };
+        let err = config.check();
+        std::fs::remove_dir_all(&dir).ok();
         assert!(err.is_err());
     }
 

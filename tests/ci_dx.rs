@@ -17,11 +17,12 @@ fn with_tmp_dir<F: FnOnce(&std::path::Path)>(test: F) {
 }
 
 fn base_config(source: &str, output: &std::path::Path) -> Config {
-    let mut config = Config::default();
-    config.source = PathBuf::from(source);
-    config.output = output.to_path_buf();
-    config.force = true;
-    config
+    Config {
+        source: PathBuf::from(source),
+        output: output.to_path_buf(),
+        force: true,
+        ..Default::default()
+    }
 }
 
 fn run(config: Config) -> Manager {

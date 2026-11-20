@@ -10,11 +10,12 @@ fn image(rel: &str) -> PathBuf {
 }
 
 fn base_config() -> Config {
-    let mut config = Config::default();
-    config.output = std::env::temp_dir();
     // source is not walked in file-list mode, but must satisfy Config::check()
     // via the files.is_empty() guard — so we can leave it as the default CWD.
-    config
+    Config {
+        output: std::env::temp_dir(),
+        ..Default::default()
+    }
 }
 
 fn image_names(sprite: &Sprite) -> Vec<&str> {

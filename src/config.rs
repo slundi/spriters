@@ -63,180 +63,186 @@ pub fn load_file_config(dir: &Path) -> Option<FileConfig> {
 
 /// Apply env vars (SPRITERS_*) to config. Lower priority than CLI and file config.
 pub fn apply_env_vars(config: &mut Config) {
-    use std::env;
+    apply_env_with(config, |key| std::env::var(key).ok());
+}
 
-    if let Ok(v) = env::var("SPRITERS_ALGORITHM")
+/// Apply SPRITERS_* variables obtained through `lookup` to config.
+///
+/// [`apply_env_vars`] reads them from the process environment; tests pass their own
+/// lookup instead, since mutating the environment is `unsafe` and racy across threads.
+pub fn apply_env_with(config: &mut Config, lookup: impl Fn(&str) -> Option<String>) {
+    if let Some(v) = lookup("SPRITERS_ALGORITHM")
         && let Ok(a) = parse_algorithm(&v)
     {
         config.algorithm = a;
     }
-    if let Ok(v) = env::var("SPRITERS_ORDERING")
+    if let Some(v) = lookup("SPRITERS_ORDERING")
         && let Ok(o) = v.parse::<Ordering>()
     {
         config.ordering = o;
     }
-    if let Ok(v) = env::var("SPRITERS_CROP")
+    if let Some(v) = lookup("SPRITERS_CROP")
         && let Ok(b) = parse_bool(&v)
     {
         config.crop = b;
     }
-    if let Ok(v) = env::var("SPRITERS_MAX_WIDTH")
+    if let Some(v) = lookup("SPRITERS_MAX_WIDTH")
         && let Ok(n) = v.parse::<u32>()
     {
         config.max_width = Some(n);
     }
-    if let Ok(v) = env::var("SPRITERS_MAX_HEIGHT")
+    if let Some(v) = lookup("SPRITERS_MAX_HEIGHT")
         && let Ok(n) = v.parse::<u32>()
     {
         config.max_height = Some(n);
     }
-    if let Ok(v) = env::var("SPRITERS_PADDING") {
+    if let Some(v) = lookup("SPRITERS_PADDING") {
         config.padding = Some(v);
     }
-    if let Ok(v) = env::var("SPRITERS_MARGIN") {
+    if let Some(v) = lookup("SPRITERS_MARGIN") {
         config.margin = Some(v);
     }
-    if let Ok(v) = env::var("SPRITERS_RATIOS") {
+    if let Some(v) = lookup("SPRITERS_RATIOS") {
         config.ratios = Some(v);
     }
-    if let Ok(v) = env::var("SPRITERS_NAMESPACE") {
+    if let Some(v) = lookup("SPRITERS_NAMESPACE") {
         config.namespace = Some(v);
     }
-    if let Ok(v) = env::var("SPRITERS_SPRITE_NAMESPACE") {
+    if let Some(v) = lookup("SPRITERS_SPRITE_NAMESPACE") {
         config.sprite_namespace = Some(v);
     }
-    if let Ok(v) = env::var("SPRITERS_SEPARATOR") {
+    if let Some(v) = lookup("SPRITERS_SEPARATOR") {
         config.separator = v;
     }
-    if let Ok(v) = env::var("SPRITERS_URL") {
+    if let Some(v) = lookup("SPRITERS_URL") {
         config.url = Some(v);
     }
-    if let Ok(v) = env::var("SPRITERS_JSON_FORMAT") {
+    if let Some(v) = lookup("SPRITERS_JSON_FORMAT") {
         config.json_format = if v.to_lowercase() == "hash" {
             JsonFormat::Hash
         } else {
             JsonFormat::Array
         };
     }
-    if let Ok(v) = env::var("SPRITERS_CACHEBUSTER")
+    if let Some(v) = lookup("SPRITERS_CACHEBUSTER")
         && let Ok(b) = parse_bool(&v)
     {
         config.cachebuster = b;
     }
-    if let Ok(v) = env::var("SPRITERS_CACHEBUSTER_FILENAME")
+    if let Some(v) = lookup("SPRITERS_CACHEBUSTER_FILENAME")
         && let Ok(b) = parse_bool(&v)
     {
         config.cachebuster_filename = b;
     }
-    if let Ok(v) = env::var("SPRITERS_CACHEBUSTER_FILENAME_ONLY_SPRITES")
+    if let Some(v) = lookup("SPRITERS_CACHEBUSTER_FILENAME_ONLY_SPRITES")
         && let Ok(b) = parse_bool(&v)
     {
         config.cachebuster_filename_only_sprites = b;
     }
-    if let Ok(v) = env::var("SPRITERS_FORCE")
+    if let Some(v) = lookup("SPRITERS_FORCE")
         && let Ok(b) = parse_bool(&v)
     {
         config.force = b;
     }
-    if let Ok(v) = env::var("SPRITERS_FOLLOW_LINKS")
+    if let Some(v) = lookup("SPRITERS_FOLLOW_LINKS")
         && let Ok(b) = parse_bool(&v)
     {
         config.follow_links = b;
     }
-    if let Ok(v) = env::var("SPRITERS_RECURSIVE")
+    if let Some(v) = lookup("SPRITERS_RECURSIVE")
         && let Ok(b) = parse_bool(&v)
     {
         config.recursive = b;
     }
-    if let Ok(v) = env::var("SPRITERS_PROJECT")
+    if let Some(v) = lookup("SPRITERS_PROJECT")
         && let Ok(b) = parse_bool(&v)
     {
         config.project = b;
     }
-    if let Ok(v) = env::var("SPRITERS_NO_CSS")
+    if let Some(v) = lookup("SPRITERS_NO_CSS")
         && let Ok(b) = parse_bool(&v)
     {
         config.no_css = b;
     }
-    if let Ok(v) = env::var("SPRITERS_NO_IMG")
+    if let Some(v) = lookup("SPRITERS_NO_IMG")
         && let Ok(b) = parse_bool(&v)
     {
         config.no_img = b;
     }
-    if let Ok(v) = env::var("SPRITERS_PNG8")
+    if let Some(v) = lookup("SPRITERS_PNG8")
         && let Ok(b) = parse_bool(&v)
     {
         config.png8 = b;
     }
-    if let Ok(v) = env::var("SPRITERS_HTML")
+    if let Some(v) = lookup("SPRITERS_HTML")
         && let Ok(b) = parse_bool(&v)
     {
         config.html = b;
     }
-    if let Ok(v) = env::var("SPRITERS_JSON")
+    if let Some(v) = lookup("SPRITERS_JSON")
         && let Ok(b) = parse_bool(&v)
     {
         config.json = b;
     }
-    if let Ok(v) = env::var("SPRITERS_CAAT")
+    if let Some(v) = lookup("SPRITERS_CAAT")
         && let Ok(b) = parse_bool(&v)
     {
         config.caat = b;
     }
-    if let Ok(v) = env::var("SPRITERS_LESS")
+    if let Some(v) = lookup("SPRITERS_LESS")
         && let Ok(b) = parse_bool(&v)
     {
         config.less = b;
     }
-    if let Ok(v) = env::var("SPRITERS_SCSS")
+    if let Some(v) = lookup("SPRITERS_SCSS")
         && let Ok(b) = parse_bool(&v)
     {
         config.scss = b;
     }
-    if let Ok(v) = env::var("SPRITERS_COCOS2D")
+    if let Some(v) = lookup("SPRITERS_COCOS2D")
         && let Ok(b) = parse_bool(&v)
     {
         config.cocos2d = b;
     }
-    if let Ok(v) = env::var("SPRITERS_NO_DUPLICATE")
+    if let Some(v) = lookup("SPRITERS_NO_DUPLICATE")
         && let Ok(b) = parse_bool(&v)
     {
         config.no_duplicate = b;
     }
-    if let Ok(v) = env::var("SPRITERS_PSEUDO_CLASS_SEPARATOR") {
+    if let Some(v) = lookup("SPRITERS_PSEUDO_CLASS_SEPARATOR") {
         config.pseudo_class_separator = Some(v);
     }
-    if let Ok(v) = env::var("SPRITERS_FORMAT") {
+    if let Some(v) = lookup("SPRITERS_FORMAT") {
         config.sprite_format = parse_sprite_format(&v);
     }
-    if let Ok(v) = env::var("SPRITERS_EXCLUDE") {
+    if let Some(v) = lookup("SPRITERS_EXCLUDE") {
         config.exclude = v
             .split(',')
             .map(|s| s.trim().to_owned())
             .filter(|s| !s.is_empty())
             .collect();
     }
-    if let Ok(v) = env::var("SPRITERS_CSS_VARS")
+    if let Some(v) = lookup("SPRITERS_CSS_VARS")
         && let Ok(b) = parse_bool(&v)
     {
         config.css_vars = b;
     }
-    if let Ok(v) = env::var("SPRITERS_DRY_RUN")
+    if let Some(v) = lookup("SPRITERS_DRY_RUN")
         && let Ok(b) = parse_bool(&v)
     {
         config.dry_run = b;
     }
-    if let Ok(v) = env::var("SPRITERS_CHECK")
+    if let Some(v) = lookup("SPRITERS_CHECK")
         && let Ok(b) = parse_bool(&v)
     {
         config.check = b;
     }
-    if let Ok(v) = env::var("SPRITERS_TAILWIND")
+    if let Some(v) = lookup("SPRITERS_TAILWIND")
         && let Ok(b) = parse_bool(&v)
     {
         config.tailwind = b;
     }
-    if let Ok(v) = env::var("SPRITERS_DTS")
+    if let Some(v) = lookup("SPRITERS_DTS")
         && let Ok(b) = parse_bool(&v)
     {
         config.dts = b;
@@ -445,52 +451,79 @@ mod tests {
         assert_eq!(parse_sprite_format(""), SpriteFormat::Png);
     }
 
+    /// Apply `vars` as if they were the process environment.
+    fn config_from_env(vars: &[(&str, &str)]) -> Config {
+        let vars: std::collections::HashMap<&str, &str> = vars.iter().copied().collect();
+        let mut config = Config::default();
+        apply_env_with(&mut config, |key| {
+            vars.get(key).map(|value| value.to_string())
+        });
+        config
+    }
+
     #[test]
     fn test_apply_env_vars_algorithm() {
-        let mut config = Config::default();
-        std::env::set_var("SPRITERS_ALGORITHM", "vertical");
-        apply_env_vars(&mut config);
-        std::env::remove_var("SPRITERS_ALGORITHM");
+        let config = config_from_env(&[("SPRITERS_ALGORITHM", "vertical")]);
         assert_eq!(config.algorithm, Algorithm::Vertical);
     }
 
     #[test]
     fn test_apply_env_vars_invalid_algorithm_is_ignored() {
-        let mut config = Config::default();
-        let original = config.algorithm;
-        std::env::set_var("SPRITERS_ALGORITHM_INVALID_TEST", "not-an-algorithm");
-        // We set a key that won't match, but test that invalid values for the real key are ignored.
-        // Use a separate env key to avoid test interference.
-        std::env::remove_var("SPRITERS_ALGORITHM_INVALID_TEST");
-        // Force invalid value via the real key:
-        std::env::set_var("SPRITERS_ALGORITHM", "bogus");
-        apply_env_vars(&mut config);
-        std::env::remove_var("SPRITERS_ALGORITHM");
-        assert_eq!(config.algorithm, original);
+        let config = config_from_env(&[("SPRITERS_ALGORITHM", "bogus")]);
+        assert_eq!(config.algorithm, Config::default().algorithm);
     }
 
     #[test]
     fn test_apply_env_vars_max_dimensions() {
-        let mut config = Config::default();
-        std::env::set_var("SPRITERS_MAX_WIDTH", "800");
-        std::env::set_var("SPRITERS_MAX_HEIGHT", "600");
-        apply_env_vars(&mut config);
-        std::env::remove_var("SPRITERS_MAX_WIDTH");
-        std::env::remove_var("SPRITERS_MAX_HEIGHT");
+        let config = config_from_env(&[
+            ("SPRITERS_MAX_WIDTH", "800"),
+            ("SPRITERS_MAX_HEIGHT", "600"),
+        ]);
         assert_eq!(config.max_width, Some(800));
         assert_eq!(config.max_height, Some(600));
     }
 
     #[test]
     fn test_apply_env_vars_cachebuster_flags() {
-        let mut config = Config::default();
-        std::env::set_var("SPRITERS_CACHEBUSTER", "true");
-        std::env::set_var("SPRITERS_CACHEBUSTER_FILENAME", "yes");
-        apply_env_vars(&mut config);
-        std::env::remove_var("SPRITERS_CACHEBUSTER");
-        std::env::remove_var("SPRITERS_CACHEBUSTER_FILENAME");
+        let config = config_from_env(&[
+            ("SPRITERS_CACHEBUSTER", "true"),
+            ("SPRITERS_CACHEBUSTER_FILENAME", "yes"),
+        ]);
         assert!(config.cachebuster);
         assert!(config.cachebuster_filename);
+    }
+
+    #[test]
+    fn test_apply_env_vars_empty_lookup_keeps_defaults() {
+        let config = config_from_env(&[]);
+        let default = Config::default();
+        assert_eq!(config.algorithm, default.algorithm);
+        assert_eq!(config.separator, default.separator);
+        assert_eq!(config.exclude, default.exclude);
+        assert!(!config.force);
+    }
+
+    #[test]
+    fn test_apply_env_vars_strings_and_lists() {
+        let config = config_from_env(&[
+            ("SPRITERS_NAMESPACE", "env-ns"),
+            ("SPRITERS_URL", "/static/"),
+            ("SPRITERS_EXCLUDE", " *.tmp , ,draft-*"),
+            ("SPRITERS_FORMAT", "webp"),
+            ("SPRITERS_JSON_FORMAT", "HASH"),
+        ]);
+        assert_eq!(config.namespace.as_deref(), Some("env-ns"));
+        assert_eq!(config.url.as_deref(), Some("/static/"));
+        assert_eq!(config.exclude, vec!["*.tmp", "draft-*"]);
+        assert_eq!(config.sprite_format, SpriteFormat::WebP);
+        assert_eq!(config.json_format, crate::JsonFormat::Hash);
+    }
+
+    #[test]
+    fn test_apply_env_vars_invalid_bool_is_ignored() {
+        let config = config_from_env(&[("SPRITERS_CROP", "maybe"), ("SPRITERS_FORCE", "on")]);
+        assert!(!config.crop);
+        assert!(config.force);
     }
 
     #[test]

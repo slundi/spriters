@@ -1123,16 +1123,20 @@ mod tests {
         assert_eq!(url, "america.png");
 
         // cachebuster query param: deterministic (same hash every call)
-        let mut config_q = Config::default();
-        config_q.cachebuster = true;
+        let config_q = Config {
+            cachebuster: true,
+            ..Default::default()
+        };
         let url1 = get_sprite_url(&config_q, &make_sprite());
         let url2 = get_sprite_url(&config_q, &make_sprite());
         assert_eq!(url1, url2, "cache buster must be deterministic");
         assert!(url1.contains('?'), "query-param buster must contain '?'");
 
         // cachebuster filename: deterministic
-        let mut config_f = Config::default();
-        config_f.cachebuster_filename = true;
+        let config_f = Config {
+            cachebuster_filename: true,
+            ..Default::default()
+        };
         let url3 = get_sprite_url(&config_f, &make_sprite());
         let url4 = get_sprite_url(&config_f, &make_sprite());
         assert_eq!(url3, url4, "filename buster must be deterministic");
