@@ -677,17 +677,25 @@ fn render_sprite(config: &Config, sprite: &Sprite, ratio: f32, max_ratio: f32) -
     let scale = ratio / max_ratio;
 
     for img in sprite.images.iter() {
-        let mut rgba_img = img.image.to_rgba8();
+        // Images are stored as RGBA8 by discovery: borrowed, not copied.
+        let mut rgba_img: std::borrow::Cow<RgbaImage> = match img.image.as_rgba8() {
+            Some(buffer) => std::borrow::Cow::Borrowed(buffer),
+            None => std::borrow::Cow::Owned(img.image.to_rgba8()),
+        };
         if scale != 1.0 {
             let target_w = ((rgba_img.width() as f32 * scale).floor() as u32).max(1);
             let target_h = ((rgba_img.height() as f32 * scale).floor() as u32).max(1);
-            rgba_img =
-                image::imageops::resize(&rgba_img, target_w, target_h, config.resize_algorithm);
+            rgba_img = std::borrow::Cow::Owned(image::imageops::resize(
+                &*rgba_img,
+                target_w,
+                target_h,
+                config.resize_algorithm,
+            ));
         }
         let (origin_x, origin_y) = img.pixel_origin(&sprite.padding);
         let x = (origin_x as f32 * ratio).round() as u32;
         let y = (origin_y as f32 * ratio).round() as u32;
-        if let Err(e) = canvas.copy_from(&rgba_img, x, y) {
+        if let Err(e) = canvas.copy_from(&*rgba_img, x, y) {
             log::error!("Failed to copy image {} to sprite: {}", img.path, e);
         }
     }
@@ -969,7 +977,20 @@ fn compute_sprite_hash(config: &Config, sprite: &Sprite) -> u64 {
     config.margin.hash(&mut hasher);
     config.ratios.hash(&mut hasher);
 
-    // Hash each source image path, content, layout position, dimensions, and aliases
+    // Images and layout: the costly part, computed once per sprite.
+    sprite
+        .layout_hash
+        .get_or_init(|| layout_hash(sprite))
+        .hash(&mut hasher);
+
+    hasher.finish()
+}
+
+/// Hash of each source image path, content, layout position, dimensions, and aliases.
+fn layout_hash(sprite: &Sprite) -> u64 {
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = twox_hash::XxHash64::with_seed(0);
     for img in &sprite.images {
         img.path.hash(&mut hasher);
         img.source_hash.hash(&mut hasher);
@@ -981,7 +1002,6 @@ fn compute_sprite_hash(config: &Config, sprite: &Sprite) -> u64 {
             alias.hash(&mut hasher);
         }
     }
-
     hasher.finish()
 }
 
@@ -1446,6 +1466,7 @@ mod tests {
                 }],
                 margin: crate::util::Spacing::default(),
                 padding: crate::util::Spacing::default(),
+                layout_hash: Default::default(),
             }
         };
 
@@ -1521,6 +1542,75 @@ mod tests {
                 }
             }
         }
+    }
+
+    fn hashed_sprite() -> Sprite {
+        Sprite {
+            path: PathBuf::from("icons"),
+            ratios: vec![1.0],
+            images: vec![crate::ImageAndPosition {
+                path: String::from("a.png"),
+                computed_width: 4,
+                computed_height: 4,
+                source_hash: 42,
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_layout_hash_is_cached_once() {
+        let sprite = hashed_sprite();
+        assert!(sprite.layout_hash.get().is_none());
+        let first = compute_sprite_hash(&Config::default(), &sprite);
+        assert_eq!(sprite.layout_hash.get(), Some(&layout_hash(&sprite)));
+        assert_eq!(compute_sprite_hash(&Config::default(), &sprite), first);
+    }
+
+    #[test]
+    fn test_cached_layout_hash_still_follows_the_config() {
+        // Only the layout part is cached: image options still change the hash.
+        let sprite = hashed_sprite();
+        let base = compute_sprite_hash(&Config::default(), &sprite);
+        for config in [
+            Config {
+                png8: true,
+                ..Default::default()
+            },
+            Config {
+                sprite_format: SpriteFormat::WebP,
+                ..Default::default()
+            },
+            Config {
+                padding: Some(String::from("2")),
+                ..Default::default()
+            },
+        ] {
+            assert_ne!(compute_sprite_hash(&config, &sprite), base, "{config:?}");
+        }
+    }
+
+    #[test]
+    fn test_cache_buster_is_consistent_across_outputs() {
+        let sprite = hashed_sprite();
+        let config = Config {
+            cachebuster_filename: true,
+            ..Default::default()
+        };
+        let buster = cache_buster(&config, &sprite);
+        assert_eq!(
+            sprite_filename(&config, &sprite),
+            format!("icons_{buster}.png")
+        );
+        assert!(get_sprite_url(&config, &sprite).contains(&buster));
+        assert_eq!(
+            format!(
+                "{:08x}",
+                compute_sprite_hash(&config, &sprite) & 0xffff_ffff
+            ),
+            buster
+        );
     }
 
     #[test]

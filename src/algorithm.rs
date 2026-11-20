@@ -132,6 +132,7 @@ mod tests {
             images: Vec::new(),
             margin: crate::util::Spacing::default(),
             padding: crate::util::Spacing::default(),
+            layout_hash: Default::default(),
         };
 
         for (i, (w, h)) in sizes.iter().enumerate() {

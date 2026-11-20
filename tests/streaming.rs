@@ -211,3 +211,49 @@ fn unreadable_file_is_skipped_and_others_are_kept() {
         assert_eq!(manager.sprites[0].images.len(), expected);
     });
 }
+
+#[test]
+fn non_rgba_sources_are_stored_as_rgba8_and_rendered_correctly() {
+    // Review 5.4: images are converted once at load, then borrowed when composing.
+    with_tmp_dir(|tmp| {
+        let source = tmp.join("mixed");
+        let out = tmp.join("out");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::create_dir_all(&out).unwrap();
+        image::RgbImage::from_pixel(6, 6, image::Rgb([10, 200, 30]))
+            .save(source.join("a-rgb.png"))
+            .unwrap();
+        image::GrayImage::from_pixel(6, 6, image::Luma([90]))
+            .save(source.join("b-gray.png"))
+            .unwrap();
+        image::GrayAlphaImage::from_pixel(6, 6, image::LumaA([160, 255]))
+            .save(source.join("c-gray-alpha.png"))
+            .unwrap();
+        let config = Config {
+            source: source.clone(),
+            output: out.clone(),
+            algorithm: spriters::Algorithm::Horizontal,
+            ordering: spriters::Ordering::FilenameReverse,
+            force: true,
+            ..Default::default()
+        };
+        let mut manager = manager(&config);
+        manager.find_sprites();
+        for img in &manager.sprites[0].images {
+            assert_eq!(img.image.color(), image::ColorType::Rgba8, "{}", img.path);
+        }
+        manager.save();
+
+        let sprite = image::open(out.join("mixed.png")).unwrap().to_rgba8();
+        let colors: Vec<[u8; 4]> = manager.sprites[0]
+            .images
+            .iter()
+            .map(|img| sprite.get_pixel(img.x + 1, img.y + 1).0)
+            .collect();
+        let mut expected = vec![[10, 200, 30, 255], [90, 90, 90, 255], [160, 160, 160, 255]];
+        let mut actual = colors.clone();
+        expected.sort();
+        actual.sort();
+        assert_eq!(actual, expected, "{colors:?}");
+    });
+}

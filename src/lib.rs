@@ -555,6 +555,10 @@ pub struct Sprite {
     pub images: Vec<ImageAndPosition>,
     pub margin: Spacing,
     pub padding: Spacing,
+    /// Hash of the images and their layout, computed on first use by the outputs (they all
+    /// need it: staleness, metadata, cache busters). The layout never changes after
+    /// [`Sprite::new`].
+    pub(crate) layout_hash: std::sync::OnceLock<u64>,
 }
 /// Length in 1× units of `pixels` taken at `ratio`, rounded up so the image always fits.
 fn logical_length(pixels: u32, ratio: f32) -> u32 {
@@ -827,7 +831,9 @@ impl Sprite {
                         );
                         Some(ImageAndPosition {
                             path,
-                            image: img2,
+                            // Stored as RGBA8 once (free when it already is), so that the
+                            // sprite rendering borrows it instead of converting it per ratio.
+                            image: DynamicImage::ImageRgba8(img2.into_rgba8()),
                             computed_width: logical_w,
                             computed_height: logical_h,
                             aliases,
@@ -1882,6 +1888,7 @@ mod tests {
             images: Vec::new(),
             margin: util::Spacing::default(),
             padding: util::Spacing::default(),
+            layout_hash: Default::default(),
         };
 
         // Empty sprite should have zero dimensions
@@ -2201,6 +2208,7 @@ mod tests {
                 .collect(),
             margin: util::Spacing::default(),
             padding: util::Spacing::default(),
+            layout_hash: Default::default(),
         };
 
         let s = make_img_sprite(vec![

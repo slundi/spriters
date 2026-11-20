@@ -65,5 +65,91 @@ fn svg_benchmark(c: &mut Criterion) {
     std::fs::remove_dir_all(&source).ok();
 }
 
-criterion_group!(benches, crop_benchmark, svg_benchmark);
+/// Writing every output of a 60-icon sprite at three ratios (images already decoded).
+fn generate_benchmark(c: &mut Criterion) {
+    let root = std::env::temp_dir().join(format!("spriters_bench_gen_{}", std::process::id()));
+    let (source, output) = (root.join("icons"), root.join("out"));
+    std::fs::create_dir_all(&source).unwrap();
+    std::fs::create_dir_all(&output).unwrap();
+    for index in 0..60u32 {
+        let color = Rgba([(index * 4) as u8, (index * 7) as u8, 90, 255]);
+        RgbaImage::from_pixel(32 + index % 5 * 4, 32, color)
+            .save(source.join(format!("icon{index:02}.png")))
+            .unwrap();
+    }
+    let config = spriters::Config {
+        source: source.clone(),
+        output: output.clone(),
+        ratios: Some(String::from("3,2,1")),
+        force: true,
+        html: true,
+        json: true,
+        less: true,
+        scss: true,
+        cocos2d: true,
+        caat: true,
+        css_vars: true,
+        tailwind: true,
+        dts: true,
+        ..Default::default()
+    };
+    let sprite = spriters::Sprite::new(&config, source.clone());
+    let manager = spriters::Manager {
+        config: config.clone(),
+        sprites: vec![sprite],
+        ..Default::default()
+    };
+    c.bench_function("generate 60 icons x3 ratios, all outputs", |b| {
+        b.iter(|| black_box(&manager).save())
+    });
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// Text outputs only of a 2000-icon sprite: dominated by per-output work, not encoding.
+fn text_outputs_benchmark(c: &mut Criterion) {
+    let root = std::env::temp_dir().join(format!("spriters_bench_txt_{}", std::process::id()));
+    let (source, output) = (root.join("icons"), root.join("out"));
+    std::fs::create_dir_all(&source).unwrap();
+    std::fs::create_dir_all(&output).unwrap();
+    for index in 0..2000u32 {
+        let color = Rgba([(index % 256) as u8, (index / 256) as u8, 7, 255]);
+        RgbaImage::from_pixel(8, 8, color)
+            .save(source.join(format!("icon{index:04}.png")))
+            .unwrap();
+    }
+    let config = spriters::Config {
+        source: source.clone(),
+        output: output.clone(),
+        no_img: true,
+        force: true,
+        cachebuster: true,
+        html: true,
+        json: true,
+        less: true,
+        scss: true,
+        cocos2d: true,
+        caat: true,
+        css_vars: true,
+        tailwind: true,
+        dts: true,
+        ..Default::default()
+    };
+    let manager = spriters::Manager {
+        config: config.clone(),
+        sprites: vec![spriters::Sprite::new(&config, source.clone())],
+        ..Default::default()
+    };
+    c.bench_function("text outputs 2000 icons", |b| {
+        b.iter(|| black_box(&manager).save())
+    });
+    std::fs::remove_dir_all(&root).ok();
+}
+
+criterion_group!(
+    benches,
+    crop_benchmark,
+    svg_benchmark,
+    generate_benchmark,
+    text_outputs_benchmark
+);
 criterion_main!(benches);
