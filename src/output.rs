@@ -31,25 +31,63 @@ fn hashed_sprite_filename(config: &Config) -> bool {
     config.cachebuster_filename || config.cachebuster_filename_only_sprites
 }
 
-/// File name of the sprite image in the output directory: `name.ext`, or `name_<buster>.ext`
-/// with `--cachebuster-filename` / `--cachebuster-filename-only-sprites`.
+/// Suffix of the image file for `ratio`: none for 1×, otherwise `@2x`, `@1.5x`…
+fn ratio_suffix(ratio: f32) -> String {
+    if ratio == 1.0 {
+        String::new()
+    } else {
+        format!("@{ratio}x")
+    }
+}
+
+/// Smallest ratio: its image is the one referenced by default.
+fn base_ratio(sprite: &Sprite) -> f32 {
+    sprite.ratios.first().copied().unwrap_or(1.0)
+}
+
+/// Whether the sprite has other images than a single 1× one (`--ratios` / `--retina`).
+fn has_ratios(sprite: &Sprite) -> bool {
+    sprite.ratios.len() > 1 || base_ratio(sprite) != 1.0
+}
+
+/// File name of the sprite image at `ratio`: `name[_<buster>][@<ratio>x].ext`, the buster
+/// being added with `--cachebuster-filename` / `--cachebuster-filename-only-sprites`.
 ///
-/// Single source of truth for the written file and every reference to it.
-pub(crate) fn sprite_filename(config: &Config, sprite: &Sprite) -> String {
+/// Single source of truth for the written files and every reference to them.
+fn sprite_filename_at(config: &Config, sprite: &Sprite, ratio: f32) -> String {
     let name = sprite.name();
     let ext = config.sprite_format.extension();
+    let suffix = ratio_suffix(ratio);
     if hashed_sprite_filename(config) {
-        format!("{name}_{}.{ext}", cache_buster(config, sprite))
+        format!("{name}_{}{suffix}.{ext}", cache_buster(config, sprite))
     } else {
-        format!("{name}.{ext}")
+        format!("{name}{suffix}.{ext}")
     }
+}
+
+/// File name of the sprite image referenced by default (smallest ratio).
+pub(crate) fn sprite_filename(config: &Config, sprite: &Sprite) -> String {
+    sprite_filename_at(config, sprite, base_ratio(sprite))
+}
+
+/// File names of every sprite image, one per ratio, smallest ratio first.
+fn sprite_filenames(config: &Config, sprite: &Sprite) -> Vec<String> {
+    sprite
+        .ratios
+        .iter()
+        .map(|&ratio| sprite_filename_at(config, sprite, ratio))
+        .collect()
 }
 
 /// Get the sprite image URL for use in CSS.
 /// - If `config.url` is set, uses that as base URL
 /// - Cache buster is derived deterministically from the sprite content hash.
 fn get_sprite_url(config: &Config, sprite: &Sprite) -> String {
-    let mut filename = sprite_filename(config, sprite);
+    sprite_file_url(config, sprite, sprite_filename(config, sprite))
+}
+
+/// URL of the sprite image file `filename`, see [`get_sprite_url`].
+fn sprite_file_url(config: &Config, sprite: &Sprite, mut filename: String) -> String {
     if config.cachebuster && !hashed_sprite_filename(config) {
         filename = format!("{filename}?{}", cache_buster(config, sprite));
     }
@@ -100,6 +138,40 @@ fn build_class_name(config: &Config, sprite_name: &str, image_label: &str) -> St
     class_name
 }
 
+/// `background-size` declaration of the base rule when the sprite has ratios: every image
+/// is then displayed at the 1× sprite size. Empty without ratios.
+fn background_size(sprite: &Sprite) -> String {
+    if has_ratios(sprite) {
+        let (width, height) = sprite.dimensions();
+        format!("\n  background-size: {width}px {height}px;")
+    } else {
+        String::new()
+    }
+}
+
+/// Media queries switching `selectors` to the image of each ratio above the smallest one
+/// (`background-size` set in the base rule keeps them at the 1× size).
+fn write_ratio_media_queries(
+    f: &mut impl Write,
+    config: &Config,
+    sprite: &Sprite,
+    selectors: &str,
+) {
+    for &ratio in sprite.ratios.iter().skip(1) {
+        let url = sprite_file_url(config, sprite, sprite_filename_at(config, sprite, ratio));
+        let _ = writeln!(
+            f,
+            "\n@media screen and (-webkit-min-device-pixel-ratio: {r}), screen and (min--moz-device-pixel-ratio: {r}), screen and (-o-min-device-pixel-ratio: {frac}), screen and (min-device-pixel-ratio: {r}), screen and (min-resolution: {r}dppx) {{",
+            r = ratio,
+            frac = crate::util::nearest_fration(ratio),
+        );
+        let _ = writeln!(
+            f,
+            "  .{selectors} {{\n    background-image: url('{url}');\n  }}\n}}"
+        );
+    }
+}
+
 /// Create an output file, logging the error instead of panicking (e.g. no write permission
 /// or a full disk): the other outputs are still generated.
 fn create_output(path: &std::path::Path) -> Option<BufWriter<File>> {
@@ -142,14 +214,15 @@ fn generate_css(config: &Config, sprite: &Sprite) {
         return;
     };
     let sprite_url = get_sprite_url(config, sprite);
-    let (width, height) = sprite.dimensions();
+    let selectors = implode_image_label(config, sprite).replace(",", ", .");
 
     // Write the shared class for all images
     let _ = writeln!(
         &mut f,
-        ".{list} {{\n  background-image: url('{url}');\n  background-repeat: no-repeat;\n}}",
-        list = implode_image_label(config, sprite).replace(",", ", ."),
+        ".{list} {{\n  background-image: url('{url}');\n  background-repeat: no-repeat;{size}\n}}",
+        list = selectors,
         url = sprite_url,
+        size = background_size(sprite),
     );
 
     // Write individual image classes (primary + aliases share the same rule).
@@ -180,32 +253,7 @@ fn generate_css(config: &Config, sprite: &Sprite) {
         );
     }
 
-    // Write retina/ratio media queries if ratios are specified
-    if let Some(ref ratios_str) = config.ratios {
-        for ratio_str in ratios_str.split(',') {
-            if let Ok(r) = ratio_str.trim().parse::<f32>() {
-                if (r - 1.0).abs() < 0.001 {
-                    continue; // Skip 1x ratio, it's the default
-                }
-                let fraction = crate::util::nearest_fration(r);
-                let _ = writeln!(
-                    &mut f,
-                    "\n@media screen and (-webkit-min-device-pixel-ratio: {r}), screen and (min--moz-device-pixel-ratio: {r}), screen and (-o-min-device-pixel-ratio: {frac}), screen and (min-device-pixel-ratio: {r}), screen and (min-resolution: {r}dppx) {{",
-                    r = r,
-                    frac = fraction,
-                );
-                let _ = writeln!(
-                    &mut f,
-                    "  .{list} {{\n    background-image: url('{url}');\n    background-size: {w}px {h}px;\n  }}",
-                    list = implode_image_label(config, sprite).replace(",", ", ."),
-                    url = sprite_url,
-                    w = width,
-                    h = height,
-                );
-                let _ = writeln!(&mut f, "}}");
-            }
-        }
-    }
+    write_ratio_media_queries(&mut f, config, sprite, &selectors);
 
     log::info!("Generated CSS: {:?}", output_path);
 }
@@ -274,11 +322,13 @@ fn generate_less(config: &Config, sprite: &Sprite) {
         return;
     };
     let sprite_url = get_sprite_url(config, sprite);
+    let selectors = implode_image_label(config, sprite).replace(",", ", .");
     let _ = writeln!(
         f,
-        ".{list} {{\n  background-image: url('{url}');\n  background-repeat: no-repeat;\n}}",
-        list = implode_image_label(config, sprite).replace(",", ", ."),
+        ".{list} {{\n  background-image: url('{url}');\n  background-repeat: no-repeat;{size}\n}}",
+        list = selectors,
         url = sprite_url,
+        size = background_size(sprite),
     );
     for img in sprite.images.iter() {
         let x = if img.x == 0 {
@@ -306,6 +356,7 @@ fn generate_less(config: &Config, sprite: &Sprite) {
             h = img.computed_height,
         );
     }
+    write_ratio_media_queries(&mut f, config, sprite, &selectors);
     log::info!("Generated LESS: {:?}", output_path);
 }
 
@@ -353,6 +404,9 @@ fn generate_scss(config: &Config, sprite: &Sprite) {
             h = img.computed_height,
         );
     }
+    // The mixin already sets `background-size`.
+    let selectors = implode_image_label(config, sprite).replace(",", ", .");
+    write_ratio_media_queries(&mut f, config, sprite, &selectors);
 }
 
 fn generate_css_vars(config: &Config, sprite: &Sprite) {
@@ -592,61 +646,133 @@ fn generate_sprite_image(config: &Config, sprite: &Sprite) {
         return;
     }
 
-    let mut canvas = RgbaImage::new(width, height);
-
-    for img in sprite.images.iter() {
-        let rgba_img = img.image.to_rgba8();
-        if let Err(e) = canvas.copy_from(&rgba_img, img.x, img.y) {
-            log::error!("Failed to copy image {} to sprite: {}", img.path, e);
+    // Pixels are at the highest ratio: lower ratios are scaled down from them.
+    let max_ratio = sprite.ratios.last().copied().unwrap_or(1.0);
+    let mut written = Vec::with_capacity(sprite.ratios.len());
+    for &ratio in &sprite.ratios {
+        let canvas = render_sprite(config, sprite, ratio, max_ratio);
+        let filename = sprite_filename_at(config, sprite, ratio);
+        if save_sprite_image(config, canvas, &config.output.join(&filename)) {
+            written.push(filename);
         }
     }
-
-    let filename = sprite_filename(config, sprite);
-    let output_path = config.output.join(&filename);
-
-    // png8 (grayscale) only applies to PNG; WebP and AVIF handle compression natively.
-    let save_result = if config.png8 && config.sprite_format == SpriteFormat::Png {
-        let grayscale = image::DynamicImage::ImageRgba8(canvas).to_luma8();
-        grayscale.save(&output_path)
-    } else {
-        canvas.save(&output_path)
-    };
-
-    if let Err(e) = save_result {
-        log::error!("Failed to save sprite image to {:?}: {}", output_path, e);
-    } else {
-        let mode = if config.png8 { "grayscale" } else { "RGBA" };
-        log::info!(
-            "Generated sprite: {:?} ({}x{}, {})",
-            output_path,
-            width,
-            height,
-            mode
-        );
-        remove_stale_hashed_sprites(config, sprite, &filename);
+    if !written.is_empty() {
+        remove_stale_hashed_sprites(config, sprite, &written);
     }
 }
 
-/// Remove `name_<buster>.ext` images left by previous runs, so that cache-busted sprites
-/// do not pile up in the output directory. Only exact `<8 hex digits>` busters with the
-/// current image extension are removed; `current` is kept.
-fn remove_stale_hashed_sprites(config: &Config, sprite: &Sprite, current: &str) {
+/// Length in pixels at `ratio` of `length` 1× units.
+fn scaled(length: u32, ratio: f32) -> u32 {
+    (length as f32 * ratio).ceil() as u32
+}
+
+/// Compose the sprite image at `ratio`, from images whose pixels are at `max_ratio`.
+///
+/// Positions are rounded and sizes floored, so an image never spills into its neighbour:
+/// `round(x·r) + floor(w·r) <= round((x + w)·r)`.
+fn render_sprite(config: &Config, sprite: &Sprite, ratio: f32, max_ratio: f32) -> RgbaImage {
+    let (width, height) = sprite.dimensions();
+    let mut canvas = RgbaImage::new(scaled(width, ratio), scaled(height, ratio));
+    let scale = ratio / max_ratio;
+
+    for img in sprite.images.iter() {
+        let mut rgba_img = img.image.to_rgba8();
+        if scale != 1.0 {
+            let target_w = ((rgba_img.width() as f32 * scale).floor() as u32).max(1);
+            let target_h = ((rgba_img.height() as f32 * scale).floor() as u32).max(1);
+            rgba_img =
+                image::imageops::resize(&rgba_img, target_w, target_h, config.resize_algorithm);
+        }
+        let x = (img.x as f32 * ratio).round() as u32;
+        let y = (img.y as f32 * ratio).round() as u32;
+        if let Err(e) = canvas.copy_from(&rgba_img, x, y) {
+            log::error!("Failed to copy image {} to sprite: {}", img.path, e);
+        }
+    }
+    canvas
+}
+
+/// Save a sprite image, logging the outcome. Returns whether it was written.
+fn save_sprite_image(config: &Config, canvas: RgbaImage, output_path: &std::path::Path) -> bool {
+    let (width, height) = canvas.dimensions();
+    // png8 (grayscale) only applies to PNG; WebP and AVIF handle compression natively.
+    let save_result = if config.png8 && config.sprite_format == SpriteFormat::Png {
+        let grayscale = image::DynamicImage::ImageRgba8(canvas).to_luma8();
+        grayscale.save(output_path)
+    } else {
+        canvas.save(output_path)
+    };
+
+    match save_result {
+        Err(e) => {
+            log::error!("Failed to save sprite image to {:?}: {}", output_path, e);
+            false
+        }
+        Ok(()) => {
+            let mode = if config.png8 { "grayscale" } else { "RGBA" };
+            log::info!(
+                "Generated sprite: {:?} ({}x{}, {})",
+                output_path,
+                width,
+                height,
+                mode
+            );
+            true
+        }
+    }
+}
+
+/// A sprite image file name `name[_<8 hex>][@<ratio>x].<ext>` (see [`sprite_filename_at`]).
+struct SpriteImageName<'a> {
+    hashed: bool,
+    ratio_suffix: bool,
+    ext: &'a str,
+}
+
+/// Parse `file_name` as an image of the sprite `name`, `None` if it is not one.
+fn parse_sprite_image_name<'a>(file_name: &'a str, name: &str) -> Option<SpriteImageName<'a>> {
+    let (stem, ext) = file_name.strip_prefix(name)?.rsplit_once('.')?;
+    if !SPRITE_EXTENSIONS.contains(&ext) {
+        return None;
+    }
+    let (stem, ratio_suffix) = match stem.split_once('@') {
+        Some((stem, ratio)) => {
+            ratio
+                .strip_suffix('x')?
+                .parse::<f32>()
+                .ok()
+                .filter(|ratio| ratio.is_finite() && *ratio > 0.0)?;
+            (stem, true)
+        }
+        None => (stem, false),
+    };
+    let hashed = match stem.strip_prefix('_') {
+        Some(buster) if buster.len() == 8 && buster.bytes().all(|b| b.is_ascii_hexdigit()) => true,
+        _ if stem.is_empty() => false,
+        _ => return None,
+    };
+    Some(SpriteImageName {
+        hashed,
+        ratio_suffix,
+        ext,
+    })
+}
+
+/// Remove sprite images left by previous runs (older cache busters or ratios), so they do
+/// not pile up in the output directory. Only cache-busted (`_<8 hex digits>`) or ratio
+/// (`@<ratio>x`) images with the current extension are removed; `current` files are kept.
+fn remove_stale_hashed_sprites(config: &Config, sprite: &Sprite, current: &[String]) {
     let Ok(entries) = std::fs::read_dir(&config.output) else {
         return;
     };
     let name = sprite.name();
-    let prefix = format!("{name}_");
-    let suffix = format!(".{}", config.sprite_format.extension());
+    let ext = config.sprite_format.extension();
 
     for entry in entries.filter_map(|entry| entry.ok()) {
         let file_name = entry.file_name().to_string_lossy().into_owned();
-        let is_stale = file_name != current
-            && file_name
-                .strip_prefix(&prefix)
-                .and_then(|rest| rest.strip_suffix(&suffix))
-                .is_some_and(|buster| {
-                    buster.len() == 8 && buster.bytes().all(|byte| byte.is_ascii_hexdigit())
-                });
+        let is_stale = !current.contains(&file_name)
+            && parse_sprite_image_name(&file_name, &name)
+                .is_some_and(|image| image.ext == ext && (image.hashed || image.ratio_suffix));
         if is_stale {
             match std::fs::remove_file(entry.path()) {
                 Ok(()) => log::info!("Removed stale sprite: {:?}", entry.path()),
@@ -845,18 +971,11 @@ const GENERATED_SUFFIXES: [&str; 13] = [
 pub(crate) fn is_generated_file_name(file_name: &str, sprite_names: &[String]) -> bool {
     sprite_names.iter().any(|name| {
         file_name == meta_file_name(name)
-            || file_name.strip_prefix(name.as_str()).is_some_and(|rest| {
-                rest.strip_prefix('.')
-                    .is_some_and(|suffix| GENERATED_SUFFIXES.contains(&suffix))
-                    || rest
-                        .strip_prefix('_')
-                        .and_then(|rest| rest.split_once('.'))
-                        .is_some_and(|(buster, ext)| {
-                            buster.len() == 8
-                                && buster.bytes().all(|byte| byte.is_ascii_hexdigit())
-                                && SPRITE_EXTENSIONS.contains(&ext)
-                        })
-            })
+            || file_name
+                .strip_prefix(name.as_str())
+                .and_then(|rest| rest.strip_prefix('.'))
+                .is_some_and(|suffix| GENERATED_SUFFIXES.contains(&suffix))
+            || parse_sprite_image_name(file_name, name).is_some()
     })
 }
 
@@ -922,9 +1041,11 @@ fn staleness_from(config: &Config, sprite: &Sprite, stored: &Metadata) -> Stalen
     let name = sprite.name();
 
     let image = !config.no_img && {
-        let sprite_path = config.output.join(sprite_filename(config, sprite));
-        if !sprite_path.exists() {
-            log::debug!("Sprite file doesn't exist, generating");
+        let missing_image = sprite_filenames(config, sprite)
+            .into_iter()
+            .find(|file| !config.output.join(file).exists());
+        if let Some(file) = missing_image {
+            log::debug!("Sprite file {file} doesn't exist, generating");
             true
         } else if stored.image_hash != Some(compute_sprite_hash(config, sprite)) {
             log::debug!("Image hash mismatch, regenerating sprite image");
@@ -1055,7 +1176,9 @@ fn print_dry_run(config: &Config, sprite: &Sprite) {
     }
     println!("Would write to {}:", config.output.display());
     if !config.no_img {
-        println!("  {}", sprite_filename(config, sprite));
+        for file in sprite_filenames(config, sprite) {
+            println!("  {file}");
+        }
     }
     for file in text_output_names(config, &name) {
         println!("  {file}");
@@ -1225,6 +1348,11 @@ mod tests {
             assert!(is_generated_file_name(&file, &names), "{file}");
         }
         assert!(is_generated_file_name(&meta_file_name("america"), &names));
+        let retina = Sprite {
+            path: PathBuf::from("america"),
+            ratios: vec![1.0, 1.5, 2.0],
+            ..Default::default()
+        };
         for format in [SpriteFormat::Png, SpriteFormat::WebP, SpriteFormat::Avif] {
             for hashed in [false, true] {
                 let config = Config {
@@ -1234,8 +1362,42 @@ mod tests {
                 };
                 let file = sprite_filename(&config, &sprite);
                 assert!(is_generated_file_name(&file, &names), "{file}");
+                for file in sprite_filenames(&config, &retina) {
+                    assert!(is_generated_file_name(&file, &names), "{file}");
+                }
             }
         }
+    }
+
+    #[test]
+    fn test_sprite_filenames_per_ratio() {
+        let sprite = Sprite {
+            path: PathBuf::from("icons"),
+            ratios: vec![1.0, 1.5, 2.0],
+            ..Default::default()
+        };
+        assert_eq!(
+            sprite_filenames(&Config::default(), &sprite),
+            vec!["icons.png", "icons@1.5x.png", "icons@2x.png"]
+        );
+        let hashed = Config {
+            cachebuster_filename: true,
+            ..Default::default()
+        };
+        let files = sprite_filenames(&hashed, &sprite);
+        assert!(files[0].starts_with("icons_") && files[0].ends_with(".png"));
+        assert!(files[2].starts_with("icons_") && files[2].ends_with("@2x.png"));
+
+        // Without 1×, the smallest ratio is the image referenced by default.
+        let only_2x = Sprite {
+            path: PathBuf::from("icons"),
+            ratios: vec![2.0],
+            ..Default::default()
+        };
+        assert_eq!(
+            sprite_filename(&Config::default(), &only_2x),
+            "icons@2x.png"
+        );
     }
 
     #[test]
@@ -1249,6 +1411,10 @@ mod tests {
             "icons_1234.png",
             "icons_12345678.gif",
             "icons_zzzzzzzz.png",
+            "icons@x.png",
+            "icons@0x.png",
+            "icons@2.png",
+            "icons@2x_12345678.png",
             ".other.spriters",
         ] {
             assert!(!is_generated_file_name(file, &names), "{file}");

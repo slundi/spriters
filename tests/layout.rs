@@ -77,8 +77,8 @@ fn footprints(sprite: &Sprite) -> Vec<(String, u32, u32, u32, u32)> {
                 img.path.clone(),
                 img.x,
                 img.y,
-                absolute_length(img.image.width(), hspace, sprite.ratios[0]),
-                absolute_length(img.image.height(), vspace, sprite.ratios[0]),
+                absolute_length(img.computed_width, hspace, 1.0),
+                absolute_length(img.computed_height, vspace, 1.0),
             )
         })
         .collect()

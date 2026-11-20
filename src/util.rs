@@ -77,8 +77,8 @@ impl Spacing {
     }
 }
 
-/// Parse a comma-separated list of pixel ratios (e.g. `2,1.5,1`), sorted in ascending order.
-/// Every ratio must be a positive finite number.
+/// Parse a comma-separated list of pixel ratios (e.g. `2,1.5,1`), sorted in ascending order
+/// without duplicates. Every ratio must be a positive finite number.
 pub fn parse_ratios(raw: &str) -> Result<Vec<f32>, String> {
     let mut ratios = raw
         .split(',')
@@ -93,6 +93,7 @@ pub fn parse_ratios(raw: &str) -> Result<Vec<f32>, String> {
         })
         .collect::<Result<Vec<f32>, String>>()?;
     ratios.sort_by(|a, b| a.total_cmp(b));
+    ratios.dedup();
     Ok(ratios)
 }
 

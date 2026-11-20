@@ -10,14 +10,14 @@ impl Algorithm {
             image.x = 0;
             image.y = y;
             y += absolute_length(
-                image.image.height(),
+                image.computed_height,
                 vertical_spacing(
                     sprite.padding.top,
                     sprite.padding.bottom,
                     sprite.margin.top,
                     sprite.margin.bottom,
                 ),
-                sprite.ratios[0],
+                1.0,
             );
         }
     }
@@ -27,14 +27,14 @@ impl Algorithm {
             image.y = 0;
             image.x = x;
             x += absolute_length(
-                image.image.width(),
+                image.computed_width,
                 horizontal_spacing(
                     sprite.padding.left,
                     sprite.padding.right,
                     sprite.margin.left,
                     sprite.margin.right,
                 ),
-                sprite.ratios[0],
+                1.0,
             );
         }
     }
@@ -42,22 +42,22 @@ impl Algorithm {
         let max_width = sprite
             .images
             .iter()
-            .map(|img| img.image.width())
+            .map(|img| img.computed_width)
             .max()
             .unwrap_or(0);
         let mut y = 0u32;
         for image in sprite.images.iter_mut() {
-            image.x = max_width - image.image.width();
+            image.x = max_width - image.computed_width;
             image.y = y;
             y += absolute_length(
-                image.image.height(),
+                image.computed_height,
                 vertical_spacing(
                     sprite.padding.top,
                     sprite.padding.bottom,
                     sprite.margin.top,
                     sprite.margin.bottom,
                 ),
-                sprite.ratios[0],
+                1.0,
             );
         }
     }
@@ -65,22 +65,22 @@ impl Algorithm {
         let max_height = sprite
             .images
             .iter()
-            .map(|img| img.image.height())
+            .map(|img| img.computed_height)
             .max()
             .unwrap_or(0);
         let mut x = 0u32;
         for image in sprite.images.iter_mut() {
-            image.y = max_height - image.image.height();
+            image.y = max_height - image.computed_height;
             image.x = x;
             x += absolute_length(
-                image.image.width(),
+                image.computed_width,
                 horizontal_spacing(
                     sprite.padding.left,
                     sprite.padding.right,
                     sprite.margin.left,
                     sprite.margin.right,
                 ),
-                sprite.ratios[0],
+                1.0,
             );
         }
     }
@@ -91,24 +91,24 @@ impl Algorithm {
             image.x = x;
             image.y = y;
             x += absolute_length(
-                image.image.width(),
+                image.computed_width,
                 horizontal_spacing(
                     sprite.padding.left,
                     sprite.padding.right,
                     sprite.margin.left,
                     sprite.margin.right,
                 ),
-                sprite.ratios[0],
+                1.0,
             );
             y += absolute_length(
-                image.image.height(),
+                image.computed_height,
                 vertical_spacing(
                     sprite.padding.top,
                     sprite.padding.bottom,
                     sprite.margin.top,
                     sprite.margin.bottom,
                 ),
-                sprite.ratios[0],
+                1.0,
             );
         }
     }

@@ -174,14 +174,15 @@ pub(crate) fn process(sprite: &mut Sprite) {
         sprite.margin.top,
         sprite.margin.bottom,
     );
-    let ratio = sprite.ratios[0];
+    // Sizes and spacing are both in 1× (CSS pixel) units.
+    let ratio = 1.0;
     let blocks: Vec<(u32, u32)> = sprite
         .images
         .iter()
         .map(|image| {
             (
-                absolute_length(image.image.width(), hspace, ratio),
-                absolute_length(image.image.height(), vspace, ratio),
+                absolute_length(image.computed_width, hspace, ratio),
+                absolute_length(image.computed_height, vspace, ratio),
             )
         })
         .collect();

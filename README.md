@@ -127,7 +127,7 @@ spriters icons/ dist/ --check
 | `--resize-algorithm` | `nearest`, `triangle`, `catmullrom` (default), `gaussian`, `lanczos3`                                   |
 | `-p`, `--padding`    | Padding inside each cell                                                                                |
 | `-m`, `--margin`     | Margin outside each cell                                                                                |
-| `--ratios`           | Comma-separated ratios, e.g. `2,1` or `2,1.5,1`                                                         |
+| `--ratios`           | Comma-separated ratios, e.g. `2,1` or `2,1.5,1`. Source images are at the highest ratio; one sprite is written per ratio (`name.png`, `name@2x.png`, …) and the CSS uses 1× px with `background-size` and media queries. Padding and margin are in CSS px |
 | `--retina`           | Shortcut for `--ratios=2,1`                                                                             |
 | `--png8`             | Grayscale PNG output                                                                                    |
 

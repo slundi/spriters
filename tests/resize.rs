@@ -100,8 +100,10 @@ fn ratio_aware_does_not_resize_at_exact_effective_limit() {
         .find(|i| i.path.ends_with("no.png"))
         .expect("no.png not found");
 
-    assert_eq!(img.computed_width, 120);
-    assert_eq!(img.computed_height, 100);
+    // Pixels stay at 2×; the layout size is in 1× (CSS pixel) units.
+    assert_eq!((img.image.width(), img.image.height()), (120, 100));
+    assert_eq!(img.computed_width, 60);
+    assert_eq!(img.computed_height, 50);
 }
 
 #[test]
@@ -119,8 +121,10 @@ fn ratio_aware_resize_triggers_above_effective_limit() {
         .find(|i| i.path.ends_with("fr.png"))
         .expect("fr.png not found");
 
-    assert_eq!(img.computed_width, 200);
-    assert_eq!(img.computed_height, 133); // floor(167 * 0.8) = floor(133.6) = 133
+    assert_eq!((img.image.width(), img.image.height()), (200, 133)); // floor(167 * 0.8)
+    // 1× size: 200 / 2 = 100, ceil(133 / 2) = 67
+    assert_eq!(img.computed_width, 100);
+    assert_eq!(img.computed_height, 67);
 }
 
 #[test]

@@ -514,9 +514,13 @@ impl Default for Config {
 #[derive(Debug, Default)]
 pub struct ImageAndPosition {
     pub path: String,
+    /// Pixels at the highest ratio (the source resolution).
     pub image: DynamicImage,
+    /// Position in the sprite, in 1× (CSS pixel) units.
     pub x: u32,
     pub y: u32,
+    /// Size in 1× (CSS pixel) units: the pixel size divided by the highest ratio, rounded up.
+    /// Equal to the pixel size without `--ratios`.
     pub computed_width: u32,
     pub computed_height: u32,
     /// Paths of images with identical content that consolidate into this region.
@@ -544,6 +548,11 @@ pub struct Sprite {
     pub margin: Spacing,
     pub padding: Spacing,
 }
+/// Length in 1× units of `pixels` taken at `ratio`, rounded up so the image always fits.
+fn logical_length(pixels: u32, ratio: f32) -> u32 {
+    (pixels as f32 / ratio).ceil() as u32
+}
+
 /// Name of the sprite built from the directory `path`, used for every output file name.
 ///
 /// Paths without a final component (`.`, `..`) are resolved first; a directory that still
@@ -778,6 +787,21 @@ impl Sprite {
                             img2 = crop(img2, None);
                         }
                         let (final_w, final_h) = (img2.width(), img2.height());
+                        // Pixels are at the highest ratio; the layout and every text output
+                        // use 1× (CSS pixel) units.
+                        let (logical_w, logical_h) = (
+                            logical_length(final_w, display_ratio),
+                            logical_length(final_h, display_ratio),
+                        );
+                        if display_ratio != 1.0
+                            && (logical_w as f32 * display_ratio != final_w as f32
+                                || logical_h as f32 * display_ratio != final_h as f32)
+                        {
+                            warn!(
+                                "{} ({}x{}) is not a multiple of the {}x ratio: lower ratios may be blurry",
+                                path, final_w, final_h, display_ratio
+                            );
+                        }
                         let aliases = alias_map.get(&path).cloned().unwrap_or_default();
                         info!(
                             "\t Adding: {} ({}x{} -> {}x{}){}",
@@ -795,8 +819,8 @@ impl Sprite {
                         Some(ImageAndPosition {
                             path,
                             image: img2,
-                            computed_width: final_w,
-                            computed_height: final_h,
+                            computed_width: logical_w,
+                            computed_height: logical_h,
                             aliases,
                             source_hash,
                             ..Default::default()
@@ -834,32 +858,33 @@ impl Sprite {
             self.margin.left,
             self.margin.right,
         );
-        let ratio = self.ratios[0];
+        // Sizes and spacing are both in 1× (CSS pixel) units.
+        let ratio = 1.0;
 
         self.images.sort_by(|a, b| {
             let primary = match self.config.ordering {
                 Ordering::Maxside | Ordering::MaxsideReverse => {
-                    let b_max = absolute_length(b.image.height(), vspace, ratio)
-                        .max(absolute_length(b.image.width(), hspace, ratio));
-                    let a_max = absolute_length(a.image.height(), vspace, ratio)
-                        .max(absolute_length(a.image.width(), hspace, ratio));
+                    let b_max = absolute_length(b.computed_height, vspace, ratio)
+                        .max(absolute_length(b.computed_width, hspace, ratio));
+                    let a_max = absolute_length(a.computed_height, vspace, ratio)
+                        .max(absolute_length(a.computed_width, hspace, ratio));
                     b_max.cmp(&a_max)
                 }
                 Ordering::Height | Ordering::HeightReverse => {
-                    let b_h = absolute_length(b.image.height(), vspace, ratio);
-                    let a_h = absolute_length(a.image.height(), vspace, ratio);
+                    let b_h = absolute_length(b.computed_height, vspace, ratio);
+                    let a_h = absolute_length(a.computed_height, vspace, ratio);
                     b_h.cmp(&a_h)
                 }
                 Ordering::Width | Ordering::WidthReverse => {
-                    let b_w = absolute_length(b.image.width(), hspace, ratio);
-                    let a_w = absolute_length(a.image.width(), hspace, ratio);
+                    let b_w = absolute_length(b.computed_width, hspace, ratio);
+                    let a_w = absolute_length(a.computed_width, hspace, ratio);
                     b_w.cmp(&a_w)
                 }
                 Ordering::Area | Ordering::AreaReverse => {
-                    let b_area = absolute_length(b.image.width(), hspace, ratio)
-                        * absolute_length(b.image.height(), vspace, ratio);
-                    let a_area = absolute_length(a.image.width(), hspace, ratio)
-                        * absolute_length(a.image.height(), vspace, ratio);
+                    let b_area = absolute_length(b.computed_width, hspace, ratio)
+                        * absolute_length(b.computed_height, vspace, ratio);
+                    let a_area = absolute_length(a.computed_width, hspace, ratio)
+                        * absolute_length(a.computed_height, vspace, ratio);
                     b_area.cmp(&a_area)
                 }
                 Ordering::Filename | Ordering::FilenameReverse => Path::new(&b.path)

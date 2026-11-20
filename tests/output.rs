@@ -485,42 +485,26 @@ fn test_max_width_ratio_aware() {
     with_tmp_dir(|out| {
         let mut config_2x = make_config("tests/images/america", out);
         config_2x.json = true;
+        config_2x.no_img = false;
         config_2x.max_width = Some(100);
         config_2x.ratios = Some("2,1".to_string()); // highest ratio = 2.0
         run_manager(config_2x);
 
+        // JSON describes the 1× sprite: --max-width is in 1× units there too.
         let json_2x = std::fs::read_to_string(format!("{}/america.json", out)).unwrap();
         let widths_2x = parse_widths_from_json(&json_2x);
-        // effective max = 200; us.png (250px) → 200px; ca.png (100px) → unchanged
         assert!(
-            widths_2x.iter().all(|&w| w <= 200),
-            "at 2× ratio all widths must be <= 200"
+            widths_2x.iter().all(|&w| w <= 100),
+            "1× widths must be <= 100: {widths_2x:?}"
         );
-        // us.png must be wider at 2× than at 1× (200 vs 100)
-        let max_1x = {
-            let mut c = make_config("tests/images/america", out);
-            c.json = true;
-            c.max_width = Some(100);
-            let mut m = spriters::Manager {
-                project: false,
-                config: c.clone(),
-                ..Default::default()
-            };
-            m.find_sprites();
-            m.sprites[0]
-                .images
-                .iter()
-                .map(|i| i.computed_width)
-                .max()
-                .unwrap_or(0)
-        };
-        let max_2x = widths_2x.iter().copied().max().unwrap_or(0);
-        assert!(
-            max_2x > max_1x,
-            "at 2× ratio images should be larger (max_2x={} > max_1x={})",
-            max_2x,
-            max_1x
-        );
+        // effective max = 200 px: us.png (250px) → 200px, i.e. 100 CSS px at 2×
+        assert!(widths_2x.contains(&100), "{widths_2x:?}");
+        // The @2x image keeps the full resolution: twice the 1× sprite.
+        let (width_1x, height_1x) =
+            image::image_dimensions(format!("{}/america.png", out)).unwrap();
+        let (width_2x, height_2x) =
+            image::image_dimensions(format!("{}/america@2x.png", out)).unwrap();
+        assert_eq!((width_2x, height_2x), (width_1x * 2, height_1x * 2));
     });
 }
 
@@ -1099,19 +1083,28 @@ fn test_svg_retina_doubles_size() {
     with_tmp_dir(|out| {
         let mut config = make_config(src.to_str().unwrap(), out);
         config.json = true;
+        config.no_img = false;
         config.ratios = Some("2,1".to_string());
         run_manager(config);
         let stem = src.file_name().unwrap().to_string_lossy().to_string();
+        // JSON describes the 1× sprite: the SVG natural size (64×48 CSS px)...
         let json = std::fs::read_to_string(format!("{}/{}.json", out, stem)).unwrap();
         assert!(
-            json.contains("\"w\":128"),
-            "SVG at 2× must be 128px wide; got: {}",
-            json
+            json.contains("\"w\":64"),
+            "1× width must be 64; got: {json}"
         );
         assert!(
-            json.contains("\"h\":96"),
-            "SVG at 2× must be 96px tall; got: {}",
-            json
+            json.contains("\"h\":48"),
+            "1× height must be 48; got: {json}"
+        );
+        // ...while the @2x image holds the 2× rasterization.
+        assert_eq!(
+            image::image_dimensions(format!("{}/{}@2x.png", out, stem)).unwrap(),
+            (128, 96)
+        );
+        assert_eq!(
+            image::image_dimensions(format!("{}/{}.png", out, stem)).unwrap(),
+            (64, 48)
         );
     });
     std::fs::remove_dir_all(&src).ok();
