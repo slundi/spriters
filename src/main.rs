@@ -101,7 +101,9 @@ fn main() -> Result<(), lexopt::Error> {
         _ => {}
     }
 
-    let mut config = cli::parse_args()?;
+    let cli = cli::parse_args()?;
+    let mut config =
+        spriters::config::resolve(|config| cli.apply(config), |key| std::env::var(key).ok());
 
     // When stdin is a pipe, read newline-delimited image paths from it.
     // This lets spriters compose with other tools: `fd -e png . | spriters -o dist/`
@@ -114,10 +116,6 @@ fn main() -> Result<(), lexopt::Error> {
         }
     }
 
-    spriters::config::apply_env_vars(&mut config);
-    if let Some(fc) = spriters::config::load_file_config(&config.source) {
-        spriters::config::apply_file_config(&mut config, fc);
-    }
     config.check()?;
     stderrlog::new()
         .module(module_path!())

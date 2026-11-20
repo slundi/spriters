@@ -192,9 +192,11 @@ ratios = "2,1"
 max_width = 200
 ```
 
-All CLI options are supported. File settings take precedence over CLI flags; `SPRITERS_*` environment variables are the lowest priority.
+All CLI options are supported. The file holds project defaults: `SPRITERS_*` environment variables override it, and CLI flags override both.
 
-Priority order (highest → lowest): `spriters.toml` > CLI flags > `SPRITERS_*` env vars > defaults.
+Priority order (highest → lowest): CLI flags > `SPRITERS_*` env vars > `spriters.toml` > defaults.
+
+`exclude` patterns are the exception: those from all three sources are combined.
 
 ---
 

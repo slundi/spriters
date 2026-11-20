@@ -61,36 +61,62 @@ Image processing options:
 -p, --padding:          padding around each image (included in dimensions). Formats: 10, '5 10', '1 2 3 4'
 -m, --margin:           margin around each image (not included in dimensions). Formats: 10, '5 10', '1 2 3 4'";
 
-pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
+/// Applies one command line option to a configuration.
+type Setter = Box<dyn Fn(&mut Config)>;
+
+/// Settings given on the command line.
+///
+/// Only the options actually passed are recorded, so they can be applied on top of
+/// `spriters.toml` and `SPRITERS_*` env vars (see [`spriters::config::resolve`]).
+#[derive(Default)]
+pub(crate) struct CliArgs {
+    setters: Vec<Setter>,
+}
+impl CliArgs {
+    fn set(&mut self, setter: impl Fn(&mut Config) + 'static) {
+        self.setters.push(Box::new(setter));
+    }
+
+    /// Apply the command line settings to `config`, in the order they were given.
+    pub(crate) fn apply(&self, config: &mut Config) {
+        for setter in &self.setters {
+            setter(config);
+        }
+    }
+}
+
+pub(crate) fn parse_args() -> Result<CliArgs, lexopt::Error> {
+    parse_args_from(lexopt::Parser::from_env())
+}
+
+fn parse_args_from(mut parser: lexopt::Parser) -> Result<CliArgs, lexopt::Error> {
     use lexopt::prelude::*;
 
-    let mut args: Config = Config::default();
+    let mut cli = CliArgs::default();
 
-    let mut parser = lexopt::Parser::from_env();
     while let Some(arg) = parser.next()? {
         match arg {
             Short('a') | Long("algorithm") => {
                 let algo: String = parser.value()?.parse()?;
-                match algo.to_lowercase().as_str() {
-                    "square" => args.algorithm = Algorithm::Square,
-                    "vertical" => args.algorithm = Algorithm::Vertical,
-                    "horizontal" => args.algorithm = Algorithm::Horizontal,
-                    "diagonal" => args.algorithm = Algorithm::Diagonal,
-                    "verticalright" | "vertical-right" => args.algorithm = Algorithm::VerticalRight,
-                    "horizontalbottom" | "horizontal-bottom" => {
-                        args.algorithm = Algorithm::HorizontalBottom
-                    }
+                let algorithm = match algo.to_lowercase().as_str() {
+                    "square" => Algorithm::Square,
+                    "vertical" => Algorithm::Vertical,
+                    "horizontal" => Algorithm::Horizontal,
+                    "diagonal" => Algorithm::Diagonal,
+                    "verticalright" | "vertical-right" => Algorithm::VerticalRight,
+                    "horizontalbottom" | "horizontal-bottom" => Algorithm::HorizontalBottom,
                     _ => {
                         eprintln!("Unknown algorithm");
                         std::process::exit(1);
                     }
-                }
+                };
+                cli.set(move |config| config.algorithm = algorithm);
             }
-            Short('c') | Long("crop") => args.crop = true,
+            Short('c') | Long("crop") => cli.set(|config| config.crop = true),
             Long("ordering") => {
                 let ord: String = parser.value()?.parse()?;
                 match ord.parse::<Ordering>() {
-                    Ok(o) => args.ordering = o,
+                    Ok(ordering) => cli.set(move |config| config.ordering = ordering),
                     Err(_) => {
                         eprintln!(
                             "Unknown ordering: {}. Valid options: maxside, width, height, area, filename (prefix with '-' for reverse)",
@@ -100,142 +126,260 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
                     }
                 }
             }
-            Long("exclude") => args
-                .exclude
-                .push(parser.value()?.to_string_lossy().into_owned()),
-            Long("max-width") => args.max_width = Some(parser.value()?.parse()?),
-            Long("max-height") => args.max_height = Some(parser.value()?.parse()?),
+            Long("exclude") => {
+                let pattern = parser.value()?.to_string_lossy().into_owned();
+                cli.set(move |config| config.exclude.push(pattern.clone()));
+            }
+            Long("max-width") => {
+                let max_width: u32 = parser.value()?.parse()?;
+                cli.set(move |config| config.max_width = Some(max_width));
+            }
+            Long("max-height") => {
+                let max_height: u32 = parser.value()?.parse()?;
+                cli.set(move |config| config.max_height = Some(max_height));
+            }
             Short('p') | Long("padding") => {
-                args.padding = Some(parser.value()?.to_string_lossy().to_string());
+                let padding = parser.value()?.to_string_lossy().to_string();
+                cli.set(move |config| config.padding = Some(padding.clone()));
             }
             Short('m') | Long("margin") => {
-                args.margin = Some(parser.value()?.to_string_lossy().to_string());
+                let margin = parser.value()?.to_string_lossy().to_string();
+                cli.set(move |config| config.margin = Some(margin.clone()));
             }
             Long("resize-algorithm") => {
                 let fa: String = parser.value()?.parse()?;
-                match fa.to_lowercase().as_str() {
-                    "nearest" => args.resize_algorithm = FilterType::Nearest,
-                    "triangle" => args.resize_algorithm = FilterType::Triangle,
-                    "gaussian" => args.resize_algorithm = FilterType::Gaussian,
-                    "lanczos3" => args.resize_algorithm = FilterType::Lanczos3,
-                    _ => args.resize_algorithm = FilterType::CatmullRom,
-                }
+                let filter = match fa.to_lowercase().as_str() {
+                    "nearest" => FilterType::Nearest,
+                    "triangle" => FilterType::Triangle,
+                    "gaussian" => FilterType::Gaussian,
+                    "lanczos3" => FilterType::Lanczos3,
+                    _ => FilterType::CatmullRom,
+                };
+                cli.set(move |config| config.resize_algorithm = filter);
             }
-            Long("project") => args.project = true,
-            Long("cachebuster") => args.cachebuster = true,
-            Long("cachebuster-filename") => args.cachebuster_filename = true,
+            Long("project") => cli.set(|config| config.project = true),
+            Long("cachebuster") => cli.set(|config| config.cachebuster = true),
+            Long("cachebuster-filename") => cli.set(|config| config.cachebuster_filename = true),
             Long("cachebuster-filename-only-sprites") => {
-                args.cachebuster_filename_only_sprites = true
+                cli.set(|config| config.cachebuster_filename_only_sprites = true)
             }
-            // Long("colors") => {
-            //     match parser.value()?.to_ascii_lowercase() {
-
-            //     }
-            // },
-            Long("html") => args.html = true,
-            Long("json") => args.json = true,
+            Long("html") => cli.set(|config| config.html = true),
+            Long("json") => cli.set(|config| config.json = true),
             Long("json-format") => {
                 let fmt: String = parser.value()?.parse()?;
-                if fmt.to_lowercase() == "hash" {
-                    args.json_format = JsonFormat::Hash;
+                let json_format = if fmt.to_lowercase() == "hash" {
+                    JsonFormat::Hash
                 } else {
-                    args.json_format = JsonFormat::Array;
-                }
+                    JsonFormat::Array
+                };
+                cli.set(move |config| config.json_format = json_format);
             }
-            Long("caat") => args.caat = true,
-            Long("cocos2d") => args.cocos2d = true,
-            Short('l') | Long("less") => args.less = true,
-            Long("scss") => args.scss = true,
+            Long("caat") => cli.set(|config| config.caat = true),
+            Long("cocos2d") => cli.set(|config| config.cocos2d = true),
+            Short('l') | Long("less") => cli.set(|config| config.less = true),
+            Long("scss") => cli.set(|config| config.scss = true),
             Long("css-template") => {
-                args.css_template = Some(std::path::PathBuf::from(
-                    parser.value()?.to_string_lossy().to_string(),
-                ));
+                let path = std::path::PathBuf::from(parser.value()?);
+                cli.set(move |config| config.css_template = Some(path.clone()));
             }
             Long("less-template") => {
-                args.less_template = Some(std::path::PathBuf::from(
-                    parser.value()?.to_string_lossy().to_string(),
-                ));
+                let path = std::path::PathBuf::from(parser.value()?);
+                cli.set(move |config| config.less_template = Some(path.clone()));
             }
             Long("scss-template") => {
-                args.scss_template = Some(std::path::PathBuf::from(
-                    parser.value()?.to_string_lossy().to_string(),
-                ));
+                let path = std::path::PathBuf::from(parser.value()?);
+                cli.set(move |config| config.scss_template = Some(path.clone()));
             }
-            Long("css-vars") => args.css_vars = true,
-            Long("tailwind") => args.tailwind = true,
-            Long("dts") => args.dts = true,
+            Long("css-vars") => cli.set(|config| config.css_vars = true),
+            Long("tailwind") => cli.set(|config| config.tailwind = true),
+            Long("dts") => cli.set(|config| config.dts = true),
             Long("css-vars-template") => {
-                args.css_vars_template = Some(std::path::PathBuf::from(
-                    parser.value()?.to_string_lossy().to_string(),
-                ));
+                let path = std::path::PathBuf::from(parser.value()?);
+                cli.set(move |config| config.css_vars_template = Some(path.clone()));
             }
-            Long("no-css") => args.no_css = true,
-            Long("no-img") => args.no_img = true,
+            Long("no-css") => cli.set(|config| config.no_css = true),
+            Long("no-img") => cli.set(|config| config.no_img = true),
             Long("css") => {
-                args.css = Some(std::path::PathBuf::from(
-                    parser.value()?.to_string_lossy().to_string(),
-                ));
+                let path = std::path::PathBuf::from(parser.value()?);
+                cli.set(move |config| config.css = Some(path.clone()));
             }
             Long("img") => {
-                args.img = Some(std::path::PathBuf::from(
-                    parser.value()?.to_string_lossy().to_string(),
-                ));
+                let path = std::path::PathBuf::from(parser.value()?);
+                cli.set(move |config| config.img = Some(path.clone()));
             }
             Long("format") => {
                 let fmt: String = parser.value()?.parse()?;
-                args.sprite_format = match fmt.to_lowercase().as_str() {
+                let sprite_format = match fmt.to_lowercase().as_str() {
                     "webp" => SpriteFormat::WebP,
                     "avif" => SpriteFormat::Avif,
                     _ => SpriteFormat::Png,
                 };
+                cli.set(move |config| config.sprite_format = sprite_format);
             }
-            Long("png8") => args.png8 = true,
+            Long("png8") => cli.set(|config| config.png8 = true),
             Long("ratios") => {
-                args.ratios = Some(parser.value()?.to_string_lossy().to_string());
+                let ratios = parser.value()?.to_string_lossy().to_string();
+                cli.set(move |config| config.ratios = Some(ratios.clone()));
             }
             // The option `--retina` is only a shortcut for `--ratios=2,1`.
-            Long("retina") => args.ratios = Some("2,1".to_owned()),
-            Long("force") => args.force = true,
-            Long("dry-run") => args.dry_run = true,
-            Long("check") => args.check = true,
-            Long("follow-links") => args.follow_links = true,
-            Short('q') | Long("quiet") => args.quiet = true,
-            Short('r') | Long("recursive") => args.recursive = true,
+            Long("retina") => cli.set(|config| config.ratios = Some("2,1".to_owned())),
+            Long("force") => cli.set(|config| config.force = true),
+            Long("dry-run") => cli.set(|config| config.dry_run = true),
+            Long("check") => cli.set(|config| config.check = true),
+            Long("follow-links") => cli.set(|config| config.follow_links = true),
+            Short('q') | Long("quiet") => cli.set(|config| config.quiet = true),
+            Short('r') | Long("recursive") => cli.set(|config| config.recursive = true),
             Short('i') | Long("input") => {
-                args.source =
-                    std::path::PathBuf::from(parser.value()?.to_string_lossy().to_string());
+                let source = std::path::PathBuf::from(parser.value()?);
+                cli.set(move |config| config.source = source.clone());
             }
             Short('o') | Long("output") => {
-                args.output =
-                    std::path::PathBuf::from(parser.value()?.to_string_lossy().to_string());
+                let output = std::path::PathBuf::from(parser.value()?);
+                cli.set(move |config| config.output = output.clone());
             }
             Short('u') | Long("url") => {
-                args.url = Some(String::from(
-                    parser.value()?.to_os_string().to_str().unwrap(),
-                ));
-                url::Url::parse(&args.url.clone().unwrap()).unwrap();
+                let url = String::from(parser.value()?.to_os_string().to_str().unwrap());
+                url::Url::parse(&url).unwrap();
+                cli.set(move |config| config.url = Some(url.clone()));
             }
             Short('h') | Long("help") => {
                 println!("{}", HELP_MSG);
                 std::process::exit(0);
             }
             Long("separator") => {
-                args.separator = parser.value()?.parse()?;
+                let separator: String = parser.value()?.parse()?;
+                cli.set(move |config| config.separator = separator.clone());
             }
             Long("namespace") => {
-                args.namespace = Some(parser.value()?.to_string_lossy().to_string());
+                let namespace = parser.value()?.to_string_lossy().to_string();
+                cli.set(move |config| config.namespace = Some(namespace.clone()));
             }
             Long("sprite-namespace") => {
-                args.sprite_namespace = Some(parser.value()?.to_string_lossy().to_string());
+                let namespace = parser.value()?.to_string_lossy().to_string();
+                cli.set(move |config| config.sprite_namespace = Some(namespace.clone()));
             }
             Long("pseudo-class-separator") => {
-                args.pseudo_class_separator = Some(parser.value()?.to_string_lossy().to_string());
+                let separator = parser.value()?.to_string_lossy().to_string();
+                cli.set(move |config| config.pseudo_class_separator = Some(separator.clone()));
             }
-            Long("no-duplicate") => args.no_duplicate = true,
-            Long("watch") => args.watch = true,
+            Long("no-duplicate") => cli.set(|config| config.no_duplicate = true),
+            Long("watch") => cli.set(|config| config.watch = true),
             _ => return Err(arg.unexpected()),
         }
     }
 
-    Ok(args)
+    Ok(cli)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(args: &[&str]) -> CliArgs {
+        parse_args_from(lexopt::Parser::from_args(args.iter().copied())).unwrap()
+    }
+
+    fn parsed_config(args: &[&str]) -> Config {
+        let mut config = Config::default();
+        parse(args).apply(&mut config);
+        config
+    }
+
+    #[test]
+    fn test_no_argument_leaves_config_untouched() {
+        let mut config = Config {
+            force: true,
+            namespace: Some(String::from("from-file")),
+            ..Default::default()
+        };
+        parse(&[]).apply(&mut config);
+        assert!(config.force);
+        assert_eq!(config.namespace.as_deref(), Some("from-file"));
+    }
+
+    #[test]
+    fn test_options_are_applied() {
+        let config = parsed_config(&[
+            "--force",
+            "-a",
+            "vertical",
+            "--ordering",
+            "-width",
+            "--namespace",
+            "cli-ns",
+            "-i",
+            "icons",
+            "-o",
+            "dist",
+            "--max-width",
+            "32",
+            "--json-format",
+            "hash",
+            "--format",
+            "webp",
+            "--retina",
+        ]);
+        assert!(config.force);
+        assert_eq!(config.algorithm, Algorithm::Vertical);
+        assert_eq!(config.ordering, Ordering::WidthReverse);
+        assert_eq!(config.namespace.as_deref(), Some("cli-ns"));
+        assert_eq!(config.source, std::path::PathBuf::from("icons"));
+        assert_eq!(config.output, std::path::PathBuf::from("dist"));
+        assert_eq!(config.max_width, Some(32));
+        assert_eq!(config.json_format, JsonFormat::Hash);
+        assert_eq!(config.sprite_format, SpriteFormat::WebP);
+        assert_eq!(config.ratios.as_deref(), Some("2,1"));
+    }
+
+    #[test]
+    fn test_repeated_option_last_wins_and_exclude_accumulates() {
+        let config = parsed_config(&[
+            "--namespace",
+            "first",
+            "--namespace",
+            "second",
+            "--exclude",
+            "*.tmp",
+            "--exclude",
+            "draft-*",
+        ]);
+        assert_eq!(config.namespace.as_deref(), Some("second"));
+        assert_eq!(config.exclude, vec!["*.tmp", "draft-*"]);
+    }
+
+    #[test]
+    fn test_cli_overrides_env_and_file() {
+        // Review 3.3: `SPRITERS_FORCE=0 spriters --force` ignored --force.
+        let source = std::env::temp_dir().join(format!(
+            "spriters_cli_prio_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .subsec_nanos()
+        ));
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(
+            source.join("spriters.toml"),
+            "force = false\nnamespace = \"toml-ns\"\nalgorithm = \"diagonal\"\n",
+        )
+        .unwrap();
+
+        let source_arg = source.to_string_lossy().into_owned();
+        let cli = parse(&["--force", "-i", &source_arg, "--namespace", "cli-ns"]);
+        let config = spriters::config::resolve(
+            |config| cli.apply(config),
+            |key| match key {
+                "SPRITERS_FORCE" => Some(String::from("0")),
+                "SPRITERS_NAMESPACE" => Some(String::from("env-ns")),
+                _ => None,
+            },
+        );
+        std::fs::remove_dir_all(&source).ok();
+
+        assert!(config.force, "--force must win over env and file");
+        assert_eq!(config.namespace.as_deref(), Some("cli-ns"));
+        // Not given on the command line: the file value survives.
+        assert_eq!(config.algorithm, Algorithm::Diagonal);
+    }
 }

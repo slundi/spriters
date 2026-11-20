@@ -61,7 +61,27 @@ pub fn load_file_config(dir: &Path) -> Option<FileConfig> {
         .ok()
 }
 
-/// Apply env vars (SPRITERS_*) to config. Lower priority than CLI and file config.
+/// Build the effective configuration from every source, lowest priority first:
+/// defaults < `spriters.toml` < `SPRITERS_*` env vars (via `env`) < command line (`cli`).
+///
+/// `cli` must only set the options actually given on the command line. It is applied a
+/// first time on its own to find the source directory, where `spriters.toml` is read.
+/// `exclude` patterns accumulate across all sources instead of replacing each other.
+pub fn resolve(cli: impl Fn(&mut Config), env: impl Fn(&str) -> Option<String>) -> Config {
+    let mut cli_only = Config::default();
+    cli(&mut cli_only);
+
+    let mut config = Config::default();
+    if let Some(file_config) = load_file_config(&cli_only.source) {
+        apply_file_config(&mut config, file_config);
+    }
+    apply_env_with(&mut config, env);
+    cli(&mut config);
+    config
+}
+
+/// Apply env vars (SPRITERS_*) to config. Higher priority than `spriters.toml`, lower than
+/// the command line (see [`resolve`]).
 pub fn apply_env_vars(config: &mut Config) {
     apply_env_with(config, |key| std::env::var(key).ok());
 }
@@ -216,11 +236,11 @@ pub fn apply_env_with(config: &mut Config, lookup: impl Fn(&str) -> Option<Strin
         config.sprite_format = parse_sprite_format(&v);
     }
     if let Some(v) = lookup("SPRITERS_EXCLUDE") {
-        config.exclude = v
-            .split(',')
-            .map(|s| s.trim().to_owned())
-            .filter(|s| !s.is_empty())
-            .collect();
+        config.exclude.extend(
+            v.split(',')
+                .map(|s| s.trim().to_owned())
+                .filter(|s| !s.is_empty()),
+        );
     }
     if let Some(v) = lookup("SPRITERS_CSS_VARS")
         && let Ok(b) = parse_bool(&v)
@@ -249,7 +269,8 @@ pub fn apply_env_with(config: &mut Config, lookup: impl Fn(&str) -> Option<Strin
     }
 }
 
-/// Overlay file config values onto config. Higher priority than env vars and CLI.
+/// Overlay file config values onto config. Lowest priority after the defaults: env vars
+/// and the command line override it (see [`resolve`]).
 pub fn apply_file_config(config: &mut Config, fc: FileConfig) {
     if let Some(v) = fc.algorithm
         && let Ok(a) = parse_algorithm(&v)
@@ -524,6 +545,111 @@ mod tests {
         let config = config_from_env(&[("SPRITERS_CROP", "maybe"), ("SPRITERS_FORCE", "on")]);
         assert!(!config.crop);
         assert!(config.force);
+    }
+
+    /// Temporary source directory holding `toml` as its `spriters.toml`.
+    fn source_with_toml(tag: &str, toml: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "spriters_resolve_{tag}_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .subsec_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("spriters.toml"), toml).unwrap();
+        dir
+    }
+
+    fn resolve_with(
+        source: &std::path::Path,
+        cli: impl Fn(&mut Config),
+        env: &[(&str, &str)],
+    ) -> Config {
+        let env: std::collections::HashMap<&str, &str> = env.iter().copied().collect();
+        let source = source.to_path_buf();
+        resolve(
+            |config| {
+                config.source = source.clone();
+                cli(config);
+            },
+            |key| env.get(key).map(|value| value.to_string()),
+        )
+    }
+
+    #[test]
+    fn test_resolve_file_overrides_defaults() {
+        let dir = source_with_toml("file", "namespace = \"toml-ns\"\ncrop = true\n");
+        let config = resolve_with(&dir, |_| {}, &[]);
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(config.namespace.as_deref(), Some("toml-ns"));
+        assert!(config.crop);
+    }
+
+    #[test]
+    fn test_resolve_env_overrides_file() {
+        let dir = source_with_toml("env", "namespace = \"toml-ns\"\nforce = true\n");
+        let config = resolve_with(
+            &dir,
+            |_| {},
+            &[("SPRITERS_NAMESPACE", "env-ns"), ("SPRITERS_FORCE", "0")],
+        );
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(config.namespace.as_deref(), Some("env-ns"));
+        assert!(!config.force);
+    }
+
+    #[test]
+    fn test_resolve_cli_overrides_env_and_file() {
+        // Review 3.3: `SPRITERS_FORCE=0 spriters --force` must regenerate.
+        let dir = source_with_toml("cli", "namespace = \"toml-ns\"\nforce = false\n");
+        let config = resolve_with(
+            &dir,
+            |config| {
+                config.force = true;
+                config.namespace = Some(String::from("cli-ns"));
+            },
+            &[("SPRITERS_NAMESPACE", "env-ns"), ("SPRITERS_FORCE", "0")],
+        );
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(config.force);
+        assert_eq!(config.namespace.as_deref(), Some("cli-ns"));
+    }
+
+    #[test]
+    fn test_resolve_layers_combine_unrelated_options() {
+        let dir = source_with_toml("mix", "algorithm = \"diagonal\"\n");
+        let config = resolve_with(
+            &dir,
+            |config| config.json = true,
+            &[("SPRITERS_ORDERING", "area")],
+        );
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(config.algorithm, Algorithm::Diagonal);
+        assert_eq!(config.ordering, Ordering::Area);
+        assert!(config.json);
+    }
+
+    #[test]
+    fn test_resolve_reads_toml_from_cli_source() {
+        let dir = source_with_toml("src", "namespace = \"from-cli-source\"\n");
+        let config = resolve_with(&dir, |_| {}, &[]);
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(config.source, dir);
+        assert_eq!(config.namespace.as_deref(), Some("from-cli-source"));
+    }
+
+    #[test]
+    fn test_resolve_exclude_accumulates() {
+        let dir = source_with_toml("excl", "exclude = [\"*.psd\"]\n");
+        let config = resolve_with(
+            &dir,
+            |config| config.exclude.push(String::from("*.tmp")),
+            &[("SPRITERS_EXCLUDE", "draft-*")],
+        );
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(config.exclude, vec!["*.psd", "draft-*", "*.tmp"]);
     }
 
     #[test]
