@@ -109,7 +109,7 @@ fn ratio_aware_does_not_resize_at_exact_effective_limit() {
 #[test]
 fn ratio_aware_resize_triggers_above_effective_limit() {
     // fr.png is 250×167; max_width=100, ratios=2,1 → effective = 200
-    // 250 > 200 → scale = 200/250 = 0.8 → (200, ⌊167*0.8⌋) = (200, 133)
+    // 250 > 200 → scale = 200/250 = 0.8 → (200, round(167*0.8)) = (200, 134)
     let (mut config, src) = europe_config();
     config.max_width = Some(100);
     config.ratios = Some("2,1".to_owned());
@@ -121,8 +121,8 @@ fn ratio_aware_resize_triggers_above_effective_limit() {
         .find(|i| i.path.ends_with("fr.png"))
         .expect("fr.png not found");
 
-    assert_eq!((img.image.width(), img.image.height()), (200, 133)); // floor(167 * 0.8)
-    // 1× size: 200 / 2 = 100, ceil(133 / 2) = 67
+    assert_eq!((img.image.width(), img.image.height()), (200, 134)); // 133.6, rounded
+    // 1× size: 200 / 2 = 100, 134 / 2 = 67
     assert_eq!(img.computed_width, 100);
     assert_eq!(img.computed_height, 67);
 }
@@ -159,4 +159,50 @@ fn crop_handles_content_off_center_vertically() {
     assert_eq!(sprite.images.len(), 1);
     assert_eq!(sprite.images[0].computed_width, 6);
     assert_eq!(sprite.images[0].computed_height, 2);
+}
+
+#[test]
+fn elongated_images_keep_at_least_one_pixel() {
+    // Review 6.7: 1000×1 at max-width 10 had its height truncated to 0 (an empty image for
+    // a bitmap, an error for an SVG).
+    let src = std::env::temp_dir().join(format!("spriters_elongated_{}", std::process::id()));
+    std::fs::create_dir_all(&src).unwrap();
+    image::RgbaImage::from_pixel(1000, 1, image::Rgba([255, 0, 0, 255]))
+        .save(src.join("line.png"))
+        .unwrap();
+    std::fs::write(
+        src.join("bar.svg"),
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1"><rect width="1000" height="1" fill="blue"/></svg>"#,
+    )
+    .unwrap();
+    let config = Config {
+        source: src.clone(),
+        output: src.clone(),
+        max_width: Some(10),
+        ..Default::default()
+    };
+
+    let sprite = Sprite::new(&config, src.clone());
+    assert!(
+        sprite.failed_images.is_empty(),
+        "{:?}",
+        sprite.failed_images
+    );
+    let mut sizes: Vec<(String, u32, u32)> = sprite
+        .images
+        .iter()
+        .map(|img| {
+            let name = img.path.rsplit(['/', '\\']).next().unwrap().to_owned();
+            (name, img.image.width(), img.image.height())
+        })
+        .collect();
+    sizes.sort();
+    assert_eq!(
+        sizes,
+        [
+            (String::from("bar.svg"), 10, 1),
+            (String::from("line.png"), 10, 1)
+        ]
+    );
+    std::fs::remove_dir_all(&src).ok();
 }

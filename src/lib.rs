@@ -1584,12 +1584,9 @@ fn rasterize_svg(
     let render_h = (natural_h as f32 * display_ratio).round() as u32;
 
     // Apply max-dimension constraints at the scaled size.
+    // Never zero: at least 1 pixel per side.
     let (target_w, target_h) =
         get_dimensions_from_max(render_w, render_h, max_width, max_height, display_ratio);
-
-    if target_w == 0 || target_h == 0 {
-        return Err("SVG target dimensions are zero after constraints".to_string());
-    }
 
     let mut pixmap = tiny_skia::Pixmap::new(target_w, target_h).ok_or("Failed to create pixmap")?;
 
@@ -1717,6 +1714,9 @@ fn is_color_or_transparent(pixel: image::Rgba<u8>, crop_alpha: bool, color: u32)
 /// `display_ratio` scales the limits: at ratio 2 the source is already 2× so the
 /// effective ceiling is `max_width * display_ratio` (and similarly for height).
 /// Pass `1.0` when ratios are not in use.
+///
+/// The limited side gets the (whole) limit; the other one is scaled with it and rounded to
+/// the nearest pixel, never below 1: a 1000×1 image at max-width 10 is 10×1, not 10×0.
 fn get_dimensions_from_max(
     width: u32,
     height: u32,
@@ -1724,25 +1724,27 @@ fn get_dimensions_from_max(
     max_height: Option<u32>,
     display_ratio: f32,
 ) -> (u32, u32) {
-    let r = display_ratio as f64;
-    let mut dims = (width as f64, height as f64);
-    if let Some(mw) = max_width {
-        let effective = (mw as f64 * r) as u32;
-        if effective < width {
-            let scale = effective as f64 / width as f64;
-            dims.0 = effective as f64;
-            dims.1 = height as f64 * scale;
+    let ratio = display_ratio as f64;
+    let (mut new_width, mut new_height) = (width as f64, height as f64);
+    if let Some(max) = max_width {
+        // Floored: the result must not exceed the limit.
+        let limit = (max as f64 * ratio).floor();
+        if limit < new_width {
+            new_height *= limit / new_width;
+            new_width = limit;
         }
     }
-    if let Some(mh) = max_height {
-        let effective = mh as f64 * r;
-        if effective < dims.1 {
-            let scale = effective / dims.1;
-            dims.1 = effective;
-            dims.0 *= scale;
+    if let Some(max) = max_height {
+        let limit = (max as f64 * ratio).floor();
+        if limit < new_height {
+            new_width *= limit / new_height;
+            new_height = limit;
         }
     }
-    (dims.0 as u32, dims.1 as u32)
+    // The limits are whole numbers and the other side only shrinks, so rounding never
+    // exceeds a limit (except to keep 1 pixel).
+    let to_pixels = |length: f64| (length.round() as u32).max(1);
+    (to_pixels(new_width), to_pixels(new_height))
 }
 
 #[cfg(test)]
@@ -1837,10 +1839,63 @@ mod tests {
             get_dimensions_from_max(10, 20, Some(2), Some(10), 1.0),
             (2, 4)
         );
+        // 10×20 → 5×10 (max-width) → 2.5×5 (max-height): rounded, not truncated.
         assert_eq!(
             get_dimensions_from_max(10, 20, Some(5), Some(5), 1.0),
-            (2, 5)
+            (3, 5)
         );
+    }
+
+    #[test]
+    fn test_max_dimensions_never_zero() {
+        // Review 6.7: the scaled side was truncated, so a very elongated image lost its
+        // only row or column.
+        assert_eq!(
+            get_dimensions_from_max(1000, 1, Some(10), None, 1.0),
+            (10, 1)
+        );
+        assert_eq!(
+            get_dimensions_from_max(1, 1000, None, Some(10), 1.0),
+            (1, 10)
+        );
+        assert_eq!(
+            get_dimensions_from_max(1000, 1, Some(10), Some(10), 2.0),
+            (20, 1)
+        );
+        // Even when the limit itself rounds down to nothing (max 1 at a 0.5 ratio).
+        assert_eq!(get_dimensions_from_max(10, 10, Some(1), None, 0.5), (1, 1));
+    }
+
+    #[test]
+    fn test_max_dimensions_round_to_nearest() {
+        // Truncation gave the lower value in each case.
+        // 8 × 10/30 = 2.67 → 3.
+        assert_eq!(get_dimensions_from_max(30, 8, Some(10), None, 1.0), (10, 3));
+        // 30 × 20/80 = 7.5 → 8.
+        assert_eq!(
+            get_dimensions_from_max(30, 80, None, Some(20), 1.0),
+            (8, 20)
+        );
+        // 1.5 ratio: limit 100 × 1.5 = 150, 200 × 150/301 = 99.67 → 100.
+        assert_eq!(
+            get_dimensions_from_max(301, 200, Some(100), None, 1.5),
+            (150, 100)
+        );
+    }
+
+    #[test]
+    fn test_max_dimensions_never_exceed_the_limit() {
+        for width in 1..60 {
+            for height in 1..60 {
+                for max in 1..20 {
+                    let (new_width, new_height) =
+                        get_dimensions_from_max(width, height, Some(max), Some(max), 1.0);
+                    assert!(new_width <= max.max(1) && new_height <= max.max(1));
+                    assert!(new_width >= 1 && new_height >= 1);
+                    assert!(new_width <= width && new_height <= height);
+                }
+            }
+        }
     }
 
     #[test]
