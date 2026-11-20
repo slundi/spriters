@@ -1,6 +1,6 @@
 use crate::{
-    util::{absolute_length, horizontal_spacing, vertical_spacing},
     Sprite,
+    util::{absolute_length, horizontal_spacing, vertical_spacing},
 };
 
 /// Square algorithm graph. It uses 2 Vecs because we cannot make the graph easily by just having recursive object.

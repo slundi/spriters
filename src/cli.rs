@@ -92,7 +92,10 @@ pub(crate) fn parse_args() -> Result<Config, lexopt::Error> {
                 match ord.parse::<Ordering>() {
                     Ok(o) => args.ordering = o,
                     Err(_) => {
-                        eprintln!("Unknown ordering: {}. Valid options: maxside, width, height, area, filename (prefix with '-' for reverse)", ord);
+                        eprintln!(
+                            "Unknown ordering: {}. Valid options: maxside, width, height, area, filename (prefix with '-' for reverse)",
+                            ord
+                        );
                         std::process::exit(1);
                     }
                 }

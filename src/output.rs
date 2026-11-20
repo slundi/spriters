@@ -287,7 +287,11 @@ fn generate_less(config: &Config, sprite: &Sprite) {
         let _ = writeln!(
             f,
             "\n{selector} {{\n  background-position: {x} {y};\n  width: {w}px;\n  height: {h}px;\n}}",
-            selector = selector, x = x, y = y, w = img.computed_width, h = img.computed_height,
+            selector = selector,
+            x = x,
+            y = y,
+            w = img.computed_width,
+            h = img.computed_height,
         );
     }
     log::info!("Generated LESS: {:?}", output_path);
@@ -328,8 +332,11 @@ fn generate_scss(config: &Config, sprite: &Sprite) {
         let _ = writeln!(
             f,
             "\n{selector} {{\n  background-position: -{x}px -{y}px;\n  width: {w}px;\n  height: {h}px;\n}}",
-            selector = selector, x = img.x, y = img.y,
-            w = img.computed_width, h = img.computed_height,
+            selector = selector,
+            x = img.x,
+            y = img.y,
+            w = img.computed_width,
+            h = img.computed_height,
         );
     }
 }
@@ -481,7 +488,9 @@ fn generate_json(config: &Config, sprite: &Sprite) {
             let _ = writeln!(
                 f,
                 "],\n\"meta\":{{\"width\": {w}, \"height\": {h}, \"sprite_filename\": \"{name}\", \"sprite_url\": \"{url}\"}}\n}}",
-                w = width, h = height, url = sprite_url,
+                w = width,
+                h = height,
+                url = sprite_url,
             );
         }
         JsonFormat::Hash => {
