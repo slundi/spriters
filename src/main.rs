@@ -36,7 +36,8 @@ fn run_sprite_generation(
     manager.generate()
 }
 
-fn handle_stats(output_dir: Option<&std::path::Path>) {
+/// Print the stats of every sprite in `output_dir`. Fails when one of them cannot be read.
+fn handle_stats(output_dir: Option<&std::path::Path>) -> ExitCode {
     let dir = output_dir.unwrap_or(std::path::Path::new("."));
     if !dir.is_dir() {
         eprintln!("Error: '{}' is not a directory", dir.display());
@@ -52,9 +53,10 @@ fn handle_stats(output_dir: Option<&std::path::Path>) {
         std::process::exit(1);
     }
 
+    let mut status = ExitCode::SUCCESS;
     for name in &names {
         match spriters::sprite_stats(dir, name) {
-            Some(s) => {
+            Ok(s) => {
                 println!("Sprite:     {}", s.name);
                 println!("  Dimensions: {}×{} px", s.width, s.height);
                 println!("  File size:  {}", format_bytes(s.file_size));
@@ -66,9 +68,13 @@ fn handle_stats(output_dir: Option<&std::path::Path>) {
                 );
                 println!();
             }
-            None => eprintln!("Could not load image for sprite '{}'", name),
+            Err(err) => {
+                eprintln!("Sprite '{name}': {err}");
+                status = ExitCode::FAILURE;
+            }
         }
     }
+    status
 }
 
 fn handle_completions(shell: Option<&str>) {
@@ -241,10 +247,7 @@ fn main() -> ExitCode {
     // arguments that are not valid UTF-8 (lexopt reports those properly).
     let raw: Vec<std::ffi::OsString> = std::env::args_os().collect();
     match raw.get(1).and_then(|arg| arg.to_str()) {
-        Some("stats") => {
-            handle_stats(raw.get(2).map(std::path::Path::new));
-            return ExitCode::SUCCESS;
-        }
+        Some("stats") => return handle_stats(raw.get(2).map(std::path::Path::new)),
         Some("completions") => {
             handle_completions(raw.get(2).and_then(|arg| arg.to_str()));
             return ExitCode::SUCCESS;

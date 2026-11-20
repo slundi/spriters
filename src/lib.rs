@@ -1348,6 +1348,7 @@ impl Manager {
 // ─── Stats API ────────────────────────────────────────────────────────────────
 
 /// Per-sprite statistics derived from the generated sprite image.
+#[derive(Debug)]
 pub struct SpriteStats {
     pub name: String,
     pub width: u32,
@@ -1370,30 +1371,51 @@ impl SpriteStats {
     }
 }
 
+/// Why [`sprite_stats`] could not report on a sprite.
+#[derive(Debug, thiserror::Error)]
+pub enum StatsError {
+    #[error("no sprite image found")]
+    NotFound,
+    #[error("the sprite image recorded in the metadata is missing: {}", .0.display())]
+    Missing(PathBuf),
+    #[error("cannot read {}: {error}", .path.display())]
+    Unreadable { path: PathBuf, error: String },
+}
+
 /// Load stats for a named sprite in `output_dir`.
-/// Uses the image file recorded in the sprite metadata (which accounts for cache-busted
-/// file names); falls back to `.png`, `.webp`, `.avif` in order for older metadata.
-/// Returns `None` if no image is found.
-pub fn sprite_stats(output_dir: &Path, name: &str) -> Option<SpriteStats> {
+///
+/// Uses the image file recorded in the sprite metadata, which accounts for cache-busted
+/// names and the image format; when it is missing, that is the error, since any other file
+/// may be left from an older run. Metadata that records no image (older versions) falls
+/// back to the most recently written sprite image of that name.
+pub fn sprite_stats(output_dir: &Path, name: &str) -> Result<SpriteStats, StatsError> {
     let recorded = output::read_metadata_file(&output_dir.join(output::meta_file_name(name)))
         .image_file
         // A bare file name only: never follow a path out of the output directory.
-        .filter(|file| Path::new(file).file_name() == Some(std::ffi::OsStr::new(file)))
-        .map(|file| output_dir.join(file))
-        .filter(|path| path.exists());
-    let img_path = recorded.or_else(|| {
-        ["png", "webp", "avif"]
-            .iter()
-            .map(|ext| output_dir.join(format!("{}.{}", name, ext)))
-            .find(|p| p.exists())
-    })?;
+        .filter(|file| Path::new(file).file_name() == Some(std::ffi::OsStr::new(file)));
+    let img_path = match recorded {
+        Some(file) => {
+            let path = output_dir.join(file);
+            if !path.is_file() {
+                return Err(StatsError::Missing(path));
+            }
+            path
+        }
+        None => output::find_sprite_image(output_dir, name).ok_or(StatsError::NotFound)?,
+    };
 
-    let file_size = std::fs::metadata(&img_path).ok()?.len();
-    let img = image::open(&img_path).ok()?;
+    let unreadable = |error: String| StatsError::Unreadable {
+        path: img_path.clone(),
+        error,
+    };
+    let file_size = std::fs::metadata(&img_path)
+        .map_err(|e| unreadable(e.to_string()))?
+        .len();
+    let img = image::open(&img_path).map_err(|e| unreadable(e.to_string()))?;
     let (w, h) = (img.width(), img.height());
     let total = w as u64 * h as u64;
 
-    Some(SpriteStats {
+    Ok(SpriteStats {
         name: name.to_owned(),
         width: w,
         height: h,

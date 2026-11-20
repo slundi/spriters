@@ -381,6 +381,38 @@ fn stats_ignores_bare_metadata_file() {
     });
 }
 
+#[test]
+fn stats_fails_and_explains_a_missing_sprite_image() {
+    // It printed "Could not load image" and exited with 0.
+    with_tmp_dir(|tmp| {
+        let (source, out) = source_and_output(tmp);
+        let generated = spriters(&[
+            "-i",
+            source.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+            "--format",
+            "webp",
+        ]);
+        assert!(generated.status.success(), "{}", stderr(&generated));
+
+        let output = spriters(&["stats", out.to_str().unwrap()]);
+        assert!(output.status.success(), "{}", stderr(&output));
+        assert!(String::from_utf8_lossy(&output.stdout).contains("Sprite:     icons"));
+
+        std::fs::remove_file(out.join("icons.webp")).unwrap();
+        let output = spriters(&["stats", out.to_str().unwrap()]);
+        assert!(!output.status.success());
+        let message = stderr(&output);
+        assert!(
+            message
+                .contains("Sprite 'icons': the sprite image recorded in the metadata is missing"),
+            "{message}"
+        );
+        assert!(message.contains("icons.webp"), "{message}");
+    });
+}
+
 #[cfg(unix)]
 #[test]
 fn unwritable_output_does_not_panic() {

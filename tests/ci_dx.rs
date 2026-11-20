@@ -675,9 +675,76 @@ fn sprite_stats_dimensions_and_efficiency() {
 }
 
 #[test]
-fn sprite_stats_returns_none_for_missing_sprite() {
+fn sprite_stats_fails_for_missing_sprite() {
     with_tmp_dir(|out| {
-        assert!(spriters::sprite_stats(out, "nonexistent").is_none());
+        let error = spriters::sprite_stats(out, "nonexistent").unwrap_err();
+        assert!(matches!(error, spriters::StatsError::NotFound), "{error}");
+    });
+}
+
+// `stats` looked for name.png, then .webp, then .avif.
+
+#[test]
+fn sprite_stats_reads_the_recorded_format_not_a_stale_png() {
+    with_tmp_dir(|out| {
+        let mut config = base_config("tests/images/america", out);
+        config.sprite_format = spriters::SpriteFormat::WebP;
+        run(config);
+        // Left by a run before the switch to WebP, and newer than the WebP sprite.
+        image::RgbaImage::new(3, 3)
+            .save(out.join("america.png"))
+            .unwrap();
+
+        let stats = spriters::sprite_stats(out, "america").unwrap();
+        let webp = image::open(out.join("america.webp")).unwrap();
+        assert_eq!((stats.width, stats.height), (webp.width(), webp.height()));
+        assert_eq!(
+            stats.file_size,
+            std::fs::metadata(out.join("america.webp")).unwrap().len()
+        );
+    });
+}
+
+#[test]
+fn sprite_stats_reports_a_missing_recorded_image() {
+    with_tmp_dir(|out| {
+        let mut config = base_config("tests/images/america", out);
+        config.sprite_format = spriters::SpriteFormat::WebP;
+        run(config);
+        std::fs::remove_file(out.join("america.webp")).unwrap();
+        image::RgbaImage::new(3, 3)
+            .save(out.join("america.png"))
+            .unwrap();
+
+        // The stale PNG is not taken for the sprite.
+        let error = spriters::sprite_stats(out, "america").unwrap_err();
+        assert!(
+            matches!(&error, spriters::StatsError::Missing(path) if path.ends_with("america.webp")),
+            "{error}"
+        );
+    });
+}
+
+#[test]
+fn sprite_stats_without_recorded_image_takes_the_newest_sprite() {
+    with_tmp_dir(|out| {
+        // Metadata of an older version: hashes only, no image file name.
+        std::fs::write(out.join(".icons.spriters"), "1\n2\n").unwrap();
+        let save = |file: &str, size: u32| {
+            image::RgbaImage::new(size, size)
+                .save(out.join(file))
+                .unwrap();
+            // Distinct modification times, even on coarse file systems.
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
+        save("icons.png", 2);
+        save("icons_0123abcd.webp", 3);
+        // Not the default image of the sprite: another ratio, another sprite.
+        save("icons_0123abcd@2x.webp", 6);
+        save("icons2.png", 7);
+
+        let stats = spriters::sprite_stats(out, "icons").unwrap();
+        assert_eq!((stats.width, stats.height), (3, 3));
     });
 }
 

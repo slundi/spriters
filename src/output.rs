@@ -976,6 +976,30 @@ fn remove_stale_hashed_sprites(config: &Config, sprite: &Sprite, current: &[Stri
     }
 }
 
+/// The sprite image of `name` in `output_dir`, for metadata that does not record it: among
+/// its default images (plain or cache-busted, see [`sprite_filename`], in any format, not an
+/// `@<ratio>x` one), the most recently written. The others may be left from a previous
+/// format or cache buster.
+pub(crate) fn find_sprite_image(output_dir: &std::path::Path, name: &str) -> Option<PathBuf> {
+    std::fs::read_dir(output_dir)
+        .ok()?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            let file_name = entry.file_name().to_string_lossy().into_owned();
+            parse_sprite_image_name(&file_name, name).is_some_and(|image| !image.ratio_suffix)
+        })
+        .filter_map(|entry| {
+            let metadata = entry
+                .metadata()
+                .ok()
+                .filter(|metadata| metadata.is_file())?;
+            // Ties (coarse timestamps) are broken by name, so the result is stable.
+            Some((metadata.modified().ok()?, entry.path()))
+        })
+        .max()
+        .map(|(_, path)| path)
+}
+
 /// Name of the metadata file for the sprite `name`.
 pub(crate) fn meta_file_name(name: &str) -> String {
     format!(".{name}.spriters")
