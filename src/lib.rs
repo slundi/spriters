@@ -605,6 +605,14 @@ impl Sprite {
         sprite_name(&self.path)
     }
 
+    /// Drop the decoded pixels of every image once the outputs are written; the layout
+    /// (positions and sizes) is kept.
+    pub fn release_pixels(&mut self) {
+        for img in self.images.iter_mut() {
+            img.image = DynamicImage::default();
+        }
+    }
+
     /// Generate sprite map
     fn process(&mut self) {
         match self.config.algorithm {
@@ -640,14 +648,11 @@ impl Sprite {
     fn discover_images(&mut self) {
         use rayon::prelude::*;
 
-        // Phase 1 (sequential): walk directory, deduplicate, collect (path, bytes) pairs.
-        // Reading bytes once avoids a second file-read for hashing.
-        // Duplicate images (same size + hash) are tracked as aliases of their primary;
-        // only the primary is decoded and placed in the sprite.
-        let mut seen: HashMap<(u64, u64), String> = HashMap::new();
-        let mut alias_map: HashMap<String, Vec<String>> = HashMap::new();
-        let mut candidates: Vec<(String, Vec<u8>, u64)> = Vec::new();
-
+        // Phase 1a (sequential, cheap): list candidate paths, in walk order.
+        // Phase 1b (parallel): read and hash every candidate.
+        // Phase 1c (sequential, walk order): deduplicate. Duplicate images (same size + hash)
+        // are tracked as aliases of the first one seen; their bytes are dropped right away
+        // and only the primary is decoded and placed in the sprite.
         let exclude_patterns: Vec<glob::Pattern> = self
             .config
             .exclude
@@ -664,104 +669,86 @@ impl Sprite {
             ..Default::default()
         };
         let outputs = OutputFilter::new(&self.config);
+        let is_candidate = |path: &Path| -> bool {
+            let Some(name) = path.file_name().map(|name| name.to_string_lossy()) else {
+                return false;
+            };
+            let Some(ext) = path.extension() else {
+                return false;
+            };
+            if name.starts_with('.')
+                || !is_image_extension(&ext.to_ascii_lowercase().to_string_lossy())
+            {
+                return false;
+            }
+            if outputs.is_generated_file(path) {
+                debug!("Skipping generated file: {}", name);
+                return false;
+            }
+            if exclude_patterns
+                .iter()
+                .any(|p| p.matches_with(&name, match_opts))
+            {
+                debug!("Excluding: {}", name);
+                return false;
+            }
+            true
+        };
 
-        if self.config.files.is_empty() {
-            // Directory-walk mode (default).
+        // Phase 1a: directory walk (default) or explicit file list (e.g. from stdin).
+        let paths: Vec<PathBuf> = if self.config.files.is_empty() {
             let mut walker = WalkDir::new(std::path::Path::new(&self.config.source))
                 .follow_links(self.config.follow_links);
             if !self.config.recursive {
                 walker = walker.max_depth(1);
             }
-            for entry in walker.into_iter().filter_map(|e| e.ok()) {
-                let name = entry.file_name().to_string_lossy();
-                let ext = entry.path().extension();
-                if name.starts_with('.') || ext.is_none() {
-                    continue;
-                }
-                if outputs.is_generated_file(entry.path()) {
-                    debug!("Skipping generated file: {}", name);
-                    continue;
-                }
-                if exclude_patterns
-                    .iter()
-                    .any(|p| p.matches_with(&name, match_opts))
-                {
-                    debug!("Excluding: {}", name);
-                    continue;
-                }
-                let ext = ext
-                    .unwrap()
-                    .to_ascii_lowercase()
-                    .to_string_lossy()
-                    .to_string();
-                if !is_image_extension(&ext) {
-                    continue;
-                }
-                let path = entry.path().to_string_lossy().to_string();
-                match std::fs::read(entry.path()) {
-                    Ok(bytes) => {
-                        let size = bytes.len() as u64;
-                        let hash = twox_hash::XxHash64::oneshot(713705, &bytes);
-                        if let Some(primary) = seen.get(&(size, hash)) {
-                            if self.config.no_duplicate {
-                                error!("{} and {} are identical", path, primary);
-                                std::process::exit(1);
-                            }
-                            warn!("{} and {} are identical — consolidating", path, primary);
-                            alias_map.entry(primary.clone()).or_default().push(path);
-                            continue;
-                        }
-                        seen.insert((size, hash), path.clone());
-                        candidates.push((path, bytes, hash));
-                    }
-                    Err(e) => error!("Cannot read {:?}: {}", entry.path(), e),
-                }
-            }
+            walker
+                .into_iter()
+                .filter_map(|e| e.ok())
+                .map(walkdir::DirEntry::into_path)
+                .filter(|path| is_candidate(path))
+                .collect()
         } else {
-            // File-list mode: paths supplied explicitly (e.g. from stdin).
-            for path_buf in &self.config.files {
-                let name = match path_buf.file_name() {
-                    Some(n) => n.to_string_lossy().into_owned(),
-                    None => continue,
-                };
-                let ext = match path_buf.extension() {
-                    Some(e) => e.to_ascii_lowercase().to_string_lossy().into_owned(),
-                    None => continue,
-                };
-                if name.starts_with('.') || !is_image_extension(&ext) {
-                    continue;
+            self.config
+                .files
+                .iter()
+                .filter(|path| is_candidate(path))
+                .cloned()
+                .collect()
+        };
+
+        // Phase 1b: read and hash in parallel; `collect` keeps the walk order.
+        let read: Vec<(String, Vec<u8>, u64)> = paths
+            .par_iter()
+            .filter_map(|path| match std::fs::read(path) {
+                Ok(bytes) => {
+                    let hash = twox_hash::XxHash64::oneshot(713705, &bytes);
+                    Some((path.to_string_lossy().into_owned(), bytes, hash))
                 }
-                if outputs.is_generated_file(path_buf) {
-                    debug!("Skipping generated file: {}", name);
-                    continue;
+                Err(e) => {
+                    error!("Cannot read {:?}: {}", path, e);
+                    None
                 }
-                if exclude_patterns
-                    .iter()
-                    .any(|p| p.matches_with(&name, match_opts))
-                {
-                    debug!("Excluding: {}", name);
-                    continue;
+            })
+            .collect();
+
+        // Phase 1c: deduplicate in walk order, so the primary is always the first one seen.
+        let mut seen: HashMap<(u64, u64), String> = HashMap::new();
+        let mut alias_map: HashMap<String, Vec<String>> = HashMap::new();
+        let mut candidates: Vec<(String, Vec<u8>, u64)> = Vec::with_capacity(read.len());
+        for (path, bytes, hash) in read {
+            let key = (bytes.len() as u64, hash);
+            if let Some(primary) = seen.get(&key) {
+                if self.config.no_duplicate {
+                    error!("{} and {} are identical", path, primary);
+                    std::process::exit(1);
                 }
-                let path = path_buf.to_string_lossy().into_owned();
-                match std::fs::read(path_buf) {
-                    Ok(bytes) => {
-                        let size = bytes.len() as u64;
-                        let hash = twox_hash::XxHash64::oneshot(713705, &bytes);
-                        if let Some(primary) = seen.get(&(size, hash)) {
-                            if self.config.no_duplicate {
-                                error!("{} and {} are identical", path, primary);
-                                std::process::exit(1);
-                            }
-                            warn!("{} and {} are identical — consolidating", path, primary);
-                            alias_map.entry(primary.clone()).or_default().push(path);
-                            continue;
-                        }
-                        seen.insert((size, hash), path.clone());
-                        candidates.push((path, bytes, hash));
-                    }
-                    Err(e) => error!("Cannot read {:?}: {}", path_buf, e),
-                }
+                warn!("{} and {} are identical — consolidating", path, primary);
+                alias_map.entry(primary.clone()).or_default().push(path);
+                continue; // `bytes` of the duplicate are dropped here
             }
+            seen.insert(key, path.clone());
+            candidates.push((path, bytes, hash));
         }
 
         // Phase 2 (parallel): decode, resize, then crop each image independently.
@@ -980,9 +967,67 @@ pub struct Manager {
 }
 
 impl Manager {
+    /// Build every sprite, keeping all of them (with their pixels) in `sprites`.
+    ///
+    /// To generate files, prefer [`Manager::generate`]: it does not hold every decoded
+    /// sprite in memory at once.
     pub fn find_sprites(&mut self) {
         use rayon::prelude::*;
 
+        self.sprites = self
+            .sprite_sources()
+            .into_par_iter()
+            .map(|(config, path)| Sprite::new(&config, path))
+            .collect();
+        if self.sprites.is_empty() {
+            error!("Input folder does not have images.");
+        }
+    }
+
+    /// Build, save and release each sprite within the same task: peak memory is about one
+    /// decoded sprite per thread instead of every sprite of the project.
+    ///
+    /// `sprites` keeps the layout of each sprite, without pixel data.
+    pub fn generate(&mut self) {
+        self.build_each(|config, sprite| {
+            crate::output::generate_files(config, sprite);
+            true
+        });
+    }
+
+    /// Like [`Manager::is_up_to_date`] (used by `--check`), building and releasing each
+    /// sprite in turn instead of holding all of them.
+    pub fn check(&mut self) -> bool {
+        self.build_each(|config, sprite| !output::staleness(config, sprite).any())
+    }
+
+    /// Build each sprite, run `action` on it, then drop its pixels. Returns whether `action`
+    /// returned `true` for every sprite.
+    fn build_each(&mut self, action: impl Fn(&Config, &Sprite) -> bool + Sync) -> bool {
+        use rayon::prelude::*;
+
+        let config = &self.config;
+        let results: Vec<(Sprite, bool)> = self
+            .sprite_sources()
+            .into_par_iter()
+            .map(|(sprite_config, path)| {
+                let mut sprite = Sprite::new(&sprite_config, path);
+                let result = action(config, &sprite);
+                sprite.release_pixels();
+                (sprite, result)
+            })
+            .collect();
+        if results.is_empty() {
+            error!("Input folder does not have images.");
+        }
+        let all = results.iter().all(|(_, result)| *result);
+        self.sprites = results.into_iter().map(|(sprite, _)| sprite).collect();
+        all
+    }
+
+    /// The directory of each sprite to build, with its configuration: in project mode,
+    /// `source` points to the sub-directory, since `discover_images` walks `config.source`.
+    fn sprite_sources(&self) -> Vec<(Config, PathBuf)> {
         if self.project {
             // An output directory inside the project that only holds generated files
             // (e.g. `dist/`) is not a sprite.
@@ -995,10 +1040,10 @@ impl Manager {
                         "Cannot read source directory {:?}: {}",
                         self.config.source, e
                     );
-                    return;
+                    return Vec::new();
                 }
             };
-            let paths: Vec<PathBuf> = entries
+            entries
                 .filter_map(|e| e.ok())
                 .filter_map(|de| {
                     let p = de.path();
@@ -1012,30 +1057,18 @@ impl Manager {
                         debug!("Skipping output directory: {:?}", p);
                         return None;
                     }
-                    Some(p)
-                })
-                .collect();
-
-            // Build each sprite concurrently (discover_images is the heavy work).
-            // Each sprite must have its own config.source pointing to its subdirectory;
-            // discover_images walks config.source, not sprite.path.
-            let config = &self.config;
-            self.sprites = paths
-                .into_par_iter()
-                .map(|p| {
                     info!("Creating sprite: {}", sprite_name(&p));
-                    let mut sprite_config = config.clone();
-                    sprite_config.source = p.clone();
-                    Sprite::new(&sprite_config, p)
+                    let sprite_config = Config {
+                        source: p.clone(),
+                        ..self.config.clone()
+                    };
+                    Some((sprite_config, p))
                 })
-                .collect();
+                .collect()
         } else {
             let p = PathBuf::from(&self.config.source);
             info!("Creating sprite: {}", sprite_name(&p));
-            self.sprites.push(Sprite::new(&self.config, p));
-        }
-        if self.sprites.is_empty() {
-            error!("Input folder does not have images.");
+            vec![(self.config.clone(), p)]
         }
     }
 

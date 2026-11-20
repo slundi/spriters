@@ -13,10 +13,10 @@ fn run_sprite_generation(config: &spriters::Config) {
         config: config.clone(),
         ..Default::default()
     };
-    manager.find_sprites();
-
+    // Each sprite is built and released in turn, so a project never holds every decoded
+    // sprite in memory at once.
     if config.check {
-        if manager.is_up_to_date() {
+        if manager.check() {
             info!("All sprites are up to date.");
         } else {
             eprintln!(
@@ -27,7 +27,7 @@ fn run_sprite_generation(config: &spriters::Config) {
         return;
     }
 
-    manager.save();
+    manager.generate();
 }
 
 fn handle_stats(output_dir: Option<&std::path::Path>) {

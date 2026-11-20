@@ -427,6 +427,28 @@ fn positional_directory_conflicting_with_option_fails() {
 }
 
 #[test]
+fn check_mode_exit_codes() {
+    with_tmp_dir(|tmp| {
+        let (source, out) = source_and_output(tmp);
+        let args = ["-i", source.to_str().unwrap(), "-o", out.to_str().unwrap()];
+        let check = |extra: &[&str]| {
+            let mut all = args.to_vec();
+            all.extend_from_slice(extra);
+            spriters(&all)
+        };
+
+        let stale = check(&["--check"]);
+        assert!(!stale.status.success(), "nothing generated yet");
+        assert!(stderr(&stale).contains("out of date"));
+        assert!(!out.join("icons.png").exists(), "--check must not generate");
+
+        assert!(check(&[]).status.success());
+        let fresh = check(&["--check"]);
+        assert!(fresh.status.success(), "{}", stderr(&fresh));
+    });
+}
+
+#[test]
 fn unknown_option_fails_with_message() {
     let output = spriters(&["--bogus"]);
     assert!(!output.status.success());
