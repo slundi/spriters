@@ -41,5 +41,29 @@ fn crop_benchmark(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, crop_benchmark);
+/// Discovery of one large SVG (rasterisation dominates).
+fn svg_benchmark(c: &mut Criterion) {
+    let source = std::env::temp_dir().join(format!("spriters_bench_svg_{}", std::process::id()));
+    std::fs::create_dir_all(&source).unwrap();
+    std::fs::write(
+        source.join("big.svg"),
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024">
+  <defs><linearGradient id="g"><stop offset="0" stop-color="#f00" stop-opacity="0.2"/>
+  <stop offset="1" stop-color="#00f"/></linearGradient></defs>
+  <rect width="1024" height="1024" fill="url(#g)"/>
+  <circle cx="512" cy="512" r="400" fill="#0a0" fill-opacity="0.5"/>
+</svg>"##,
+    )
+    .unwrap();
+    let config = spriters::Config {
+        source: source.clone(),
+        ..Default::default()
+    };
+    c.bench_function("discover svg 1024x1024", |b| {
+        b.iter(|| spriters::Sprite::new(black_box(&config), source.clone()))
+    });
+    std::fs::remove_dir_all(&source).ok();
+}
+
+criterion_group!(benches, crop_benchmark, svg_benchmark);
 criterion_main!(benches);

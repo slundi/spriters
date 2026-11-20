@@ -1318,11 +1318,22 @@ fn rasterize_svg(
         &mut pixmap.as_mut(),
     );
 
-    // Encode to PNG so the image crate can decode it with straight alpha.
-    let png = pixmap
-        .encode_png()
-        .map_err(|e| format!("PNG encode error: {e}"))?;
-    image::load_from_memory(&png).map_err(|e| format!("Image load error: {e}"))
+    Ok(DynamicImage::ImageRgba8(pixmap_to_rgba(&pixmap)))
+}
+
+/// Straight-alpha RGBA image of a premultiplied tiny-skia pixmap: the same pixels as
+/// `encode_png` followed by a PNG decode, without the zlib round trip.
+fn pixmap_to_rgba(pixmap: &resvg::tiny_skia::Pixmap) -> image::RgbaImage {
+    let rgba: Vec<u8> = pixmap
+        .pixels()
+        .iter()
+        .flat_map(|pixel| {
+            let color = pixel.demultiply();
+            [color.red(), color.green(), color.blue(), color.alpha()]
+        })
+        .collect();
+    image::RgbaImage::from_raw(pixmap.width(), pixmap.height(), rgba)
+        .expect("a pixmap holds width × height RGBA pixels")
 }
 
 /// Result of cropping an image with nothing left to keep (fully transparent, or entirely
@@ -1707,6 +1718,48 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Semi-transparent gradient and shapes: demultiplication rounding matters here.
+    const TRANSLUCENT_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="64" height="48">
+  <defs><linearGradient id="g"><stop offset="0" stop-color="#f80" stop-opacity="0.1"/>
+  <stop offset="1" stop-color="#08f" stop-opacity="0.9"/></linearGradient></defs>
+  <rect width="64" height="48" fill="url(#g)"/>
+  <circle cx="20" cy="24" r="15" fill="#3c3" fill-opacity="0.37"/>
+</svg>"##;
+
+    #[test]
+    fn test_pixmap_to_rgba_matches_png_round_trip() {
+        // Review 5.3: same pixels as the former `encode_png` + `load_from_memory`.
+        use resvg::{tiny_skia, usvg};
+        let tree =
+            usvg::Tree::from_data(TRANSLUCENT_SVG.as_bytes(), &usvg::Options::default()).unwrap();
+        let mut pixmap = tiny_skia::Pixmap::new(64, 48).unwrap();
+        resvg::render(&tree, tiny_skia::Transform::default(), &mut pixmap.as_mut());
+
+        let round_trip = image::load_from_memory(&pixmap.encode_png().unwrap())
+            .unwrap()
+            .to_rgba8();
+        let direct = pixmap_to_rgba(&pixmap);
+        assert_eq!(direct, round_trip);
+        // The test is meaningful: there are semi-transparent pixels.
+        assert!(
+            direct
+                .pixels()
+                .any(|pixel| pixel.0[3] > 0 && pixel.0[3] < 255)
+        );
+    }
+
+    #[test]
+    fn test_rasterize_svg_returns_rgba8_at_the_target_size() {
+        let image = rasterize_svg(TRANSLUCENT_SVG.as_bytes(), 1.0, None, None).unwrap();
+        assert_eq!(image.color(), ColorType::Rgba8);
+        assert_eq!(image.dimensions(), (64, 48));
+
+        let retina = rasterize_svg(TRANSLUCENT_SVG.as_bytes(), 2.0, None, None).unwrap();
+        assert_eq!(retina.dimensions(), (128, 96));
+        let limited = rasterize_svg(TRANSLUCENT_SVG.as_bytes(), 1.0, Some(32), None).unwrap();
+        assert_eq!(limited.dimensions(), (32, 24));
     }
 
     #[test]
