@@ -748,6 +748,86 @@ fn sprite_stats_without_recorded_image_takes_the_newest_sprite() {
     });
 }
 
+// ─── Sprite names with a dot ─────────────────────────────────────────────────
+
+#[test]
+fn dotted_directory_names_the_sprite_in_full() {
+    // In project mode the name came from `file_stem()` (`icons`) while the
+    // outputs used `file_name()` (`icons.v2.css`).
+    with_tmp_dir(|tmp| {
+        let project = tmp.join("project");
+        let out = tmp.join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        for (dir, color) in [("icons.v2", [255, 0, 0, 255]), ("flags", [0, 0, 255, 255])] {
+            std::fs::create_dir_all(project.join(dir)).unwrap();
+            write_solid_png(&project.join(dir).join("a.png"), color);
+        }
+        let config = Config {
+            source: project.clone(),
+            output: out.clone(),
+            project: true,
+            json: true,
+            ..Default::default()
+        };
+        let mut manager = Manager {
+            project: true,
+            config: config.clone(),
+            ..Default::default()
+        };
+        assert!(manager.generate());
+
+        let mut names: Vec<String> = manager.sprites.iter().map(|sprite| sprite.name()).collect();
+        names.sort();
+        assert_eq!(names, ["flags", "icons.v2"]);
+        for file in [
+            "icons.v2.png",
+            "icons.v2.css",
+            "icons.v2.json",
+            ".icons.v2.spriters",
+        ] {
+            assert!(out.join(file).is_file(), "{file}");
+        }
+        assert!(!out.join("icons.png").exists() && !out.join("icons.css").exists());
+        let css = std::fs::read_to_string(out.join("icons.v2.css")).unwrap();
+        assert!(css.contains("url('icons.v2.png')"), "{css}");
+
+        // Every reader uses the same name: metadata, stats, staleness.
+        let mut listed = spriters::list_sprite_names(&out);
+        listed.sort();
+        assert_eq!(listed, ["flags", "icons.v2"]);
+        assert!(spriters::sprite_stats(&out, "icons.v2").is_ok());
+        let mut again = Manager {
+            project: true,
+            config,
+            ..Default::default()
+        };
+        assert!(
+            again.check(),
+            "the second run must find the first one's outputs"
+        );
+    });
+}
+
+#[test]
+fn dotted_names_do_not_claim_other_sprites_files() {
+    // `icons.v2.css` belongs to the sprite `icons.v2`, not to a sprite `icons`.
+    with_tmp_dir(|tmp| {
+        let source = tmp.join("icons");
+        std::fs::create_dir_all(&source).unwrap();
+        write_solid_png(&source.join("a.png"), [255, 0, 0, 255]);
+        let config = Config {
+            source: source.clone(),
+            output: source.clone(),
+            ..Default::default()
+        };
+        let filter = spriters::OutputFilter::new(&config);
+        assert!(filter.is_generated_file(&source.join("icons.css")));
+        for file in ["icons.v2.css", "icons.v2.png", ".icons.v2.spriters"] {
+            assert!(!filter.is_generated_file(&source.join(file)), "{file}");
+        }
+    });
+}
+
 // ─── 4.5 Shell completions ───────────────────────────────────────────────────
 
 #[test]

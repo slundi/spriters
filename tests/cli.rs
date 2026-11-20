@@ -391,6 +391,30 @@ fn spriters_in(dir: &Path, args: &[&str]) -> Output {
 }
 
 #[test]
+fn project_logs_and_writes_the_same_sprite_name() {
+    // `icons.v2` was logged as `icons` but written as `icons.v2.*`.
+    with_tmp_dir(|tmp| {
+        let (source, out) = source_and_output(tmp);
+        let project = tmp.join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::rename(&source, project.join("icons.v2")).unwrap();
+        let output = spriters(&[
+            "--project",
+            "-i",
+            project.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+        ]);
+
+        assert!(output.status.success(), "{}", stderr(&output));
+        let message = stderr(&output);
+        assert!(message.contains("Creating sprite: icons.v2\n"), "{message}");
+        assert!(!message.contains("Creating sprite: icons\n"), "{message}");
+        assert!(out.join("icons.v2.png").is_file());
+    });
+}
+
+#[test]
 fn source_directory_named_like_a_subcommand() {
     // `stats` as first argument always ran the subcommand.
     with_tmp_dir(|tmp| {
