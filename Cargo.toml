@@ -96,7 +96,7 @@ debug = true
 opt-level = 3       # Max optimizations
 lto = "fat"         # Link Time Optimization (smaller, faster binary)
 codegen-units = 1   # Better optimizations at the cost of compile time
-panic = "abort"     # Removes stack unwinding (smaller binary size)
+panic = "unwind"    # Kept (not "abort") so that --watch survives a panic during a regeneration
 strip = "debuginfo" # Strip debug info but keep symbols so addr2line works on crash reports — useful for a forensic tool
 
 # Profile for Benchmarking

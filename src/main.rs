@@ -106,6 +106,126 @@ fn is_own_output(config: &spriters::Config, event: &Event) -> bool {
             .all(|path| outputs.is_generated_file(path))
 }
 
+/// What a watcher notification asks for.
+#[derive(Debug, PartialEq, Eq)]
+enum WatchAction {
+    /// Nothing: an error (logged), an access, or a change of spriters' own outputs.
+    Ignore,
+    /// Regenerate; `source_removed` when the watched directory itself was removed (its
+    /// watch is gone with it).
+    Regenerate { source_removed: bool },
+}
+
+/// Decide what to do with a notification of the watcher on `source`.
+fn watch_action(
+    config: &spriters::Config,
+    source: &std::path::Path,
+    notification: Result<Event, notify::Error>,
+) -> WatchAction {
+    let event = match notification {
+        Ok(event) => event,
+        Err(e) => {
+            error!("File watcher error: {e}");
+            return WatchAction::Ignore;
+        }
+    };
+    // Events were lost (e.g. queue overflow): regenerate to catch up.
+    if event.need_rescan() {
+        return WatchAction::Regenerate {
+            source_removed: false,
+        };
+    }
+    if !(event.kind.is_modify() || event.kind.is_create() || event.kind.is_remove())
+        || is_own_output(config, &event)
+    {
+        return WatchAction::Ignore;
+    }
+    WatchAction::Regenerate {
+        source_removed: event.kind.is_remove() && event.paths.iter().any(|path| path == source),
+    }
+}
+
+/// Run `generation`; a panic is reported as a failed run instead of ending `--watch`.
+fn catch_panic(generation: impl FnOnce() -> bool) -> bool {
+    // The panic message is already printed by the panic hook. Rayon forwards the panics of
+    // its worker threads to the caller, so they are caught here too.
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(generation)).unwrap_or_else(|_| {
+        error!("Sprite generation failed with an internal error, still watching for changes");
+        false
+    })
+}
+
+/// Wait until `source` is a directory again, then watch it: the watch of a removed
+/// directory does not survive it, even when it is created again.
+fn rewatch(watcher: &mut impl Watcher, source: &std::path::Path, poll: Duration) {
+    let mut reported = false;
+    loop {
+        if source.is_dir() {
+            // Fails when the old watch already went away with the directory.
+            watcher.unwatch(source).ok();
+            match watcher.watch(source, RecursiveMode::Recursive) {
+                Ok(()) => return,
+                Err(e) => warn!("Cannot watch {:?} yet: {}", source, e),
+            }
+        } else if !reported {
+            warn!(
+                "Source directory {:?} was removed, waiting for it to be created again",
+                source
+            );
+            reported = true;
+        }
+        std::thread::sleep(poll);
+    }
+}
+
+/// Regenerate the sprites on every change in the source directory, until the process is
+/// stopped.
+fn watch(config: &spriters::Config, cache: Option<std::sync::Arc<spriters::ImageCache>>) -> ! {
+    // Canonical, so that removal events of the directory itself can be recognised.
+    let source = config
+        .source
+        .canonicalize()
+        .unwrap_or_else(|_| config.source.clone());
+    info!("Watching for changes in {:?}... (Ctrl+C to stop)", source);
+
+    let (tx, rx) = channel();
+    let watch_config = config.clone();
+    let watched = source.clone();
+    let mut watcher = notify::recommended_watcher(move |notification| {
+        if let WatchAction::Regenerate { source_removed } =
+            watch_action(&watch_config, &watched, notification)
+        {
+            let _ = tx.send(source_removed);
+        }
+    })
+    .expect("Failed to create file watcher");
+    watcher
+        .watch(&source, RecursiveMode::Recursive)
+        .expect("Failed to watch source directory");
+
+    let debounce_duration = Duration::from_millis(500);
+    loop {
+        // The watcher (and its sender) lives as long as this loop.
+        let Ok(mut source_removed) = rx.recv() else {
+            unreachable!("the file watcher stopped");
+        };
+        while let Ok(removed) = rx.recv_timeout(debounce_duration) {
+            source_removed |= removed;
+        }
+        if source_removed || !source.is_dir() {
+            // Not regenerated meanwhile: it would replace the outputs with empty ones.
+            rewatch(&mut watcher, &source, debounce_duration);
+            while rx.try_recv().is_ok() {}
+        }
+        info!("Change detected, regenerating sprites...");
+        catch_panic(|| run_sprite_generation(config, cache.clone()));
+        if let Some(cache) = &cache {
+            cache.retain_existing();
+        }
+        info!("Watching for changes... (Ctrl+C to stop)");
+    }
+}
+
 fn format_bytes(n: u64) -> String {
     if n < 1_024 {
         format!("{} B", n)
@@ -180,49 +300,15 @@ fn main() -> ExitCode {
         .watch
         .then(|| std::sync::Arc::new(spriters::ImageCache::default()));
 
-    // Initial sprite generation. Errors are already logged; the exit code reports them, so
-    // that CI does not pass on a broken sprite.
-    let succeeded = run_sprite_generation(&config, cache.clone());
-
-    // If watch mode is enabled, start watching for changes (a failed run is fixed by
-    // the next change)
+    // In watch mode, a failed run (even a panic) is fixed by the next change: keep watching.
     if config.watch {
-        info!(
-            "Watching for changes in {:?}... (Ctrl+C to stop)",
-            config.source
-        );
-
-        let (tx, rx) = channel();
-
-        let watch_config = config.clone();
-        let mut watcher = notify::recommended_watcher(move |res: Result<Event, _>| {
-            if let Ok(event) = res
-                && (event.kind.is_modify() || event.kind.is_create() || event.kind.is_remove())
-                && !is_own_output(&watch_config, &event)
-            {
-                let _ = tx.send(());
-            }
-        })
-        .expect("Failed to create file watcher");
-
-        watcher
-            .watch(&config.source, RecursiveMode::Recursive)
-            .expect("Failed to watch source directory");
-
-        let debounce_duration = Duration::from_millis(500);
-
-        loop {
-            if rx.recv().is_ok() {
-                while rx.recv_timeout(debounce_duration).is_ok() {}
-                info!("Change detected, regenerating sprites...");
-                run_sprite_generation(&config, cache.clone());
-                if let Some(cache) = &cache {
-                    cache.retain_existing();
-                }
-                info!("Watching for changes... (Ctrl+C to stop)");
-            }
-        }
+        catch_panic(|| run_sprite_generation(&config, cache.clone()));
+        watch(&config, cache);
     }
+
+    // Errors are already logged; the exit code reports them, so that CI does not pass on a
+    // broken sprite.
+    let succeeded = run_sprite_generation(&config, cache);
 
     if succeeded {
         ExitCode::SUCCESS
@@ -274,6 +360,73 @@ mod tests {
         assert!(!is_own_output(&config, &event(&["same.css", "icon.png"])));
         assert!(!is_own_output(&config, &event(&[])));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_watch_action() {
+        use super::{WatchAction, watch_action};
+        use notify::event::{AccessKind, CreateKind, Flag, RemoveKind};
+
+        let dir = std::env::temp_dir().join(format!("spriters_action_{}", std::process::id()));
+        let source = dir.join("icons");
+        let output = dir.join("out");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::create_dir_all(&output).unwrap();
+        let config = spriters::Config {
+            source: source.clone(),
+            output: output.clone(),
+            ..Default::default()
+        };
+        let action = |event: Event| watch_action(&config, &source, Ok(event));
+        let changed = WatchAction::Regenerate {
+            source_removed: false,
+        };
+
+        let created =
+            Event::new(EventKind::Create(CreateKind::File)).add_path(source.join("a.png"));
+        assert_eq!(action(created), changed);
+        let removed_file =
+            Event::new(EventKind::Remove(RemoveKind::File)).add_path(source.join("a.png"));
+        assert_eq!(action(removed_file), changed);
+        // Review 6.9: removing the source directory itself kills its watch.
+        let removed_source =
+            Event::new(EventKind::Remove(RemoveKind::Folder)).add_path(source.clone());
+        assert_eq!(
+            action(removed_source),
+            WatchAction::Regenerate {
+                source_removed: true
+            }
+        );
+        // Lost events: regenerate to catch up.
+        let rescan = Event::new(EventKind::Other).set_flag(Flag::Rescan);
+        assert_eq!(action(rescan), changed);
+
+        let read = Event::new(EventKind::Access(AccessKind::Read)).add_path(source.join("a.png"));
+        assert_eq!(action(read), WatchAction::Ignore);
+        let own = Event::new(EventKind::Modify(ModifyKind::Any)).add_path(output.join("icons.css"));
+        assert_eq!(action(own), WatchAction::Ignore);
+        // Review 6.9: watcher errors were dropped without a message; now logged and ignored.
+        let error = watch_action(&config, &source, Err(notify::Error::generic("lost")));
+        assert_eq!(error, WatchAction::Ignore);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_catch_panic_keeps_watching() {
+        use super::catch_panic;
+        use rayon::prelude::*;
+
+        // A panic during a regeneration ended `--watch`.
+        assert!(!catch_panic(|| panic!("broken image")));
+        // Panics of rayon worker threads reach the caller too.
+        assert!(!catch_panic(|| {
+            (0..8)
+                .into_par_iter()
+                .for_each(|index| assert_ne!(index, 5));
+            true
+        }));
+        assert!(catch_panic(|| true));
+        assert!(!catch_panic(|| false));
     }
 
     #[test]
