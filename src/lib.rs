@@ -996,12 +996,22 @@ impl SpriteStats {
 }
 
 /// Load stats for a named sprite in `output_dir`.
-/// Tries `.png`, `.webp`, `.avif` in order; returns `None` if no image is found.
+/// Uses the image file recorded in the sprite metadata (which accounts for cache-busted
+/// file names); falls back to `.png`, `.webp`, `.avif` in order for older metadata.
+/// Returns `None` if no image is found.
 pub fn sprite_stats(output_dir: &Path, name: &str) -> Option<SpriteStats> {
-    let img_path = ["png", "webp", "avif"]
-        .iter()
-        .map(|ext| output_dir.join(format!("{}.{}", name, ext)))
-        .find(|p| p.exists())?;
+    let recorded = output::read_metadata_file(&output_dir.join(output::meta_file_name(name)))
+        .image_file
+        // A bare file name only: never follow a path out of the output directory.
+        .filter(|file| Path::new(file).file_name() == Some(std::ffi::OsStr::new(file)))
+        .map(|file| output_dir.join(file))
+        .filter(|path| path.exists());
+    let img_path = recorded.or_else(|| {
+        ["png", "webp", "avif"]
+            .iter()
+            .map(|ext| output_dir.join(format!("{}.{}", name, ext)))
+            .find(|p| p.exists())
+    })?;
 
     let file_size = std::fs::metadata(&img_path).ok()?.len();
     let img = image::open(&img_path).ok()?;

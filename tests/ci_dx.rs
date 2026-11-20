@@ -403,6 +403,209 @@ fn no_img_run_then_full_run_generates_image() {
     });
 }
 
+// ─── Cache-busted sprite file names ──────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy)]
+enum Buster {
+    None,
+    Query,
+    Filename,
+    FilenameOnlySprites,
+}
+const BUSTERS: [Buster; 4] = [
+    Buster::None,
+    Buster::Query,
+    Buster::Filename,
+    Buster::FilenameOnlySprites,
+];
+
+fn with_buster(mut config: Config, buster: Buster) -> Config {
+    match buster {
+        Buster::None => {}
+        Buster::Query => config.cachebuster = true,
+        Buster::Filename => config.cachebuster_filename = true,
+        Buster::FilenameOnlySprites => config.cachebuster_filename_only_sprites = true,
+    }
+    config
+}
+
+/// Every `url('...')` in a stylesheet, without query string.
+fn css_urls(css: &str) -> Vec<String> {
+    css.split("url('")
+        .skip(1)
+        .map(|rest| {
+            let url = &rest[..rest.find('\'').unwrap()];
+            url.split('?').next().unwrap().to_owned()
+        })
+        .collect()
+}
+
+/// Value of the first `"key": "value"` pair in a JSON document.
+fn json_string(json: &str, key: &str) -> String {
+    let start = json.find(&format!("\"{key}\": \"")).unwrap() + key.len() + 5;
+    json[start..start + json[start..].find('"').unwrap()].to_owned()
+}
+
+/// Sprite images (`icons.png`, `icons_<hash>.png`) present in `out`.
+fn sprite_images(out: &std::path::Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(out)
+        .unwrap()
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.starts_with("icons") && name.ends_with(".png"))
+        .collect();
+    names.sort();
+    names
+}
+
+fn icons_config(tmp: &std::path::Path, buster: Buster) -> (Config, PathBuf, PathBuf) {
+    let source = make_icons_source(tmp);
+    let out = tmp.join("out");
+    std::fs::create_dir_all(&out).unwrap();
+    let mut config = base_config(source.to_str().unwrap(), &out);
+    config.force = false;
+    config.json = true;
+    config.caat = true;
+    (with_buster(config, buster), source, out)
+}
+
+#[test]
+fn every_cachebuster_references_an_existing_sprite() {
+    for buster in BUSTERS {
+        with_tmp_dir(|tmp| {
+            let (config, _, out) = icons_config(tmp, buster);
+            run(config);
+
+            let css = std::fs::read_to_string(out.join("icons.css")).unwrap();
+            let urls = css_urls(&css);
+            assert!(
+                !urls.is_empty(),
+                "[{buster:?}] CSS must reference the sprite"
+            );
+            for url in urls {
+                assert!(
+                    out.join(&url).exists(),
+                    "[{buster:?}] CSS references missing {url}; found {:?}",
+                    sprite_images(&out)
+                );
+            }
+
+            let json = std::fs::read_to_string(out.join("icons.json")).unwrap();
+            let json_url = json_string(&json, "sprite_url");
+            let json_file = json_url.split('?').next().unwrap();
+            assert!(
+                out.join(json_file).exists(),
+                "[{buster:?}] JSON references missing {json_url}"
+            );
+
+            let caat = std::fs::read_to_string(out.join("icons.caat.json")).unwrap();
+            let caat_file = json_string(&caat, "sprite_filename");
+            assert!(
+                out.join(&caat_file).exists(),
+                "[{buster:?}] CAAT references missing {caat_file}"
+            );
+
+            assert_eq!(
+                sprite_images(&out).len(),
+                1,
+                "[{buster:?}] exactly one sprite image must be written"
+            );
+        });
+    }
+}
+
+#[test]
+fn query_cachebuster_keeps_plain_filename() {
+    with_tmp_dir(|tmp| {
+        let (config, _, out) = icons_config(tmp, Buster::Query);
+        run(config);
+
+        assert_eq!(sprite_images(&out), vec!["icons.png"]);
+        let css = std::fs::read_to_string(out.join("icons.css")).unwrap();
+        assert!(
+            css.contains("url('icons.png?"),
+            "query buster expected: {css}"
+        );
+    });
+}
+
+#[test]
+fn hashed_filename_sprite_is_up_to_date_on_second_run() {
+    for buster in [Buster::Filename, Buster::FilenameOnlySprites] {
+        with_tmp_dir(|tmp| {
+            let (config, _, out) = icons_config(tmp, buster);
+            run(config.clone());
+            let image = out.join(&sprite_images(&out)[0]);
+            let image_mtime = mtime(&image);
+
+            assert!(is_up_to_date(&config), "[{buster:?}] must be up to date");
+            run(config);
+            assert_eq!(
+                image_mtime,
+                mtime(&image),
+                "[{buster:?}] sprite must not be regenerated"
+            );
+        });
+    }
+}
+
+#[test]
+fn hashed_filename_sprite_replaces_previous_one() {
+    for buster in [Buster::Filename, Buster::FilenameOnlySprites] {
+        with_tmp_dir(|tmp| {
+            let (config, source, out) = icons_config(tmp, buster);
+            run(config.clone());
+            let first = sprite_images(&out);
+
+            write_solid_png(&source.join("a.png"), [0, 255, 0, 255]);
+            run(config);
+            let second = sprite_images(&out);
+
+            assert_eq!(second.len(), 1, "[{buster:?}] old sprite must be removed");
+            assert_ne!(first, second, "[{buster:?}] hash must change");
+            let css = std::fs::read_to_string(out.join("icons.css")).unwrap();
+            assert_eq!(css_urls(&css)[0], second[0]);
+        });
+    }
+}
+
+#[test]
+fn stale_sprite_cleanup_keeps_unrelated_files() {
+    with_tmp_dir(|tmp| {
+        let (config, source, out) = icons_config(tmp, Buster::Filename);
+        let unrelated = [
+            "icons_notahash.png",
+            "icons_1234567.png",
+            "icons_12345678.webp",
+            "other_12345678.png",
+            "icons.png",
+        ];
+        for name in unrelated {
+            std::fs::write(out.join(name), b"keep").unwrap();
+        }
+
+        run(config.clone());
+        write_solid_png(&source.join("a.png"), [0, 255, 0, 255]);
+        run(config);
+
+        for name in unrelated {
+            assert!(out.join(name).exists(), "{name} must not be removed");
+        }
+    });
+}
+
+#[test]
+fn sprite_stats_finds_hashed_sprite() {
+    with_tmp_dir(|tmp| {
+        let (config, _, out) = icons_config(tmp, Buster::FilenameOnlySprites);
+        run(config);
+
+        let stats =
+            spriters::sprite_stats(&out, "icons").expect("stats must find the cache-busted sprite");
+        assert!(stats.width > 0 && stats.height > 0);
+    });
+}
+
 // ─── 4.4 Stats ───────────────────────────────────────────────────────────────
 
 #[test]

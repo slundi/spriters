@@ -21,41 +21,42 @@ const CSS_PSEUDO_CLASSES: [&str; 10] = [
     "after",
 ];
 
+/// Deterministic cache buster: lower 32 bits of the sprite hash, hex-encoded.
+fn cache_buster(config: &Config, sprite: &Sprite) -> String {
+    format!("{:08x}", compute_sprite_hash(config, sprite) & 0xffff_ffff)
+}
+
+/// Whether the cache buster is part of the sprite image file name.
+fn hashed_sprite_filename(config: &Config) -> bool {
+    config.cachebuster_filename || config.cachebuster_filename_only_sprites
+}
+
+/// File name of the sprite image in the output directory: `name.ext`, or `name_<buster>.ext`
+/// with `--cachebuster-filename` / `--cachebuster-filename-only-sprites`.
+///
+/// Single source of truth for the written file and every reference to it.
+pub(crate) fn sprite_filename(config: &Config, sprite: &Sprite) -> String {
+    let name = sprite
+        .path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy();
+    let ext = config.sprite_format.extension();
+    if hashed_sprite_filename(config) {
+        format!("{name}_{}.{ext}", cache_buster(config, sprite))
+    } else {
+        format!("{name}.{ext}")
+    }
+}
+
 /// Get the sprite image URL for use in CSS.
 /// - If `config.url` is set, uses that as base URL
 /// - Cache buster is derived deterministically from the sprite content hash.
 fn get_sprite_url(config: &Config, sprite: &Sprite) -> String {
-    let name = sprite.path.file_name().unwrap().to_string_lossy();
-    let ext = config.sprite_format.extension();
-
-    // Deterministic cache buster: lower 32 bits of the sprite hash, hex-encoded.
-    let buster: String = if config.cachebuster || config.cachebuster_filename {
-        let h = compute_sprite_hash(config, sprite);
-        let prefix = if config.cachebuster_filename {
-            '_'
-        } else {
-            '?'
-        };
-        format!("{}{:08x}", prefix, h & 0xffff_ffff)
-    } else {
-        String::new()
-    };
-
-    let filename = format!(
-        "{name}{cbf}.{ext}{cbq}",
-        name = name,
-        ext = ext,
-        cbf = if config.cachebuster_filename {
-            &buster
-        } else {
-            ""
-        },
-        cbq = if config.cachebuster && !config.cachebuster_filename {
-            &buster
-        } else {
-            ""
-        },
-    );
+    let mut filename = sprite_filename(config, sprite);
+    if config.cachebuster && !hashed_sprite_filename(config) {
+        filename = format!("{filename}?{}", cache_buster(config, sprite));
+    }
 
     // If custom URL is provided, join it with the filename
     match &config.url {
@@ -514,7 +515,7 @@ fn generate_caat(config: &Config, sprite: &Sprite) {
     let output_path = config.output.join(format!("{}.caat.json", name));
     let mut f = BufWriter::new(File::create(&output_path).expect("Unable to create CAAT file"));
     let (width, height) = sprite.dimensions();
-    let sprite_filename = format!("{}.{}", name, config.sprite_format.extension());
+    let sprite_filename = sprite_filename(config, sprite);
     let hash = compute_sprite_hash(config, sprite);
 
     // Flatten primary + alias entries (CAAT uses original filenames, not labels).
@@ -580,19 +581,8 @@ fn generate_sprite_image(config: &Config, sprite: &Sprite) {
         }
     }
 
-    let stem = sprite
-        .path
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy();
-    let ext = config.sprite_format.extension();
-    let filename = if config.cachebuster_filename_only_sprites {
-        let hash = compute_sprite_hash(config, sprite);
-        format!("{stem}_{hash:x}.{ext}")
-    } else {
-        format!("{stem}.{ext}")
-    };
-    let output_path = config.output.join(filename);
+    let filename = sprite_filename(config, sprite);
+    let output_path = config.output.join(&filename);
 
     // png8 (grayscale) only applies to PNG; WebP and AVIF handle compression natively.
     let save_result = if config.png8 && config.sprite_format == SpriteFormat::Png {
@@ -613,13 +603,52 @@ fn generate_sprite_image(config: &Config, sprite: &Sprite) {
             height,
             mode
         );
+        remove_stale_hashed_sprites(config, sprite, &filename);
     }
+}
+
+/// Remove `name_<buster>.ext` images left by previous runs, so that cache-busted sprites
+/// do not pile up in the output directory. Only exact `<8 hex digits>` busters with the
+/// current image extension are removed; `current` is kept.
+fn remove_stale_hashed_sprites(config: &Config, sprite: &Sprite, current: &str) {
+    let Ok(entries) = std::fs::read_dir(&config.output) else {
+        return;
+    };
+    let name = sprite
+        .path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy();
+    let prefix = format!("{name}_");
+    let suffix = format!(".{}", config.sprite_format.extension());
+
+    for entry in entries.filter_map(|entry| entry.ok()) {
+        let file_name = entry.file_name().to_string_lossy().into_owned();
+        let is_stale = file_name != current
+            && file_name
+                .strip_prefix(&prefix)
+                .and_then(|rest| rest.strip_suffix(&suffix))
+                .is_some_and(|buster| {
+                    buster.len() == 8 && buster.bytes().all(|byte| byte.is_ascii_hexdigit())
+                });
+        if is_stale {
+            match std::fs::remove_file(entry.path()) {
+                Ok(()) => log::info!("Removed stale sprite: {:?}", entry.path()),
+                Err(e) => log::warn!("Cannot remove stale sprite {:?}: {}", entry.path(), e),
+            }
+        }
+    }
+}
+
+/// Name of the metadata file for the sprite `name`.
+pub(crate) fn meta_file_name(name: &str) -> String {
+    format!(".{name}.spriters")
 }
 
 /// Get the path to the metadata file for a sprite
 fn get_meta_path(config: &Config, sprite: &Sprite) -> PathBuf {
     let name = sprite.path.file_name().unwrap().to_string_lossy();
-    config.output.join(format!(".{}.spriters", name))
+    config.output.join(meta_file_name(&name))
 }
 
 /// Compute a hash of all inputs that affect sprite generation
@@ -774,26 +803,36 @@ fn text_output_names(config: &Config, name: &str) -> Vec<String> {
     .collect()
 }
 
-/// Hashes stored in the metadata file by the previous run.
+/// Data stored in the metadata file by the previous run.
 #[derive(Debug, Default)]
-struct Metadata {
-    image_hash: Option<u64>,
-    outputs_hash: Option<u64>,
+pub(crate) struct Metadata {
+    pub image_hash: Option<u64>,
+    pub outputs_hash: Option<u64>,
+    /// File name of the sprite image written by the previous run (see [`sprite_filename`]).
+    pub image_file: Option<String>,
 }
 
-/// Read the metadata file: first line is the image hash, second line the outputs hash.
 fn read_metadata(config: &Config, sprite: &Sprite) -> Metadata {
-    let Ok(file) = File::open(get_meta_path(config, sprite)) else {
+    read_metadata_file(&get_meta_path(config, sprite))
+}
+
+/// Read a metadata file, one value per line: image hash, outputs hash, image file name.
+pub(crate) fn read_metadata_file(path: &std::path::Path) -> Metadata {
+    let Ok(file) = File::open(path) else {
         return Metadata::default();
     };
     let mut contents = String::new();
     if BufReader::new(file).read_to_string(&mut contents).is_err() {
         return Metadata::default();
     }
-    let mut lines = contents.lines().map(|line| line.trim().parse().ok());
+    let mut lines = contents.lines().map(str::trim);
     Metadata {
-        image_hash: lines.next().flatten(),
-        outputs_hash: lines.next().flatten(),
+        image_hash: lines.next().and_then(|line| line.parse().ok()),
+        outputs_hash: lines.next().and_then(|line| line.parse().ok()),
+        image_file: lines
+            .next()
+            .filter(|line| !line.is_empty())
+            .map(String::from),
     }
 }
 
@@ -830,9 +869,7 @@ fn staleness_from(config: &Config, sprite: &Sprite, stored: &Metadata) -> Stalen
         .to_string_lossy();
 
     let image = !config.no_img && {
-        let sprite_path = config
-            .output
-            .join(format!("{name}.{}", config.sprite_format.extension()));
+        let sprite_path = config.output.join(sprite_filename(config, sprite));
         if !sprite_path.exists() {
             log::debug!("Sprite file doesn't exist, generating");
             true
@@ -860,17 +897,23 @@ fn staleness_from(config: &Config, sprite: &Sprite, stored: &Metadata) -> Stalen
     Staleness { image, outputs }
 }
 
-/// Save the sprite hashes to the metadata file.
+/// Save the sprite hashes and image file name to the metadata file.
 ///
-/// `image_hash` is `None` when no image matching the current inputs exists on disk
-/// (e.g. `--no-img` on a fresh output directory).
-fn save_metadata(config: &Config, sprite: &Sprite, image_hash: Option<u64>) {
+/// `image_hash` and `image_file` are `None` when no image matching the current inputs
+/// exists on disk (e.g. `--no-img` on a fresh output directory).
+fn save_metadata(
+    config: &Config,
+    sprite: &Sprite,
+    image_hash: Option<u64>,
+    image_file: Option<&str>,
+) {
     let meta_path = get_meta_path(config, sprite);
     let outputs_hash = compute_outputs_hash(config, sprite);
     let image_line = image_hash.map(|hash| hash.to_string()).unwrap_or_default();
+    let image_file = image_file.unwrap_or_default();
 
     if let Ok(mut file) = File::create(&meta_path) {
-        let _ = writeln!(file, "{image_line}\n{outputs_hash}");
+        let _ = writeln!(file, "{image_line}\n{outputs_hash}\n{image_file}");
     }
 }
 
@@ -956,7 +999,7 @@ fn print_dry_run(config: &Config, sprite: &Sprite) {
     }
     println!("Would write to {}:", config.output.display());
     if !config.no_img {
-        println!("  {name}.{ext}", ext = config.sprite_format.extension());
+        println!("  {}", sprite_filename(config, sprite));
     }
     for file in text_output_names(config, &name) {
         println!("  {file}");
@@ -983,13 +1026,22 @@ pub fn generate_files(config: &Config, sprite: &Sprite) {
         generate_text_outputs(config, sprite);
     }
 
-    // With --no-img the image on disk is untouched, so keep its previously stored hash.
-    let image_hash = if config.no_img {
-        stored.image_hash
+    // With --no-img the image on disk is untouched, so keep what was previously stored.
+    if config.no_img {
+        save_metadata(
+            config,
+            sprite,
+            stored.image_hash,
+            stored.image_file.as_deref(),
+        );
     } else {
-        Some(compute_sprite_hash(config, sprite))
-    };
-    save_metadata(config, sprite, image_hash);
+        save_metadata(
+            config,
+            sprite,
+            Some(compute_sprite_hash(config, sprite)),
+            Some(&sprite_filename(config, sprite)),
+        );
+    }
 }
 
 fn generate_text_outputs(config: &Config, sprite: &Sprite) {
