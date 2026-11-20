@@ -39,7 +39,7 @@ impl SpriteFormat {
     }
 }
 
-use image::{ColorType, DynamicImage, GenericImageView};
+use image::{ColorType, DynamicImage};
 use log::*;
 use util::{Spacing, absolute_length, horizontal_spacing, vertical_spacing};
 use walkdir::WalkDir;
@@ -1341,108 +1341,74 @@ fn blank_placeholder(image: &DynamicImage) -> DynamicImage {
 ///
 /// An image with nothing to keep is reduced to a 1×1 placeholder.
 pub fn crop(image: DynamicImage, color: Option<u32>) -> DynamicImage {
-    let mut cropable_color: u32 = 0xffffffff; // default is white
-    let mut crop_alpha = false;
-    if let Some(c) = color {
-        cropable_color = c;
-    } else {
-        crop_alpha = image.color().has_alpha();
-    }
+    let (crop_alpha, cropable_color) = match color {
+        Some(color) => (false, color),
+        None => (image.color().has_alpha(), 0xffffffff), // default is white
+    };
 
-    let mut left: u32 = 0;
-    let mut right: u32 = 0;
-    let mut top: u32 = 0;
-    let mut bottom: u32 = 0;
-
-    // detect left/right
-    let mut stop = false;
-    if image.width() > 1 {
-        // left
-        for x in 0..image.width() {
-            for y in 0..image.height() {
-                let pixel = image.get_pixel(x, y);
-                if !is_color_or_transparent(pixel, crop_alpha, cropable_color) {
-                    stop = true;
-                    break;
-                }
-            }
-            if stop {
-                stop = false;
-                break;
-            }
-            left += 1;
-        }
-        if left == image.width() {
-            return blank_placeholder(&image);
-        }
-        // right
-        for x in (0..image.width()).rev() {
-            for y in 0..image.height() {
-                let pixel = image.get_pixel(x, y);
-                if !is_color_or_transparent(pixel, crop_alpha, cropable_color) {
-                    stop = true;
-                    break;
-                }
-            }
-            if stop {
-                stop = false;
-                break;
-            }
-            right += 1;
-        }
-    }
-    // detect top/bottom
-    if image.height() > 1 {
-        // top
-        for y in 0..image.height() {
-            for x in 0..image.width() {
-                let pixel = image.get_pixel(x, y);
-                if !is_color_or_transparent(pixel, crop_alpha, cropable_color) {
-                    stop = true;
-                    break;
-                }
-            }
-            if stop {
-                stop = false;
-                break;
-            }
-            top += 1;
-        }
-        if top == image.height() {
-            return blank_placeholder(&image);
-        }
-        // bottom
-        for y in (0..image.height()).rev() {
-            for x in 0..image.width() {
-                let pixel = image.get_pixel(x, y);
-                if !is_color_or_transparent(pixel, crop_alpha, cropable_color) {
-                    stop = true;
-                    break;
-                }
-            }
-            if stop {
-                break;
-            }
-            bottom += 1;
-        }
-    }
+    // Common 8-bit types are scanned in place, with the same RGBA conversion as
+    // `GenericImageView::get_pixel`; other types are converted once.
+    let keep =
+        |rgba: [u8; 4]| !is_color_or_transparent(image::Rgba(rgba), crop_alpha, cropable_color);
+    let bounds = match &image {
+        DynamicImage::ImageRgba8(buffer) => content_bounds(buffer, |pixel| keep(pixel.0)),
+        DynamicImage::ImageRgb8(buffer) => content_bounds(buffer, |pixel| {
+            let [red, green, blue] = pixel.0;
+            keep([red, green, blue, 255])
+        }),
+        DynamicImage::ImageLumaA8(buffer) => content_bounds(buffer, |pixel| {
+            let [luma, alpha] = pixel.0;
+            keep([luma, luma, luma, alpha])
+        }),
+        DynamicImage::ImageLuma8(buffer) => content_bounds(buffer, |pixel| {
+            let [luma] = pixel.0;
+            keep([luma, luma, luma, 255])
+        }),
+        other => content_bounds(&other.to_rgba8(), |pixel| keep(pixel.0)),
+    };
+    let Some((left, top, right, bottom)) = bounds else {
+        return blank_placeholder(&image);
+    };
+    let (width, height) = (right - left + 1, bottom - top + 1);
     debug!(
-        "\t\t{}x{}, left={}, top={}, right={}, bottom={} => {}x{}",
+        "\t\t{}x{}, left={}, top={} => {}x{}",
         image.width(),
         image.height(),
         left,
         top,
-        right,
-        bottom,
-        image.width() - left - right,
-        image.height() - top - bottom,
+        width,
+        height,
     );
-    image.crop_imm(
-        left,
-        top,
-        image.width() - left - right,
-        image.height() - top - bottom,
-    )
+    image.crop_imm(left, top, width, height)
+}
+
+/// Inclusive bounding box `(left, top, right, bottom)` of the pixels to `keep`, `None` when
+/// there is none.
+///
+/// Only the croppable border is visited: rows are scanned from the top and from the bottom
+/// until content is found, then each row in between from the left up to the current left
+/// bound and from the right down to the current right bound.
+fn content_bounds<P: image::Pixel>(
+    buffer: &image::ImageBuffer<P, Vec<P::Subpixel>>,
+    keep: impl Fn(&P) -> bool,
+) -> Option<(u32, u32, u32, u32)> {
+    let (width, height) = buffer.dimensions();
+    let row_has_content = |y: u32| (0..width).any(|x| keep(buffer.get_pixel(x, y)));
+
+    let top = (0..height).find(|&y| row_has_content(y))?;
+    let bottom = (top..height).rev().find(|&y| row_has_content(y))?;
+    let mut left = width;
+    let mut right: Option<u32> = None;
+    for y in top..=bottom {
+        if let Some(x) = (0..left).find(|&x| keep(buffer.get_pixel(x, y))) {
+            left = x;
+        }
+        let start = right.map_or(0, |right| right + 1);
+        if let Some(x) = (start..width).rev().find(|&x| keep(buffer.get_pixel(x, y))) {
+            right = Some(x);
+        }
+    }
+    Some((left, top, right?, bottom))
 }
 
 fn is_color_or_transparent(pixel: image::Rgba<u8>, crop_alpha: bool, color: u32) -> bool {
@@ -1488,6 +1454,7 @@ fn get_dimensions_from_max(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use image::GenericImageView;
 
     #[test]
     fn test_is_croppable_color() {
@@ -1682,6 +1649,90 @@ mod tests {
         // Two single pixels: the result is their bounding box, gaps included.
         let cropped = crop(transparent_with(12, 9, &[(3, 1, 1, 1), (7, 6, 1, 1)]), None);
         assert_eq!((cropped.width(), cropped.height()), (5, 6));
+    }
+
+    /// Reference bounding box `(left, top, width, height)` of the pixels `crop` must keep,
+    /// found by testing every pixel; `None` when there is none.
+    fn brute_force_bounds(
+        image: &DynamicImage,
+        color: Option<u32>,
+    ) -> Option<(u32, u32, u32, u32)> {
+        let (crop_alpha, cropable) = match color {
+            Some(color) => (false, color),
+            None => (image.color().has_alpha(), 0xffffffff),
+        };
+        let kept: Vec<(u32, u32)> = image
+            .pixels()
+            .filter(|(_, _, pixel)| !is_color_or_transparent(*pixel, crop_alpha, cropable))
+            .map(|(x, y, _)| (x, y))
+            .collect();
+        let left = kept.iter().map(|point| point.0).min()?;
+        let right = kept.iter().map(|point| point.0).max()?;
+        let top = kept.iter().map(|point| point.1).min()?;
+        let bottom = kept.iter().map(|point| point.1).max()?;
+        Some((left, top, right - left + 1, bottom - top + 1))
+    }
+
+    #[test]
+    fn test_crop_matches_brute_force_on_random_images() {
+        let mut state: u32 = 0x9e37_79b9;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            state
+        };
+        for case in 0..300 {
+            let (width, height) = (1 + next() % 24, 1 + next() % 24);
+            let mut canvas = image::RgbaImage::new(width, height);
+            // From blank to dense; some cases draw a solid block instead of scattered pixels.
+            let density = case % 7;
+            for (_, _, pixel) in canvas.enumerate_pixels_mut() {
+                if density > 0 && next() % 40 < density {
+                    *pixel = image::Rgba([next() as u8, 0, 0, 1 + (next() % 255) as u8]);
+                }
+            }
+            let image = DynamicImage::ImageRgba8(canvas);
+            for color in [None, Some(0x0000_0000)] {
+                let cropped = crop(image.clone(), color);
+                match brute_force_bounds(&image, color) {
+                    Some((left, top, width, height)) => {
+                        assert_eq!(
+                            cropped.to_rgba8(),
+                            image.crop_imm(left, top, width, height).to_rgba8(),
+                            "case {case}, color {color:?}"
+                        );
+                    }
+                    None => assert_eq!(cropped.dimensions(), (1, 1), "case {case}: placeholder"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_crop_keeps_the_image_type() {
+        // No alpha channel: white is cropped.
+        let mut rgb = image::RgbImage::from_pixel(12, 10, image::Rgb([255, 255, 255]));
+        rgb.put_pixel(4, 3, image::Rgb([10, 20, 30]));
+        rgb.put_pixel(7, 5, image::Rgb([10, 20, 30]));
+        let cropped = crop(DynamicImage::ImageRgb8(rgb), None);
+        assert_eq!(cropped.color(), ColorType::Rgb8);
+        assert_eq!(cropped.dimensions(), (4, 3));
+
+        // 16-bit images go through the RGBA conversion and keep their type.
+        let mut rgba16 = image::ImageBuffer::<image::Rgba<u16>, Vec<u16>>::new(9, 9);
+        rgba16.put_pixel(2, 6, image::Rgba([65535, 0, 0, 65535]));
+        let cropped = crop(DynamicImage::ImageRgba16(rgba16), None);
+        assert_eq!(cropped.color(), ColorType::Rgba16);
+        assert_eq!(cropped.dimensions(), (1, 1));
+
+        // Grayscale with an explicit colour (white).
+        let mut luma = image::GrayImage::from_pixel(8, 8, image::Luma([255]));
+        luma.put_pixel(1, 1, image::Luma([0]));
+        luma.put_pixel(2, 4, image::Luma([0]));
+        let cropped = crop(DynamicImage::ImageLuma8(luma), Some(0xffffffff));
+        assert_eq!(cropped.color(), ColorType::L8);
+        assert_eq!(cropped.dimensions(), (2, 4));
     }
 
     #[test]
