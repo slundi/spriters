@@ -11,13 +11,70 @@ use crate::{
 #[derive(Debug, Clone, Default)]
 struct SquareGraph {
     nodes: Vec<SquareNode>,
-    // edges: Vec<SquareEdge>,
+    /// Per node: upper bound `(width, height)` of the free nodes in its subtree (each
+    /// component maximised separately). Searches skip subtrees where no block can fit, so
+    /// filled regions are not walked again for every image.
+    free: Vec<(u32, u32)>,
+    /// Per node: its parent, to update `free` up the tree.
+    parent: Vec<Option<NodeIndex>>,
 }
 impl SquareGraph {
     pub fn add_node(&mut self, node: SquareNode) -> NodeIndex {
         let index = self.nodes.len();
+        let bound = self.free_bound(&node);
+        for child in [node.right, node.down].into_iter().flatten() {
+            self.parent[child] = Some(index);
+        }
         self.nodes.push(node);
+        self.free.push(bound);
+        self.parent.push(None);
         index
+    }
+
+    /// Free-space bound of `node`: its own size when free, its children's otherwise.
+    ///
+    /// Empty leaves (0 wide or 0 tall, left over by splits) count as `(0, 0)`: they can never
+    /// hold a block, and their single non-zero side would otherwise inflate the bound of
+    /// full regions.
+    fn free_bound(&self, node: &SquareNode) -> (u32, u32) {
+        if !node.used {
+            return if node.width == 0 || node.height == 0 {
+                (0, 0)
+            } else {
+                (node.width, node.height)
+            };
+        }
+        [node.right, node.down]
+            .into_iter()
+            .flatten()
+            .map(|child| self.free[child])
+            .fold((0, 0), |(width, height), (child_w, child_h)| {
+                (width.max(child_w), height.max(child_h))
+            })
+    }
+
+    /// Recompute the free-space bound of `index` and its ancestors, as far as it changes.
+    fn refresh(&mut self, mut index: NodeIndex) {
+        loop {
+            let bound = self.free_bound(&self.nodes[index]);
+            if self.free[index] == bound {
+                return;
+            }
+            self.free[index] = bound;
+            match self.parent[index] {
+                Some(parent) => index = parent,
+                None => return,
+            }
+        }
+    }
+
+    /// Make `parent` (already updated) the parent of its children and refresh its bound.
+    fn adopt_children(&mut self, parent: NodeIndex) {
+        let node = &self.nodes[parent];
+        for child in [node.right, node.down].into_iter().flatten() {
+            self.parent[child] = Some(parent);
+        }
+        self.free[parent] = self.free_bound(&self.nodes[parent]);
     }
 
     /// Find a node to allocate this image size (width, height).
@@ -25,18 +82,29 @@ impl SquareGraph {
     /// - `node_index`: node to search in
     /// - `width`: pixels to grow right (width).
     /// - `height`: pixels to grow down (height).
+    ///
+    /// Depth-first, right subtree before the down one. Iterative: a degenerate layout makes
+    /// the tree as deep as the number of images, which would overflow the stack of a
+    /// recursive search.
     pub fn find(&self, node_index: NodeIndex, width: u32, height: u32) -> Option<NodeIndex> {
-        let node = &self.nodes[node_index];
-        let mut result: Option<NodeIndex> = None;
-        if node.used {
-            result = self.find(node.right.unwrap(), width, height);
-            if result.is_none() {
-                result = self.find(node.down.unwrap(), width, height);
+        // Images are at least 1×1, so are blocks: empty leaves never match (see `free_bound`).
+        debug_assert!(width > 0 && height > 0, "empty {width}x{height} block");
+        let mut pending = vec![node_index];
+        while let Some(index) = pending.pop() {
+            // Nothing below can fit: skipped without changing which node is found first.
+            let (free_w, free_h) = self.free[index];
+            if free_w < width || free_h < height {
+                continue;
             }
-        } else if node.width >= width && node.height >= height {
-            return Some(node_index);
+            let node = &self.nodes[index];
+            if !node.used {
+                return Some(index);
+            }
+            // Pushed in reverse order: the right subtree is searched first.
+            pending.extend(node.down);
+            pending.extend(node.right);
         }
-        result
+        None
     }
 
     /// Split the node to allocate a new one of this size.
@@ -68,6 +136,9 @@ impl SquareGraph {
         node.used = true;
         node.down = Some(down_index);
         node.right = Some(right_index);
+        self.parent[right_index] = Some(node_index);
+        self.parent[down_index] = Some(node_index);
+        self.refresh(node_index);
     }
 
     /// Grow the canvas so that a `width`×`height` block fits, allocate it and return its node.
@@ -113,6 +184,7 @@ impl SquareGraph {
         root.width += width;
         root.down = Some(down);
         root.right = Some(right);
+        self.adopt_children(root_index);
 
         self.split(right, width, height);
         right
@@ -136,6 +208,7 @@ impl SquareGraph {
         root.height += height;
         root.down = Some(down);
         root.right = Some(right);
+        self.adopt_children(root_index);
 
         self.split(down, width, height);
         down
@@ -189,8 +262,11 @@ pub(crate) fn process(sprite: &mut Sprite) {
 
     // The root starts as wide as the widest block and as tall as the tallest one, so every
     // block fits in either growth direction whatever the ordering (see `SquareGraph::grow`).
+    let capacity = sprite.images.len() * 3 + 1;
     let mut graph = SquareGraph {
-        nodes: Vec::with_capacity(sprite.images.len() * 3 + 1),
+        nodes: Vec::with_capacity(capacity),
+        free: Vec::with_capacity(capacity),
+        parent: Vec::with_capacity(capacity),
     };
     let root = graph.add_node(SquareNode {
         width: blocks.iter().map(|block| block.0).max().unwrap_or(0),
@@ -428,5 +504,138 @@ mod tests {
         // Blocks are 14×14: the second one must start after the first block.
         let second = &sprite.images[1];
         assert!(second.x >= 14 || second.y >= 14);
+    }
+
+    /// The former recursive search, as a reference.
+    fn find_recursive(
+        graph: &SquareGraph,
+        node_index: NodeIndex,
+        width: u32,
+        height: u32,
+    ) -> Option<NodeIndex> {
+        let node = &graph.nodes[node_index];
+        if node.used {
+            find_recursive(graph, node.right.unwrap(), width, height)
+                .or_else(|| find_recursive(graph, node.down.unwrap(), width, height))
+        } else if node.width >= width && node.height >= height {
+            Some(node_index)
+        } else {
+            None
+        }
+    }
+
+    #[test]
+    fn test_iterative_find_matches_recursive_search() {
+        let mut state: u32 = 0x1234_5678;
+        let mut next = move |modulo: u32| {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            state % modulo
+        };
+        for _ in 0..50 {
+            let blocks: Vec<(u32, u32)> = (0..40).map(|_| (1 + next(30), 1 + next(30))).collect();
+            let mut graph = SquareGraph::default();
+            let root = graph.add_node(SquareNode {
+                width: blocks.iter().map(|block| block.0).max().unwrap(),
+                height: blocks.iter().map(|block| block.1).max().unwrap(),
+                ..Default::default()
+            });
+            for &(width, height) in &blocks {
+                // Probe other sizes too, so that failed searches are compared as well.
+                for (probe_w, probe_h) in [(width, height), (1 + next(40), 1 + next(40))] {
+                    assert_eq!(
+                        graph.find(root, probe_w, probe_h),
+                        find_recursive(&graph, root, probe_w, probe_h)
+                    );
+                }
+                match graph.find(root, width, height) {
+                    Some(free) => graph.split(free, width, height),
+                    None => {
+                        graph.grow(root, width, height);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Depth of the deepest node below `root`, measured without recursion.
+    fn tree_depth(graph: &SquareGraph, root: NodeIndex) -> usize {
+        let mut deepest = 0;
+        let mut pending = vec![(root, 1)];
+        while let Some((index, depth)) = pending.pop() {
+            deepest = deepest.max(depth);
+            let node = &graph.nodes[index];
+            for child in [node.right, node.down].into_iter().flatten() {
+                pending.push((child, depth + 1));
+            }
+        }
+        deepest
+    }
+
+    /// Pack `blocks` like [`process`] and return the graph.
+    fn pack(blocks: &[(u32, u32)]) -> SquareGraph {
+        let mut graph = SquareGraph::default();
+        let root = graph.add_node(SquareNode {
+            width: blocks.iter().map(|block| block.0).max().unwrap(),
+            height: blocks.iter().map(|block| block.1).max().unwrap(),
+            ..Default::default()
+        });
+        for &(width, height) in blocks {
+            match graph.find(root, width, height) {
+                Some(free) => graph.split(free, width, height),
+                None => {
+                    graph.grow(root, width, height);
+                }
+            }
+        }
+        graph
+    }
+
+    #[test]
+    fn test_deep_tree_does_not_overflow_the_stack() {
+        // Review 5.5: the tree can be as deep as a column of images; the recursive search
+        // overflowed small (e.g. rayon) thread stacks.
+        // On the heap: a 20 000-element array would not fit the small thread stack itself.
+        let blocks = vec![(100, 1); 20_000];
+        assert!(
+            tree_depth(&pack(&blocks), 0) > 1_000,
+            "the test must build a deep tree"
+        );
+        let handle = std::thread::Builder::new()
+            .stack_size(64 * 1024)
+            .spawn(move || {
+                let mut sprite = sprite_of(&blocks);
+                process(&mut sprite);
+                sprite
+            })
+            .unwrap();
+        let sprite = handle.join().expect("packing must not overflow the stack");
+        assert_no_overlap(&sprite);
+    }
+
+    #[test]
+    fn test_free_bounds_match_the_free_nodes() {
+        let blocks: Vec<(u32, u32)> = (0..200u32)
+            .map(|i| (1 + i * 7 % 23, 1 + i * 5 % 17))
+            .collect();
+        let graph = pack(&blocks);
+        for index in 0..graph.nodes.len() {
+            // Recompute the bound from the free leaves of the subtree.
+            let mut expected = (0, 0);
+            let mut pending = vec![index];
+            while let Some(current) = pending.pop() {
+                let node = &graph.nodes[current];
+                if node.used {
+                    pending.extend(node.right);
+                    pending.extend(node.down);
+                } else {
+                    if node.width > 0 && node.height > 0 {
+                        expected = (expected.0.max(node.width), expected.1.max(node.height));
+                    }
+                }
+            }
+            assert_eq!(graph.free[index], expected, "node {index}");
+        }
     }
 }

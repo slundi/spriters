@@ -145,11 +145,31 @@ fn text_outputs_benchmark(c: &mut Criterion) {
     std::fs::remove_dir_all(&root).ok();
 }
 
+/// Square packing of 5000 blocks of mixed sizes (layout only, no I/O).
+fn square_benchmark(c: &mut Criterion) {
+    let mut sprite = spriters::Sprite::default();
+    sprite.ratios.push(1.0);
+    sprite.images.extend((0..5000u32).map(|index| {
+        let (width, height) = (4 + index * 7 % 40, 4 + index * 13 % 30);
+        spriters::ImageAndPosition {
+            path: format!("icon{index}.png"),
+            image: DynamicImage::new_rgba8(1, 1),
+            computed_width: width,
+            computed_height: height,
+            ..Default::default()
+        }
+    }));
+    c.bench_function("square layout 5000 blocks", |b| {
+        b.iter(|| spriters::Algorithm::square(black_box(&mut sprite)))
+    });
+}
+
 criterion_group!(
     benches,
     crop_benchmark,
     svg_benchmark,
     generate_benchmark,
-    text_outputs_benchmark
+    text_outputs_benchmark,
+    square_benchmark
 );
 criterion_main!(benches);
