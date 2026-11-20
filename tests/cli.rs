@@ -397,6 +397,36 @@ fn unwritable_output_does_not_panic() {
 }
 
 #[test]
+fn positional_source_and_output_as_documented() {
+    // Review 3.8: the README's `spriters icons/ dist/ --retina` was rejected.
+    with_tmp_dir(|tmp| {
+        let (source, out) = source_and_output(tmp);
+        let output = spriters(&[source.to_str().unwrap(), out.to_str().unwrap(), "--json"]);
+
+        assert!(output.status.success(), "{}", stderr(&output));
+        assert!(out.join("icons.png").exists());
+        assert!(out.join("icons.json").exists());
+    });
+}
+
+#[test]
+fn positional_directory_conflicting_with_option_fails() {
+    with_tmp_dir(|tmp| {
+        let (source, out) = source_and_output(tmp);
+        let output = spriters(&[
+            "-i",
+            source.to_str().unwrap(),
+            source.to_str().unwrap(),
+            out.to_str().unwrap(),
+        ]);
+
+        assert!(!output.status.success());
+        assert!(stderr(&output).contains("source directory given twice"));
+        assert!(!out.join("icons.png").exists());
+    });
+}
+
+#[test]
 fn unknown_option_fails_with_message() {
     let output = spriters(&["--bogus"]);
     assert!(!output.status.success());

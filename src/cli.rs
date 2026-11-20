@@ -4,6 +4,7 @@ use spriters::{Algorithm, Config, JsonFormat, Ordering, SpriteFormat};
 const HELP_MSG: &str = "spriters [OPTIONS] [SOURCE_DIR] [OUTPUT_DIR]
 
 By default, it search images on the current working directory. The output is alson on the working directory.
+SOURCE_DIR and OUTPUT_DIR can also be given with -i and -o (but not both ways).
 
 General options:
 -h, --help:             print this message
@@ -110,6 +111,10 @@ fn parse_args_from(mut parser: lexopt::Parser) -> Result<CliArgs, lexopt::Error>
     use lexopt::prelude::*;
 
     let mut cli = CliArgs::default();
+    // Directories given with -i/-o and as positional arguments, to report conflicts.
+    let mut source_option = false;
+    let mut output_option = false;
+    let mut positionals: Vec<std::path::PathBuf> = Vec::new();
 
     while let Some(arg) = parser.next()? {
         match arg {
@@ -251,14 +256,22 @@ fn parse_args_from(mut parser: lexopt::Parser) -> Result<CliArgs, lexopt::Error>
                 if value == "-" {
                     cli.read_stdin = true;
                 } else {
+                    source_option = true;
                     let source = std::path::PathBuf::from(value);
                     cli.set(move |config| config.source = source.clone());
                 }
             }
             Long("stdin") => cli.read_stdin = true,
             Short('o') | Long("output") => {
+                output_option = true;
                 let output = std::path::PathBuf::from(parser.value()?);
                 cli.set(move |config| config.output = output.clone());
+            }
+            Value(value) => {
+                if positionals.len() == 2 {
+                    return Err(Value(value).unexpected());
+                }
+                positionals.push(std::path::PathBuf::from(value));
             }
             Short('u') | Long("url") => {
                 // Prepended as is: relative URLs (`/static/`) are the most common case.
@@ -293,7 +306,33 @@ fn parse_args_from(mut parser: lexopt::Parser) -> Result<CliArgs, lexopt::Error>
         }
     }
 
+    // `spriters [OPTIONS] [SOURCE_DIR] [OUTPUT_DIR]`
+    let mut positionals = positionals.into_iter();
+    if let Some(source) = positionals.next() {
+        if source_option {
+            return Err(conflict("source", "-i/--input", &source));
+        }
+        cli.set(move |config| config.source = source.clone());
+    }
+    if let Some(output) = positionals.next() {
+        if output_option {
+            return Err(conflict("output", "-o/--output", &output));
+        }
+        cli.set(move |config| config.output = output.clone());
+    }
+
     Ok(cli)
+}
+
+/// A directory given both with an option and as a positional argument.
+fn conflict(what: &str, option: &str, positional: &std::path::Path) -> lexopt::Error {
+    lexopt::Error::Custom(
+        format!(
+            "{what} directory given twice: with {option} and as argument {:?}",
+            positional
+        )
+        .into(),
+    )
 }
 
 #[cfg(test)]
@@ -354,6 +393,65 @@ mod tests {
         assert_eq!(config.json_format, JsonFormat::Hash);
         assert_eq!(config.sprite_format, SpriteFormat::WebP);
         assert_eq!(config.ratios.as_deref(), Some("2,1"));
+    }
+
+    fn parse_error(args: &[&str]) -> String {
+        match parse_args_from(lexopt::Parser::from_args(args.iter().copied())) {
+            Ok(_) => panic!("{args:?} must be rejected"),
+            Err(err) => err.to_string(),
+        }
+    }
+
+    #[test]
+    fn test_positional_source_and_output() {
+        // Review 3.8: `spriters icons/ dist/ --retina` failed with `unexpected argument`.
+        let config = parsed_config(&["icons/", "dist/", "--retina"]);
+        assert_eq!(config.source, std::path::PathBuf::from("icons/"));
+        assert_eq!(config.output, std::path::PathBuf::from("dist/"));
+        assert_eq!(config.ratios.as_deref(), Some("2,1"));
+    }
+
+    #[test]
+    fn test_positional_source_only_keeps_default_output() {
+        let config = parsed_config(&["--json", "icons"]);
+        assert_eq!(config.source, std::path::PathBuf::from("icons"));
+        assert_eq!(config.output, Config::default().output);
+        assert!(config.json);
+    }
+
+    #[test]
+    fn test_positional_mixed_with_options() {
+        let config = parsed_config(&["-o", "dist", "icons"]);
+        assert_eq!(config.source, std::path::PathBuf::from("icons"));
+        assert_eq!(config.output, std::path::PathBuf::from("dist"));
+
+        // `--` ends the options: a directory may start with a dash.
+        let config = parsed_config(&["--", "-icons", "dist"]);
+        assert_eq!(config.source, std::path::PathBuf::from("-icons"));
+    }
+
+    #[test]
+    fn test_positional_source_with_stdin() {
+        // File-list mode: the positional directory still names the sprite.
+        let cli = parse(&["--stdin", "icons"]);
+        assert!(cli.reads_stdin());
+        let mut config = Config::default();
+        cli.apply(&mut config);
+        assert_eq!(config.source, std::path::PathBuf::from("icons"));
+        assert!(parse(&["-i", "-", "icons"]).reads_stdin());
+    }
+
+    #[test]
+    fn test_too_many_positionals_is_an_error() {
+        assert!(parse_error(&["icons", "dist", "extra"]).contains("extra"));
+    }
+
+    #[test]
+    fn test_directory_given_twice_is_an_error() {
+        assert!(parse_error(&["-i", "assets", "icons"]).contains("source directory given twice"),);
+        assert!(
+            parse_error(&["-o", "dist", "icons", "out"]).contains("output directory given twice"),
+        );
     }
 
     #[test]
