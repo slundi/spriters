@@ -697,6 +697,52 @@ fn no_duplicate_fails_after_writing_the_sprites() {
 }
 
 #[test]
+fn dry_run_reports_of_a_project_do_not_interleave() {
+    // Review 6.6: sprites run in parallel, and each printed its report line by line.
+    with_tmp_dir(|tmp| {
+        let project = tmp.join("project");
+        let sprites: Vec<String> = (0..8).map(|index| format!("set{index}")).collect();
+        for (index, sprite) in sprites.iter().enumerate() {
+            let dir = project.join(sprite);
+            std::fs::create_dir_all(&dir).unwrap();
+            for icon in 0..40u8 {
+                image::RgbaImage::from_pixel(2, 2, image::Rgba([icon, index as u8, 0, 255]))
+                    .save(dir.join(format!("icon{icon}.png")))
+                    .unwrap();
+            }
+        }
+        let output = spriters(&[
+            "--project",
+            "--dry-run",
+            "-i",
+            project.to_str().unwrap(),
+            "-o",
+            tmp.to_str().unwrap(),
+        ]);
+        assert!(output.status.success(), "{}", stderr(&output));
+        let stdout = String::from_utf8(output.stdout).unwrap();
+
+        // Each report starts with "Sprite: <name>"; all its lines must name that sprite.
+        let mut seen = Vec::new();
+        for report in stdout.split("Sprite: ").skip(1) {
+            let name = report.split(' ').next().unwrap();
+            seen.push(name.to_owned());
+            let lines: Vec<&str> = report.lines().skip(1).collect();
+            let classes = lines.iter().filter(|line| line.starts_with("  .")).count();
+            assert_eq!(classes, 40, "{name}:\n{report}");
+            for line in &lines {
+                let own = line.contains(&format!("sprite-{name}-"))
+                    || line.starts_with(&format!("  {name}."))
+                    || line.starts_with("Would write to");
+                assert!(own, "{name}: foreign line {line:?}\n{stdout}");
+            }
+        }
+        seen.sort();
+        assert_eq!(seen, sprites);
+    });
+}
+
+#[test]
 fn project_with_one_broken_sprite_fails_and_builds_the_others() {
     with_tmp_dir(|tmp| {
         let (source, out) = source_and_output(tmp);

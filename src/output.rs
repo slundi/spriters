@@ -1383,46 +1383,63 @@ fn generate_dts(_config: &Config, sprite: &Sprite, f: &mut dyn Write) -> std::io
     Ok(())
 }
 
-fn print_dry_run(config: &Config, sprite: &Sprite) {
+/// What `--dry-run` prints for `sprite`: its classes and the files that would be written.
+fn dry_run_report(config: &Config, sprite: &Sprite) -> String {
     let name = sprite.name();
     let (w, h) = sprite.dimensions();
     let total_entries: usize = sprite.images.iter().map(|i| 1 + i.aliases.len()).sum();
 
-    println!(
+    let mut lines = vec![format!(
         "Sprite: {} ({}×{} px, {} entries)",
         name, w, h, total_entries
-    );
+    )];
     for img in &sprite.images {
         for label in
             std::iter::once(img.label()).chain(img.aliases.iter().map(|p| label_from_path(p)))
         {
-            println!(
+            lines.push(format!(
                 "  .{cls:40} at ({x},{y}) {w}×{h}px",
                 cls = build_class_name(config, &name, &label),
                 x = img.x,
                 y = img.y,
                 w = img.computed_width,
                 h = img.computed_height,
-            );
+            ));
         }
     }
-    println!("Would write to {}:", config.output.display());
+    lines.push(format!("Would write to {}:", config.output.display()));
     if !config.no_img {
-        for file in sprite_filenames(config, sprite) {
-            println!("  {file}");
-        }
+        lines.extend(
+            sprite_filenames(config, sprite)
+                .into_iter()
+                .map(|file| format!("  {file}")),
+        );
     }
-    for file in text_output_names(config, &name) {
-        println!("  {file}");
-    }
+    lines.extend(
+        text_output_names(config, &name)
+            .into_iter()
+            .map(|file| format!("  {file}")),
+    );
+    lines.push(String::new());
+    lines.join("\n")
+}
+
+/// Print the dry-run report of `sprite` in a single write under the stdout lock: in project
+/// mode sprites are processed in parallel, and their reports must not interleave.
+fn print_dry_run(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
+    let report = dry_run_report(config, sprite);
+    let mut stdout = std::io::stdout().lock();
+    stdout
+        .write_all(report.as_bytes())
+        .and_then(|()| stdout.flush())
+        .inspect_err(|e| log::error!("Cannot print the dry run: {e}"))
 }
 
 /// Write the sprite image and the text outputs that are out of date. Returns whether every
 /// file that had to be written was written.
 pub fn generate_files(config: &Config, sprite: &Sprite) -> bool {
     if config.dry_run {
-        print_dry_run(config, sprite);
-        return true;
+        return print_dry_run(config, sprite).is_ok();
     }
 
     let stored = read_metadata(config, sprite);
@@ -1710,6 +1727,39 @@ mod tests {
             .image
         );
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_dry_run_report() {
+        let config = Config {
+            output: PathBuf::from("out"),
+            json: true,
+            ..Default::default()
+        };
+        let sprite = sprite_for_writers(&config);
+        let class = |name: &str| format!("  .{:40}", format!("sprite-icons-{name}"));
+        let expected = [
+            String::from("Sprite: icons (8×4 px, 3 entries)"),
+            format!("{} at (0,0) 4×4px", class("red")),
+            format!("{} at (0,0) 4×4px", class("copy")),
+            format!("{} at (4,0) 4×4px", class("blue")),
+            String::from("Would write to out:"),
+            String::from("  icons.png"),
+            String::from("  icons@2x.png"),
+            String::from("  icons.css"),
+            String::from("  icons.json"),
+            String::new(),
+        ]
+        .join("\n");
+        assert_eq!(dry_run_report(&config, &sprite), expected);
+
+        // Without images, only the text outputs would be written.
+        let config = Config {
+            no_img: true,
+            ..config
+        };
+        let report = dry_run_report(&config, &sprite);
+        assert!(report.ends_with("Would write to out:\n  icons.css\n  icons.json\n"));
     }
 
     #[test]
