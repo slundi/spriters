@@ -803,6 +803,47 @@ fn text_output_names(config: &Config, name: &str) -> Vec<String> {
     .collect()
 }
 
+/// Sprite image extensions, see [`SpriteFormat::extension`].
+const SPRITE_EXTENSIONS: [&str; 3] = ["png", "webp", "avif"];
+
+/// Every suffix (after `<sprite name>.`) of a file spriters may write, whatever the options:
+/// the sprite image and all text outputs (see [`text_output_names`]).
+const GENERATED_SUFFIXES: [&str; 13] = [
+    "png",
+    "webp",
+    "avif",
+    "css",
+    "less",
+    "scss",
+    "json",
+    "html",
+    "plist",
+    "caat.json",
+    "vars.css",
+    "tailwind.json",
+    "d.ts",
+];
+
+/// Whether `file_name` is a file spriters writes for one of `sprite_names`: sprite image
+/// (plain or cache-busted, see [`sprite_filename`]), text output or metadata file.
+pub(crate) fn is_generated_file_name(file_name: &str, sprite_names: &[String]) -> bool {
+    sprite_names.iter().any(|name| {
+        file_name == meta_file_name(name)
+            || file_name.strip_prefix(name.as_str()).is_some_and(|rest| {
+                rest.strip_prefix('.')
+                    .is_some_and(|suffix| GENERATED_SUFFIXES.contains(&suffix))
+                    || rest
+                        .strip_prefix('_')
+                        .and_then(|rest| rest.split_once('.'))
+                        .is_some_and(|(buster, ext)| {
+                            buster.len() == 8
+                                && buster.bytes().all(|byte| byte.is_ascii_hexdigit())
+                                && SPRITE_EXTENSIONS.contains(&ext)
+                        })
+            })
+    })
+}
+
 /// Data stored in the metadata file by the previous run.
 #[derive(Debug, Default)]
 pub(crate) struct Metadata {
@@ -1142,6 +1183,62 @@ mod tests {
         assert_eq!(url3, url4, "filename buster must be deterministic");
         assert!(url3.contains('_'), "filename buster must contain '_'");
         assert!(url3.ends_with(".png"), "filename buster must end with .png");
+    }
+
+    #[test]
+    fn test_every_written_file_is_recognised_as_generated() {
+        // Guards against a new output whose name the self-inclusion filter would miss.
+        let names = vec![String::from("america")];
+        let sprite = Sprite {
+            path: PathBuf::from("america"),
+            ratios: vec![1.0],
+            ..Default::default()
+        };
+        let every_output = Config {
+            less: true,
+            scss: true,
+            json: true,
+            html: true,
+            cocos2d: true,
+            caat: true,
+            css_vars: true,
+            tailwind: true,
+            dts: true,
+            ..Default::default()
+        };
+        for file in text_output_names(&every_output, "america") {
+            assert!(is_generated_file_name(&file, &names), "{file}");
+        }
+        assert!(is_generated_file_name(&meta_file_name("america"), &names));
+        for format in [SpriteFormat::Png, SpriteFormat::WebP, SpriteFormat::Avif] {
+            for hashed in [false, true] {
+                let config = Config {
+                    sprite_format: format,
+                    cachebuster_filename: hashed,
+                    ..Default::default()
+                };
+                let file = sprite_filename(&config, &sprite);
+                assert!(is_generated_file_name(&file, &names), "{file}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_source_images_are_not_generated_files() {
+        let names = vec![String::from("icons")];
+        for file in [
+            "arrow.png",
+            "icons2.png",
+            "iconsx.css",
+            "icons.hover.png",
+            "icons_1234.png",
+            "icons_12345678.gif",
+            "icons_zzzzzzzz.png",
+            ".other.spriters",
+        ] {
+            assert!(!is_generated_file_name(file, &names), "{file}");
+        }
+        assert!(!is_generated_file_name("icons.png", &[]));
     }
 
     #[test]

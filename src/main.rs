@@ -77,6 +77,18 @@ fn handle_completions(shell: Option<&str>) {
     }
 }
 
+/// Whether a watcher event only concerns files written by spriters itself: reacting to it
+/// would regenerate in a loop when the output directory is inside the watched source.
+fn is_own_output(config: &spriters::Config, event: &Event) -> bool {
+    // Rebuilt for each event: sprites recorded since the last one must be recognised too.
+    let outputs = spriters::OutputFilter::new(config);
+    !event.paths.is_empty()
+        && event
+            .paths
+            .iter()
+            .all(|path| outputs.is_generated_file(path))
+}
+
 fn format_bytes(n: u64) -> String {
     if n < 1_024 {
         format!("{} B", n)
@@ -157,9 +169,11 @@ fn main() -> ExitCode {
 
         let (tx, rx) = channel();
 
+        let watch_config = config.clone();
         let mut watcher = notify::recommended_watcher(move |res: Result<Event, _>| {
             if let Ok(event) = res
                 && (event.kind.is_modify() || event.kind.is_create() || event.kind.is_remove())
+                && !is_own_output(&watch_config, &event)
             {
                 let _ = tx.send(());
             }
@@ -187,7 +201,34 @@ fn main() -> ExitCode {
 
 #[cfg(test)]
 mod tests {
-    use super::format_bytes;
+    use super::{format_bytes, is_own_output};
+    use notify::{Event, EventKind, event::ModifyKind};
+
+    #[test]
+    fn test_is_own_output_ignores_generated_files_only() {
+        let dir = std::env::temp_dir().join(format!("spriters_watch_{}", std::process::id()));
+        let source = dir.join("same");
+        std::fs::create_dir_all(&source).unwrap();
+        let config = spriters::Config {
+            source: source.clone(),
+            output: source.clone(),
+            ..Default::default()
+        };
+        let event = |files: &[&str]| {
+            files.iter().fold(
+                Event::new(EventKind::Modify(ModifyKind::Any)),
+                |event, file| event.add_path(source.join(file)),
+            )
+        };
+
+        // Review 3.5: writing the outputs into the watched source re-triggered generation.
+        assert!(is_own_output(&config, &event(&["same.png", "same.css"])));
+        assert!(is_own_output(&config, &event(&[".same.spriters"])));
+        assert!(!is_own_output(&config, &event(&["icon.png"])));
+        assert!(!is_own_output(&config, &event(&["same.css", "icon.png"])));
+        assert!(!is_own_output(&config, &event(&[])));
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     #[test]
     fn test_format_bytes_bytes_range() {

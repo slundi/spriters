@@ -601,6 +601,7 @@ impl Sprite {
             case_sensitive: true,
             ..Default::default()
         };
+        let outputs = OutputFilter::new(&self.config);
 
         if self.config.files.is_empty() {
             // Directory-walk mode (default).
@@ -613,6 +614,10 @@ impl Sprite {
                 let name = entry.file_name().to_string_lossy();
                 let ext = entry.path().extension();
                 if name.starts_with('.') || ext.is_none() {
+                    continue;
+                }
+                if outputs.is_generated_file(entry.path()) {
+                    debug!("Skipping generated file: {}", name);
                     continue;
                 }
                 if exclude_patterns
@@ -662,6 +667,10 @@ impl Sprite {
                     None => continue,
                 };
                 if name.starts_with('.') || !is_image_extension(&ext) {
+                    continue;
+                }
+                if outputs.is_generated_file(path_buf) {
+                    debug!("Skipping generated file: {}", name);
                     continue;
                 }
                 if exclude_patterns
@@ -896,6 +905,9 @@ impl Manager {
         use rayon::prelude::*;
 
         if self.project {
+            // An output directory inside the project that only holds generated files
+            // (e.g. `dist/`) is not a sprite.
+            let outputs = OutputFilter::new(&self.config);
             // Collect subdirectory paths first (sequential — read_dir is not parallel).
             let paths: Vec<PathBuf> = std::fs::read_dir(&self.config.source)
                 .expect("Source does not exist or permissions are insufficient or it is a file")
@@ -906,6 +918,10 @@ impl Manager {
                         return None;
                     }
                     if p.file_name()?.to_string_lossy().starts_with('.') {
+                        return None;
+                    }
+                    if outputs.is_output_dir(&p) && !outputs.has_source_images(&p) {
+                        debug!("Skipping output directory: {:?}", p);
                         return None;
                     }
                     Some(p)
@@ -1015,6 +1031,87 @@ pub fn sprite_stats(output_dir: &Path, name: &str) -> Option<SpriteStats> {
         used_pixels: used,
         total_pixels: total,
     })
+}
+
+/// Canonical form of `path`. Only the parent has to exist, so that it also works for files
+/// that were just deleted (as reported by the watcher).
+fn canonical_path(path: &Path) -> Option<PathBuf> {
+    if let Ok(full) = path.canonicalize() {
+        return Some(full);
+    }
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    Some(parent.canonicalize().ok()?.join(path.file_name()?))
+}
+
+/// Recognises the files spriters writes, so they are never read back as source images.
+///
+/// By default the source and output directories are the same: without this filter, the
+/// sprite of a run would become an input image of the next one. Only generated files are
+/// filtered: images the user keeps in the output directory are still sources.
+#[derive(Debug, Default)]
+pub struct OutputFilter {
+    /// Canonical output directory.
+    output: Option<PathBuf>,
+    /// Sprites whose generated files may be in the output directory.
+    sprite_names: Vec<String>,
+}
+
+impl OutputFilter {
+    /// Filter for the outputs of `config`: the sprite built from `config.source`, plus every
+    /// sprite recorded by a metadata file in `config.output`.
+    pub fn new(config: &Config) -> Self {
+        let mut sprite_names = list_sprite_names(&config.output);
+        if let Some(name) = canonical_path(&config.source)
+            .as_deref()
+            .and_then(Path::file_name)
+        {
+            sprite_names.push(name.to_string_lossy().into_owned());
+        }
+        OutputFilter {
+            output: canonical_path(&config.output),
+            sprite_names,
+        }
+    }
+
+    /// Whether `dir` is the output directory.
+    pub fn is_output_dir(&self, dir: &Path) -> bool {
+        self.output.is_some() && canonical_path(dir) == self.output
+    }
+
+    /// Whether `path` is a file spriters generated in the output directory (sprite image,
+    /// text output or metadata). `path` does not need to exist (deleted files).
+    pub fn is_generated_file(&self, path: &Path) -> bool {
+        let Some(output) = &self.output else {
+            return false;
+        };
+        path.file_name().is_some_and(|name| {
+            output::is_generated_file_name(&name.to_string_lossy(), &self.sprite_names)
+        }) && canonical_path(path)
+            .as_deref()
+            .and_then(Path::parent)
+            .is_some_and(|parent| parent == output)
+    }
+
+    /// Whether `dir` holds at least one source image (a non-hidden image that spriters did
+    /// not generate).
+    fn has_source_images(&self, dir: &Path) -> bool {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return false;
+        };
+        entries.filter_map(|entry| entry.ok()).any(|entry| {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            path.is_file()
+                && !name.starts_with('.')
+                && path.extension().is_some_and(|ext| {
+                    is_image_extension(&ext.to_ascii_lowercase().to_string_lossy())
+                })
+                && !self.is_generated_file(&path)
+        })
+    }
 }
 
 /// Scan `output_dir` for `.*.spriters` metadata files and return the sprite names found.
