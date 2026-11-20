@@ -375,7 +375,8 @@ pub struct Config {
     ///     └── rss.png
     /// ```
     pub project: bool,
-    /// Disallow duplicate sprite
+    /// Disallow duplicate images: a file identical to another one is left out (see
+    /// [`Sprite::failed_images`]) instead of becoming an alias, and the run fails.
     pub no_duplicate: bool,
     /// Watch source directory for changes and regenerate sprites automatically
     pub watch: bool,
@@ -613,7 +614,8 @@ pub struct Sprite {
     pub ratios: Vec<f32>,
     pub images: Vec<ImageAndPosition>,
     /// Paths of the image files left out of the sprite: they could not be read or decoded,
-    /// or their label is already used by another image.
+    /// their label is already used by another image, or they duplicate another image with
+    /// `--no-duplicate`.
     pub failed_images: Vec<String>,
     pub margin: Spacing,
     pub padding: Spacing,
@@ -985,8 +987,12 @@ impl Sprite {
             let key = (candidate.len, candidate.hash);
             if let Some(primary) = seen.get(&key) {
                 if self.config.no_duplicate {
-                    error!("{} and {} are identical", path, primary);
-                    std::process::exit(1);
+                    // Left out instead of exiting: in project mode this runs in a rayon
+                    // thread, and the other sprites must still be built and written. The
+                    // failure gives the exit code.
+                    error!("{path} is left out: identical to {primary} (--no-duplicate)");
+                    failed.push(path);
+                    continue;
                 }
                 warn!("{} and {} are identical — consolidating", path, primary);
                 alias_map.entry(primary.clone()).or_default().push(path);

@@ -210,3 +210,77 @@ fn identical_files_with_the_same_label_are_not_a_collision() {
         assert_eq!(json.matches("\"rss\":").count(), 1, "{json}");
     });
 }
+
+#[test]
+fn no_duplicate_leaves_the_copy_out_without_exiting() {
+    // Review 6.5: discovery called `process::exit(1)`, here it would end the test process.
+    with_tmp_dir(|tmp| {
+        let (source, output) = source_and_output(tmp);
+        std::fs::copy(source.join("red.png"), source.join("red-copy.png")).unwrap();
+        let mut manager = manager(&source, &output);
+        manager.config.no_duplicate = true;
+
+        assert!(!manager.generate());
+        let sprite = &manager.sprites[0];
+        // Which copy comes first depends on the walk order: either one is left out.
+        let left_out = file_names(&sprite.failed_images);
+        assert!(
+            left_out == ["red.png"] || left_out == ["red-copy.png"],
+            "{left_out:?}"
+        );
+        assert_eq!(sprite.images.len(), 2, "red and blue");
+        assert!(sprite.images.iter().all(|image| image.aliases.is_empty()));
+        assert!(output.join("icons.css").is_file());
+    });
+}
+
+#[test]
+fn duplicates_are_aliases_without_no_duplicate() {
+    with_tmp_dir(|tmp| {
+        let (source, output) = source_and_output(tmp);
+        std::fs::copy(source.join("red.png"), source.join("red-copy.png")).unwrap();
+        let mut manager = manager(&source, &output);
+
+        assert!(manager.generate());
+        let sprite = &manager.sprites[0];
+        assert!(sprite.failed_images.is_empty());
+        assert_eq!(sprite.images.len(), 2);
+        assert_eq!(
+            sprite
+                .images
+                .iter()
+                .map(|image| image.aliases.len())
+                .sum::<usize>(),
+            1
+        );
+    });
+}
+
+#[test]
+fn no_duplicate_in_one_project_sprite_still_builds_the_others() {
+    with_tmp_dir(|tmp| {
+        let (icons, output) = source_and_output(tmp);
+        let project = tmp.join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::rename(&icons, project.join("icons")).unwrap();
+        save_icon(&project.join("flags").join("fr.png"), [0, 0, 255, 255]);
+        save_icon(&project.join("flags").join("fr-copy.png"), [0, 0, 255, 255]);
+        let mut manager = manager(&project, &output);
+        manager.project = true;
+        manager.config.project = true;
+        manager.config.no_duplicate = true;
+
+        assert!(!manager.generate());
+        assert_eq!(manager.sprites.len(), 2);
+        for name in ["icons", "flags"] {
+            assert!(output.join(format!("{name}.png")).is_file(), "{name}");
+            assert!(output.join(format!("{name}.css")).is_file(), "{name}");
+        }
+        let flags = manager
+            .sprites
+            .iter()
+            .find(|sprite| sprite.name() == "flags")
+            .unwrap();
+        assert_eq!(flags.failed_images.len(), 1);
+    });
+}

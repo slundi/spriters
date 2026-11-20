@@ -664,6 +664,39 @@ fn colliding_labels_fail_with_a_message() {
 }
 
 #[test]
+fn no_duplicate_fails_after_writing_the_sprites() {
+    // Review 6.5: the process exited in the middle of discovery, before any output (and
+    // in project mode, while other sprites were being written).
+    with_tmp_dir(|tmp| {
+        let (source, out) = source_and_output(tmp);
+        let project = tmp.join("project");
+        std::fs::create_dir_all(project.join("flags")).unwrap();
+        std::fs::rename(&source, project.join("icons")).unwrap();
+        for name in ["fr.png", "fr-copy.png"] {
+            image::RgbaImage::from_pixel(4, 4, image::Rgba([0, 0, 255, 255]))
+                .save(project.join("flags").join(name))
+                .unwrap();
+        }
+        let output = spriters(&[
+            "--project",
+            "--no-duplicate",
+            "-i",
+            project.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+        ]);
+
+        assert!(!output.status.success());
+        let message = stderr(&output);
+        assert!(message.contains("is left out: identical to"), "{message}");
+        assert!(message.contains("--no-duplicate"), "{message}");
+        for file in ["icons.png", "icons.css", "flags.png", "flags.css"] {
+            assert!(out.join(file).is_file(), "{file}: {message}");
+        }
+    });
+}
+
+#[test]
 fn project_with_one_broken_sprite_fails_and_builds_the_others() {
     with_tmp_dir(|tmp| {
         let (source, out) = source_and_output(tmp);
