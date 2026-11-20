@@ -123,10 +123,13 @@ fn spacing_is_in_css_pixels() {
             ..config(&source, &out, "2,1")
         });
         let images = &manager.sprites[0].images;
-        // a is 30 CSS px tall + 2 × 2 px of padding.
+        // a's box is 30 CSS px tall + 2 × 2 px of padding.
         assert_eq!(images[1].y, 34);
-        // The canvas ends with b (34 + 20 = 54 CSS px), i.e. 108 px at 2×.
-        assert_eq!(dimensions(out.join("icons@2x.png")), (40, 108));
+        // b's box (20 + 4 CSS px) ends the canvas: 24×58 CSS px, i.e. 48×116 px at 2×.
+        assert_eq!(dimensions(out.join("icons@2x.png")), (48, 116));
+        // b's pixels start inside its padding: (0 + 2, 34 + 2) CSS px.
+        assert_eq!(pixel(out.join("icons@2x.png"), 4, 72), BLUE);
+        assert_eq!(pixel(out.join("icons@2x.png"), 3, 71)[3], 0);
     });
 }
 

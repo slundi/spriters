@@ -516,11 +516,13 @@ pub struct ImageAndPosition {
     pub path: String,
     /// Pixels at the highest ratio (the source resolution).
     pub image: DynamicImage,
-    /// Position in the sprite, in 1× (CSS pixel) units.
+    /// Position in the sprite, in 1× (CSS pixel) units. During layout, top-left corner of the
+    /// cell (margin included); afterwards, of the CSS box (after the margin).
     pub x: u32,
     pub y: u32,
-    /// Size in 1× (CSS pixel) units: the pixel size divided by the highest ratio, rounded up.
-    /// Equal to the pixel size without `--ratios`.
+    /// Size in 1× (CSS pixel) units: the pixel size divided by the highest ratio, rounded up
+    /// (equal to the pixel size without `--ratios`). After layout, the padding is included:
+    /// it is the size of the CSS box.
     pub computed_width: u32,
     pub computed_height: u32,
     /// Paths of images with identical content that consolidate into this region.
@@ -536,6 +538,11 @@ impl ImageAndPosition {
                 .unwrap()
                 .to_string_lossy(),
         )
+    }
+
+    /// Where the image pixels start, in 1× units: inside the padding of its CSS box.
+    pub fn pixel_origin(&self, padding: &Spacing) -> (u32, u32) {
+        (self.x + padding.left, self.y + padding.top)
     }
 }
 
@@ -606,6 +613,20 @@ impl Sprite {
             Algorithm::Diagonal => Algorithm::diagonal(self),
             Algorithm::VerticalRight => Algorithm::vertical_right(self),
             Algorithm::HorizontalBottom => Algorithm::horizontal_bottom(self),
+        }
+        self.cells_to_boxes();
+    }
+
+    /// The algorithms place cells (image + padding + margin) at `x`/`y`. Turn each cell into
+    /// the box seen by CSS: it starts after the margin and includes the padding, so that
+    /// `x`/`y`/`computed_*` are what every output describes. Pixels are drawn inside the
+    /// padding (see [`ImageAndPosition::pixel_origin`]).
+    fn cells_to_boxes(&mut self) {
+        for img in self.images.iter_mut() {
+            img.x += self.margin.left;
+            img.y += self.margin.top;
+            img.computed_width += self.padding.left + self.padding.right;
+            img.computed_height += self.padding.top + self.padding.bottom;
         }
     }
     /// Discover images: it return all valid images within a folder.
@@ -909,13 +930,14 @@ impl Sprite {
         current
     }
 
-    /// Calculate the sprite dimensions based on positioned images.
+    /// Calculate the sprite dimensions based on positioned images, including the right and
+    /// bottom margin of the last ones.
     pub fn dimensions(&self) -> (u32, u32) {
         let mut width: u32 = 0;
         let mut height: u32 = 0;
         for img in self.images.iter() {
-            width = width.max(img.x + img.computed_width);
-            height = height.max(img.y + img.computed_height);
+            width = width.max(img.x + img.computed_width + self.margin.right);
+            height = height.max(img.y + img.computed_height + self.margin.bottom);
         }
         (width, height)
     }

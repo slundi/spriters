@@ -1,4 +1,4 @@
-use spriters::util::{Spacing, absolute_length, horizontal_spacing, vertical_spacing};
+use spriters::util::Spacing;
 use spriters::{Algorithm, Config, Ordering, Sprite};
 use std::path::{Path, PathBuf};
 
@@ -63,22 +63,20 @@ fn make_source(root: &Path) -> PathBuf {
     source
 }
 
-/// Rectangle occupied by an image, padding and margin included.
+/// Rectangle occupied by an image, padding and margin included. `x`/`y`/`computed_*`
+/// describe the CSS box (padding included), so only the margin is added around it.
 fn footprints(sprite: &Sprite) -> Vec<(String, u32, u32, u32, u32)> {
-    let padding = Spacing::from(sprite.config.padding.clone());
     let margin = Spacing::from(sprite.config.margin.clone());
-    let hspace = horizontal_spacing(padding.left, padding.right, margin.left, margin.right);
-    let vspace = vertical_spacing(padding.top, padding.bottom, margin.top, margin.bottom);
     sprite
         .images
         .iter()
         .map(|img| {
             (
                 img.path.clone(),
-                img.x,
-                img.y,
-                absolute_length(img.computed_width, hspace, 1.0),
-                absolute_length(img.computed_height, vspace, 1.0),
+                img.x - margin.left,
+                img.y - margin.top,
+                img.computed_width + margin.left + margin.right,
+                img.computed_height + margin.top + margin.bottom,
             )
         })
         .collect()
@@ -212,5 +210,56 @@ fn square_default_ordering_is_reasonably_dense() {
             density >= 0.5,
             "density {density:.2} too low for a {width}x{height} sprite"
         );
+    });
+}
+
+#[test]
+fn css_boxes_include_padding_and_stay_inside_the_canvas() {
+    // Review 3.10: images sat at the top-left of their cell, padding was not part of the
+    // CSS box and the last margin was cut off.
+    with_tmp_dir(|tmp| {
+        let source = make_source(tmp);
+        for algorithm in ALGORITHMS {
+            for (padding, margin) in [("3", "0"), ("0", "4"), ("1 2 3 4", "5 6 7 8")] {
+                let config = Config {
+                    source: source.clone(),
+                    algorithm,
+                    padding: Some(String::from(padding)),
+                    margin: Some(String::from(margin)),
+                    ..Default::default()
+                };
+                let sprite = Sprite::new(&config, source.clone());
+                let pad = Spacing::from(Some(String::from(padding)));
+                let mar = Spacing::from(Some(String::from(margin)));
+                let (width, height) = sprite.dimensions();
+                let context = format!("{algorithm:?}, padding={padding}, margin={margin}");
+
+                for img in &sprite.images {
+                    // The box is the image plus its padding...
+                    assert_eq!(
+                        img.computed_width,
+                        img.image.width() + pad.left + pad.right,
+                        "[{context}] {}",
+                        img.path
+                    );
+                    assert_eq!(
+                        img.computed_height,
+                        img.image.height() + pad.top + pad.bottom,
+                        "[{context}] {}",
+                        img.path
+                    );
+                    // ...starts after the margin, and the margin fits on the other side too.
+                    assert!(img.x >= mar.left && img.y >= mar.top, "[{context}]");
+                    assert!(
+                        img.x + img.computed_width + mar.right <= width
+                            && img.y + img.computed_height + mar.bottom <= height,
+                        "[{context}] {} overflows the {width}x{height} canvas",
+                        img.path
+                    );
+                    let (origin_x, origin_y) = img.pixel_origin(&pad);
+                    assert_eq!((origin_x - img.x, origin_y - img.y), (pad.left, pad.top));
+                }
+            }
+        }
     });
 }

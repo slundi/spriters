@@ -125,8 +125,8 @@ spriters icons/ dist/ --check
 | `--max-width`        | Maximum image width (CSS px, scales with ratio)                                                         |
 | `--max-height`       | Maximum image height (CSS px, scales with ratio)                                                        |
 | `--resize-algorithm` | `nearest`, `triangle`, `catmullrom` (default), `gaussian`, `lanczos3`                                   |
-| `-p`, `--padding`    | Padding inside each cell                                                                                |
-| `-m`, `--margin`     | Margin outside each cell                                                                                |
+| `-p`, `--padding`    | Transparent space around each image, part of its CSS box (`width`/`height`/`background-position`)       |
+| `-m`, `--margin`     | Transparent space between images, outside their CSS box                                                 |
 | `--ratios`           | Comma-separated ratios, e.g. `2,1` or `2,1.5,1`. Source images are at the highest ratio; one sprite is written per ratio (`name.png`, `name@2x.png`, …) and the CSS uses 1× px with `background-size` and media queries. Padding and margin are in CSS px |
 | `--retina`           | Shortcut for `--ratios=2,1`                                                                             |
 | `--png8`             | Grayscale PNG output                                                                                    |

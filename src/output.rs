@@ -683,8 +683,9 @@ fn render_sprite(config: &Config, sprite: &Sprite, ratio: f32, max_ratio: f32) -
             rgba_img =
                 image::imageops::resize(&rgba_img, target_w, target_h, config.resize_algorithm);
         }
-        let x = (img.x as f32 * ratio).round() as u32;
-        let y = (img.y as f32 * ratio).round() as u32;
+        let (origin_x, origin_y) = img.pixel_origin(&sprite.padding);
+        let x = (origin_x as f32 * ratio).round() as u32;
+        let y = (origin_y as f32 * ratio).round() as u32;
         if let Err(e) = canvas.copy_from(&rgba_img, x, y) {
             log::error!("Failed to copy image {} to sprite: {}", img.path, e);
         }
