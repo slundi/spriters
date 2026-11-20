@@ -164,12 +164,40 @@ fn square_benchmark(c: &mut Criterion) {
     });
 }
 
+/// A `--watch` re-run: discovering 200 icons without and with a warm image cache.
+fn watch_cache_benchmark(c: &mut Criterion) {
+    let source = std::env::temp_dir().join(format!("spriters_bench_cache_{}", std::process::id()));
+    std::fs::create_dir_all(&source).unwrap();
+    for index in 0..200u32 {
+        let image = RgbaImage::from_fn(128, 128, |x, y| {
+            Rgba([(x + index) as u8, (y * 2) as u8, index as u8, 255])
+        });
+        image
+            .save(source.join(format!("icon{index:03}.png")))
+            .unwrap();
+    }
+    let config = spriters::Config {
+        source: source.clone(),
+        ..Default::default()
+    };
+    c.bench_function("discover 200 icons, no cache", |b| {
+        b.iter(|| spriters::Sprite::with_cache(black_box(&config), source.clone(), None))
+    });
+    let cache = spriters::ImageCache::default();
+    spriters::Sprite::with_cache(&config, source.clone(), Some(&cache));
+    c.bench_function("discover 200 icons, warm cache", |b| {
+        b.iter(|| spriters::Sprite::with_cache(black_box(&config), source.clone(), Some(&cache)))
+    });
+    std::fs::remove_dir_all(&source).ok();
+}
+
 criterion_group!(
     benches,
     crop_benchmark,
     svg_benchmark,
     generate_benchmark,
     text_outputs_benchmark,
-    square_benchmark
+    square_benchmark,
+    watch_cache_benchmark
 );
 criterion_main!(benches);

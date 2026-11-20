@@ -560,6 +560,148 @@ pub struct Sprite {
     /// [`Sprite::new`].
     pub(crate) layout_hash: std::sync::OnceLock<u64>,
 }
+/// An image file found by discovery, before decoding.
+struct Candidate {
+    path: PathBuf,
+    /// Size in bytes and content hash: duplicates share both.
+    len: u64,
+    hash: u64,
+    /// Modification time and size of the file, used as cache key.
+    stamp: Option<(std::time::SystemTime, u64)>,
+    source: Source,
+}
+
+/// Where the pixels of a [`Candidate`] come from.
+enum Source {
+    /// Raw file content, still to decode.
+    Bytes(Vec<u8>),
+    /// Already decoded and processed, taken from an [`ImageCache`].
+    Decoded(DynamicImage),
+}
+
+/// Hash of the options that shape a decoded image: an image cached with other values must
+/// be processed again.
+fn processing_key(config: &Config, display_ratio: f32) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = twox_hash::XxHash64::with_seed(0);
+    (config.max_width, config.max_height, config.crop).hash(&mut hasher);
+    config.resize_algorithm.hash(&mut hasher);
+    display_ratio.to_bits().hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Decode an image file and process it for the sprite: resize to `max_width`/`max_height`
+/// (ratio-aware), then crop. Returns the RGBA8 image and the original size.
+///
+/// Resize happens before crop so that max-width/height apply to the full image (including
+/// any transparent border), and crop removes the leftover padding after.
+fn load_image(
+    bytes: &[u8],
+    path: &str,
+    config: &Config,
+    display_ratio: f32,
+) -> Result<(DynamicImage, (u32, u32)), String> {
+    let is_svg = path.to_lowercase().ends_with(".svg");
+    // SVG: rasterized directly to the target size (no post-load resize needed).
+    // Raster: loaded then resized if max-width/height requires it.
+    let img = if is_svg {
+        rasterize_svg(bytes, display_ratio, config.max_width, config.max_height)?
+    } else {
+        image::load_from_memory(bytes).map_err(|e| e.to_string())?
+    };
+    let original = (img.width(), img.height());
+    let mut img = if is_svg {
+        img
+    } else {
+        let (width, height) = get_dimensions_from_max(
+            img.width(),
+            img.height(),
+            config.max_width,
+            config.max_height,
+            display_ratio,
+        );
+        if width != img.width() || height != img.height() {
+            img.resize_exact(width, height, config.resize_algorithm)
+        } else {
+            img
+        }
+    };
+    if config.crop {
+        img = crop(img, None);
+    }
+    // Stored as RGBA8 once (free when it already is), so that the sprite rendering borrows
+    // it instead of converting it per ratio.
+    Ok((DynamicImage::ImageRgba8(img.into_rgba8()), original))
+}
+
+/// Images decoded by earlier runs (used by `--watch`): a file whose size and modification
+/// time did not change is neither read nor decoded again.
+///
+/// Entries also record the options that shape the decoded image (max width/height, crop,
+/// resize filter, highest ratio); an image processed with other values is decoded again.
+#[derive(Debug, Default)]
+pub struct ImageCache {
+    entries: std::sync::Mutex<HashMap<PathBuf, CachedImage>>,
+}
+
+#[derive(Debug)]
+struct CachedImage {
+    modified: std::time::SystemTime,
+    len: u64,
+    processing: u64,
+    source_hash: u64,
+    /// Shared, so that a lookup only clones the pointer under the lock.
+    image: std::sync::Arc<DynamicImage>,
+}
+
+impl ImageCache {
+    fn entries(&self) -> std::sync::MutexGuard<'_, HashMap<PathBuf, CachedImage>> {
+        // A panic while holding the lock leaves a usable map: entries are inserted whole.
+        self.entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Content hash and processed image of `path`, if cached for this exact file state.
+    fn get(
+        &self,
+        path: &Path,
+        modified: std::time::SystemTime,
+        len: u64,
+        processing: u64,
+    ) -> Option<(u64, DynamicImage)> {
+        let (source_hash, image) = {
+            let entries = self.entries();
+            let entry = entries.get(path)?;
+            if entry.modified != modified || entry.len != len || entry.processing != processing {
+                return None;
+            }
+            (entry.source_hash, std::sync::Arc::clone(&entry.image))
+        };
+        // The pixels are copied outside the lock, so parallel lookups do not wait on it.
+        Some((source_hash, DynamicImage::clone(&image)))
+    }
+
+    fn insert(&self, path: PathBuf, image: CachedImage) {
+        self.entries().insert(path, image);
+    }
+
+    /// Forget the images whose file no longer exists.
+    pub fn retain_existing(&self) {
+        self.entries().retain(|path, _| path.exists());
+    }
+
+    /// Number of cached images.
+    pub fn len(&self) -> usize {
+        self.entries().len()
+    }
+
+    /// Whether no image is cached.
+    pub fn is_empty(&self) -> bool {
+        self.entries().is_empty()
+    }
+}
+
 /// Length in 1× units of `pixels` taken at `ratio`, rounded up so the image always fits.
 fn logical_length(pixels: u32, ratio: f32) -> u32 {
     (pixels as f32 / ratio).ceil() as u32
@@ -583,6 +725,12 @@ pub fn sprite_name(path: &Path) -> String {
 
 impl Sprite {
     pub fn new(config: &Config, path: PathBuf) -> Sprite {
+        Sprite::with_cache(config, path, None)
+    }
+
+    /// Like [`Sprite::new`], reusing the images of `cache` whose file did not change, and
+    /// storing the newly decoded ones in it.
+    pub fn with_cache(config: &Config, path: PathBuf, cache: Option<&ImageCache>) -> Sprite {
         let mut result = Sprite {
             config: config.clone(),
             path,
@@ -599,7 +747,7 @@ impl Sprite {
             }
             None => vec![1f32],
         };
-        result.discover_images();
+        result.discover_images(cache);
         result.process();
         result
     }
@@ -649,7 +797,7 @@ impl Sprite {
     /// If the folder doesn't contain any valid image it will exit with an error message.
     ///
     /// The list of images will be ordered using the desired ordering algorithm. The default is 'Maxside'.
-    fn discover_images(&mut self) {
+    fn discover_images(&mut self, cache: Option<&ImageCache>) {
         use rayon::prelude::*;
 
         // Phase 1a (sequential, cheap): list candidate paths, in walk order.
@@ -721,17 +869,42 @@ impl Sprite {
                 .collect()
         };
 
-        // Phase 1b: read and hash in parallel; `collect` keeps the walk order.
-        let read: Vec<(String, Vec<u8>, u64)> = paths
+        // The highest ratio represents the source resolution (e.g., 2.0 for --ratios=2,1).
+        // max-width/height are specified in 1× units; scale up accordingly.
+        let display_ratio = self.ratios.last().copied().unwrap_or(1.0);
+        let processing = processing_key(&self.config, display_ratio);
+
+        // Phase 1b: read and hash in parallel; `collect` keeps the walk order. Files that are
+        // unchanged since a cached run (`--watch`) are neither read nor decoded again.
+        let read: Vec<Candidate> = paths
             .par_iter()
-            .filter_map(|path| match std::fs::read(path) {
-                Ok(bytes) => {
-                    let hash = twox_hash::XxHash64::oneshot(713705, &bytes);
-                    Some((path.to_string_lossy().into_owned(), bytes, hash))
+            .filter_map(|path| {
+                let stamp = std::fs::metadata(path)
+                    .ok()
+                    .and_then(|metadata| Some((metadata.modified().ok()?, metadata.len())));
+                if let (Some(cache), Some((modified, len))) = (cache, stamp)
+                    && let Some((hash, image)) = cache.get(path, modified, len, processing)
+                {
+                    return Some(Candidate {
+                        path: path.clone(),
+                        len,
+                        hash,
+                        stamp,
+                        source: Source::Decoded(image),
+                    });
                 }
-                Err(e) => {
-                    error!("Cannot read {:?}: {}", path, e);
-                    None
+                match std::fs::read(path) {
+                    Ok(bytes) => Some(Candidate {
+                        path: path.clone(),
+                        len: bytes.len() as u64,
+                        hash: twox_hash::XxHash64::oneshot(713705, &bytes),
+                        stamp,
+                        source: Source::Bytes(bytes),
+                    }),
+                    Err(e) => {
+                        error!("Cannot read {:?}: {}", path, e);
+                        None
+                    }
                 }
             })
             .collect();
@@ -739,9 +912,10 @@ impl Sprite {
         // Phase 1c: deduplicate in walk order, so the primary is always the first one seen.
         let mut seen: HashMap<(u64, u64), String> = HashMap::new();
         let mut alias_map: HashMap<String, Vec<String>> = HashMap::new();
-        let mut candidates: Vec<(String, Vec<u8>, u64)> = Vec::with_capacity(read.len());
-        for (path, bytes, hash) in read {
-            let key = (bytes.len() as u64, hash);
+        let mut candidates: Vec<Candidate> = Vec::with_capacity(read.len());
+        for candidate in read {
+            let path = candidate.path.to_string_lossy().into_owned();
+            let key = (candidate.len, candidate.hash);
             if let Some(primary) = seen.get(&key) {
                 if self.config.no_duplicate {
                     error!("{} and {} are identical", path, primary);
@@ -749,56 +923,42 @@ impl Sprite {
                 }
                 warn!("{} and {} are identical — consolidating", path, primary);
                 alias_map.entry(primary.clone()).or_default().push(path);
-                continue; // `bytes` of the duplicate are dropped here
+                continue; // the bytes of the duplicate are dropped here
             }
-            seen.insert(key, path.clone());
-            candidates.push((path, bytes, hash));
+            seen.insert(key, path);
+            candidates.push(candidate);
         }
 
         // Phase 2 (parallel): decode, resize, then crop each image independently.
-        // Resize happens before crop so that max-width/height apply to the full image
-        // (including any transparent border), and crop removes the leftover padding after.
         let config = &self.config;
-        // The highest ratio represents the source resolution (e.g., 2.0 for --ratios=2,1).
-        // max-width/height are specified in 1× units; scale up accordingly.
-        let display_ratio = self.ratios.last().copied().unwrap_or(1.0);
         self.images = candidates
             .into_par_iter()
-            .filter_map(|(path, bytes, source_hash)| {
-                let is_svg = path.to_lowercase().ends_with(".svg");
-
-                // SVG: rasterized directly to the target size (no post-load resize needed).
-                // Raster: loaded then resized if max-width/height requires it.
-                let load_result: Result<DynamicImage, String> = if is_svg {
-                    rasterize_svg(&bytes, display_ratio, config.max_width, config.max_height)
-                } else {
-                    image::load_from_memory(&bytes).map_err(|e| e.to_string())
+            .filter_map(|candidate| {
+                let path = candidate.path.to_string_lossy().into_owned();
+                let source_hash = candidate.hash;
+                let load_result = match candidate.source {
+                    Source::Decoded(image) => Ok((image, None)),
+                    Source::Bytes(bytes) => {
+                        load_image(&bytes, &path, config, display_ratio).map(|(image, original)| {
+                            if let (Some(cache), Some((modified, len))) = (cache, candidate.stamp) {
+                                cache.insert(
+                                    candidate.path.clone(),
+                                    CachedImage {
+                                        modified,
+                                        len,
+                                        processing,
+                                        source_hash,
+                                        image: std::sync::Arc::new(image.clone()),
+                                    },
+                                );
+                            }
+                            (image, Some(original))
+                        })
+                    }
                 };
 
                 match load_result {
-                    Ok(img) => {
-                        let original = (img.width(), img.height());
-                        let mut img2 = if is_svg {
-                            img // SVG already rasterized at target size
-                        } else {
-                            // 1. Resize (ratio-aware)
-                            let d = get_dimensions_from_max(
-                                img.width(),
-                                img.height(),
-                                config.max_width,
-                                config.max_height,
-                                display_ratio,
-                            );
-                            if d.0 != img.width() || d.1 != img.height() {
-                                img.resize_exact(d.0, d.1, config.resize_algorithm)
-                            } else {
-                                img
-                            }
-                        };
-                        // 2. Crop after resize (applies to both SVG and raster)
-                        if config.crop {
-                            img2 = crop(img2, None);
-                        }
+                    Ok((img2, original)) => {
                         let (final_w, final_h) = (img2.width(), img2.height());
                         // Pixels are at the highest ratio; the layout and every text output
                         // use 1× (CSS pixel) units.
@@ -816,11 +976,14 @@ impl Sprite {
                             );
                         }
                         let aliases = alias_map.get(&path).cloned().unwrap_or_default();
+                        let origin = match original {
+                            Some((original_w, original_h)) => format!("{original_w}x{original_h}"),
+                            None => String::from("cached"),
+                        };
                         info!(
-                            "\t Adding: {} ({}x{} -> {}x{}){}",
+                            "\t Adding: {} ({} -> {}x{}){}",
                             path,
-                            original.0,
-                            original.1,
+                            origin,
                             final_w,
                             final_h,
                             if aliases.is_empty() {
@@ -831,9 +994,7 @@ impl Sprite {
                         );
                         Some(ImageAndPosition {
                             path,
-                            // Stored as RGBA8 once (free when it already is), so that the
-                            // sprite rendering borrows it instead of converting it per ratio.
-                            image: DynamicImage::ImageRgba8(img2.into_rgba8()),
+                            image: img2,
                             computed_width: logical_w,
                             computed_height: logical_h,
                             aliases,
@@ -970,6 +1131,8 @@ pub struct Manager {
     pub project: bool,
     pub config: Config,
     pub sprites: Vec<Sprite>,
+    /// Decoded images kept between runs (`--watch`), see [`ImageCache`].
+    pub cache: Option<std::sync::Arc<ImageCache>>,
 }
 
 impl Manager {
@@ -983,7 +1146,7 @@ impl Manager {
         self.sprites = self
             .sprite_sources()
             .into_par_iter()
-            .map(|(config, path)| Sprite::new(&config, path))
+            .map(|(config, path)| Sprite::with_cache(&config, path, self.cache.as_deref()))
             .collect();
         if self.sprites.is_empty() {
             error!("Input folder does not have images.");
@@ -1013,11 +1176,12 @@ impl Manager {
         use rayon::prelude::*;
 
         let config = &self.config;
+        let cache = self.cache.as_deref();
         let results: Vec<(Sprite, bool)> = self
             .sprite_sources()
             .into_par_iter()
             .map(|(sprite_config, path)| {
-                let mut sprite = Sprite::new(&sprite_config, path);
+                let mut sprite = Sprite::with_cache(&sprite_config, path, cache);
                 let result = action(config, &sprite);
                 sprite.release_pixels();
                 (sprite, result)
@@ -1142,16 +1306,43 @@ pub fn sprite_stats(output_dir: &Path, name: &str) -> Option<SpriteStats> {
     let img = image::open(&img_path).ok()?;
     let (w, h) = (img.width(), img.height());
     let total = w as u64 * h as u64;
-    let used = img.to_rgba8().pixels().filter(|p| p.0[3] > 0).count() as u64;
 
     Some(SpriteStats {
         name: name.to_owned(),
         width: w,
         height: h,
         file_size,
-        used_pixels: used,
+        used_pixels: count_visible_pixels(&img, total),
         total_pixels: total,
     })
+}
+
+/// Number of non-transparent pixels of `image` (`total` when it has no alpha channel),
+/// counted in the decoded buffer instead of a converted RGBA copy.
+fn count_visible_pixels(image: &DynamicImage, total: u64) -> u64 {
+    let visible = |alpha: &[u8], stride: usize| {
+        alpha
+            .iter()
+            .step_by(stride)
+            .filter(|&&value| value > 0)
+            .count() as u64
+    };
+    match image {
+        DynamicImage::ImageRgba8(buffer) => visible(buffer.as_raw().get(3..).unwrap_or(&[]), 4),
+        DynamicImage::ImageLumaA8(buffer) => visible(buffer.as_raw().get(1..).unwrap_or(&[]), 2),
+        DynamicImage::ImageRgba16(buffer) => {
+            buffer.pixels().filter(|pixel| pixel.0[3] > 0).count() as u64
+        }
+        DynamicImage::ImageLumaA16(buffer) => {
+            buffer.pixels().filter(|pixel| pixel.0[1] > 0).count() as u64
+        }
+        other if !other.color().has_alpha() => total,
+        other => other
+            .to_rgba8()
+            .pixels()
+            .filter(|pixel| pixel.0[3] > 0)
+            .count() as u64,
+    }
 }
 
 /// Canonical form of `path`. Only the parent has to exist, so that it also works for files
@@ -2139,6 +2330,37 @@ mod tests {
             .into_owned();
         assert_eq!(sprite_name(Path::new("..")), parent_name);
         assert_eq!(sprite_name(Path::new("/")), "sprite");
+    }
+
+    #[test]
+    fn test_count_visible_pixels_matches_brute_force() {
+        let brute_force = |image: &DynamicImage| {
+            image
+                .to_rgba8()
+                .pixels()
+                .filter(|pixel| pixel.0[3] > 0)
+                .count() as u64
+        };
+        let rgba = image::RgbaImage::from_fn(13, 7, |x, y| {
+            image::Rgba([x as u8, y as u8, 0, if (x * y) % 3 == 0 { 0 } else { 200 }])
+        });
+        let luma_alpha = image::GrayAlphaImage::from_fn(9, 5, |x, y| {
+            image::LumaA([7, if x == y { 0 } else { 255 }])
+        });
+        let rgba16 = image::ImageBuffer::<image::Rgba<u16>, Vec<u16>>::from_fn(6, 6, |x, _| {
+            image::Rgba([0, 0, 0, if x < 2 { 0 } else { 65535 }])
+        });
+        for image in [
+            DynamicImage::ImageRgba8(rgba),
+            DynamicImage::ImageLumaA8(luma_alpha),
+            DynamicImage::ImageRgba16(rgba16),
+        ] {
+            let total = image.width() as u64 * image.height() as u64;
+            assert_eq!(count_visible_pixels(&image, total), brute_force(&image));
+        }
+        // Without alpha every pixel is visible.
+        let rgb = DynamicImage::ImageRgb8(image::RgbImage::new(4, 3));
+        assert_eq!(count_visible_pixels(&rgb, 12), 12);
     }
 
     #[test]

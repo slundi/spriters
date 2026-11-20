@@ -7,10 +7,16 @@ use std::time::Duration;
 
 pub mod cli;
 
-fn run_sprite_generation(config: &spriters::Config) {
+/// Build and save (or check) every sprite. `cache` keeps decoded images between `--watch`
+/// runs.
+fn run_sprite_generation(
+    config: &spriters::Config,
+    cache: Option<std::sync::Arc<spriters::ImageCache>>,
+) {
     let mut manager = spriters::Manager {
         project: config.project,
         config: config.clone(),
+        cache,
         ..Default::default()
     };
     // Each sprite is built and released in turn, so a project never holds every decoded
@@ -168,8 +174,14 @@ fn main() -> ExitCode {
     }
     info!("Output directory: {}", config.output.to_string_lossy());
 
+    // In watch mode, decoded images are kept between runs: a change only re-decodes the
+    // files that changed.
+    let cache = config
+        .watch
+        .then(|| std::sync::Arc::new(spriters::ImageCache::default()));
+
     // Initial sprite generation
-    run_sprite_generation(&config);
+    run_sprite_generation(&config, cache.clone());
 
     // If watch mode is enabled, start watching for changes
     if config.watch {
@@ -201,7 +213,10 @@ fn main() -> ExitCode {
             if rx.recv().is_ok() {
                 while rx.recv_timeout(debounce_duration).is_ok() {}
                 info!("Change detected, regenerating sprites...");
-                run_sprite_generation(&config);
+                run_sprite_generation(&config, cache.clone());
+                if let Some(cache) = &cache {
+                    cache.retain_existing();
+                }
                 info!("Watching for changes... (Ctrl+C to stop)");
             }
         }
