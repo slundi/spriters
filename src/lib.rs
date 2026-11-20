@@ -417,6 +417,10 @@ pub enum ConfigError {
     ZeroMaxWidth,
     #[error("max-height must be greater than 0")]
     ZeroMaxHeight,
+    #[error("ratios: {0}")]
+    InvalidRatios(String),
+    #[error("invalid {option} '{value}': expected 1, 2, 3 or 4 non-negative integers")]
+    InvalidSpacing { option: &'static str, value: String },
 }
 
 impl Config {
@@ -433,6 +437,19 @@ impl Config {
         }
         if self.max_height == Some(0) {
             return Err(ConfigError::ZeroMaxHeight);
+        }
+        if let Some(ratios) = &self.ratios {
+            util::parse_ratios(ratios).map_err(ConfigError::InvalidRatios)?;
+        }
+        for (option, value) in [("padding", &self.padding), ("margin", &self.margin)] {
+            if let Some(value) = value
+                && value.parse::<Spacing>().is_err()
+            {
+                return Err(ConfigError::InvalidSpacing {
+                    option,
+                    value: value.clone(),
+                });
+            }
         }
         Ok(())
     }
@@ -459,8 +476,8 @@ impl Default for Config {
             quiet: false,
             recursive: false,
             url: None,
-            source: std::env::current_dir().unwrap(),
-            output: std::env::current_dir().unwrap(),
+            source: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+            output: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             cocos2d: false,
             json: false,
             html: false,
@@ -527,6 +544,22 @@ pub struct Sprite {
     pub margin: Spacing,
     pub padding: Spacing,
 }
+/// Name of the sprite built from the directory `path`, used for every output file name.
+///
+/// Paths without a final component (`.`, `..`) are resolved first; a directory that still
+/// has no name (`/`) falls back to `sprite`.
+pub fn sprite_name(path: &Path) -> String {
+    path.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .or_else(|| {
+            path.canonicalize()
+                .ok()?
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .unwrap_or_else(|| String::from("sprite"))
+}
+
 impl Sprite {
     pub fn new(config: &Config, path: PathBuf) -> Sprite {
         let mut result = Sprite {
@@ -536,25 +569,23 @@ impl Sprite {
             padding: Spacing::from(config.padding.clone()),
             ..Default::default()
         };
-        // ratios: list & sort them
-        if let Some(ratios) = config.ratios.clone() {
-            for value in ratios.split(',') {
-                let ratio: f32 = value.trim().parse().expect("Invalid ratio: not a number");
-                if !ratio.is_finite() || ratio <= 0.0 {
-                    panic!(
-                        "Invalid ratio '{}': must be a positive finite number",
-                        value.trim()
-                    );
-                }
-                result.ratios.push(ratio);
+        // ratios: list & sort them (validated by `Config::check`, fall back to 1x otherwise)
+        result.ratios = match config.ratios.as_deref().map(util::parse_ratios) {
+            Some(Ok(ratios)) => ratios,
+            Some(Err(e)) => {
+                error!("{e}, using 1x");
+                vec![1f32]
             }
-            result.ratios.sort_by(|a, b| a.total_cmp(b));
-        } else {
-            result.ratios.push(1f32);
-        }
+            None => vec![1f32],
+        };
         result.discover_images();
         result.process();
         result
+    }
+
+    /// Name of the sprite, see [`sprite_name`].
+    pub fn name(&self) -> String {
+        sprite_name(&self.path)
     }
 
     /// Generate sprite map
@@ -909,8 +940,17 @@ impl Manager {
             // (e.g. `dist/`) is not a sprite.
             let outputs = OutputFilter::new(&self.config);
             // Collect subdirectory paths first (sequential — read_dir is not parallel).
-            let paths: Vec<PathBuf> = std::fs::read_dir(&self.config.source)
-                .expect("Source does not exist or permissions are insufficient or it is a file")
+            let entries = match std::fs::read_dir(&self.config.source) {
+                Ok(entries) => entries,
+                Err(e) => {
+                    error!(
+                        "Cannot read source directory {:?}: {}",
+                        self.config.source, e
+                    );
+                    return;
+                }
+            };
+            let paths: Vec<PathBuf> = entries
                 .filter_map(|e| e.ok())
                 .filter_map(|de| {
                     let p = de.path();
@@ -935,10 +975,7 @@ impl Manager {
             self.sprites = paths
                 .into_par_iter()
                 .map(|p| {
-                    info!(
-                        "Creating sprite: {}",
-                        p.file_stem().unwrap().to_string_lossy()
-                    );
+                    info!("Creating sprite: {}", sprite_name(&p));
                     let mut sprite_config = config.clone();
                     sprite_config.source = p.clone();
                     Sprite::new(&sprite_config, p)
@@ -946,10 +983,7 @@ impl Manager {
                 .collect();
         } else {
             let p = PathBuf::from(&self.config.source);
-            info!(
-                "Creating sprite: {}",
-                p.file_stem().unwrap().to_string_lossy()
-            );
+            info!("Creating sprite: {}", sprite_name(&p));
             self.sprites.push(Sprite::new(&self.config, p));
         }
         if self.sprites.is_empty() {
@@ -1064,12 +1098,7 @@ impl OutputFilter {
     /// sprite recorded by a metadata file in `config.output`.
     pub fn new(config: &Config) -> Self {
         let mut sprite_names = list_sprite_names(&config.output);
-        if let Some(name) = canonical_path(&config.source)
-            .as_deref()
-            .and_then(Path::file_name)
-        {
-            sprite_names.push(name.to_string_lossy().into_owned());
-        }
+        sprite_names.push(sprite_name(&config.source));
         OutputFilter {
             output: canonical_path(&config.output),
             sprite_names,
@@ -1122,9 +1151,12 @@ pub fn list_sprite_names(output_dir: &Path) -> Vec<String> {
     let mut names: Vec<String> = entries
         .filter_map(|e| e.ok())
         .filter_map(|e| {
-            let n = e.file_name().to_string_lossy().into_owned();
-            (n.starts_with('.') && n.ends_with(".spriters"))
-                .then(|| n[1..n.len() - ".spriters".len()].to_owned())
+            let file_name = e.file_name().to_string_lossy().into_owned();
+            file_name
+                .strip_prefix('.')
+                .and_then(|rest| rest.strip_suffix(".spriters"))
+                .filter(|name| !name.is_empty())
+                .map(str::to_owned)
         })
         .collect();
     names.sort();
@@ -1841,6 +1873,97 @@ mod tests {
             ConfigError::ZeroMaxWidth.to_string(),
             "max-width must be greater than 0"
         );
+    }
+
+    #[test]
+    fn test_config_check_rejects_invalid_ratios_and_spacing() {
+        let dir = tmp_dir("chk_values");
+        let base = Config {
+            source: dir.clone(),
+            output: dir.clone(),
+            ..Default::default()
+        };
+        let check = |config: Config| config.check();
+
+        assert!(matches!(
+            check(Config {
+                ratios: Some(String::from("abc")),
+                ..base.clone()
+            }),
+            Err(ConfigError::InvalidRatios(_))
+        ));
+        assert!(matches!(
+            check(Config {
+                ratios: Some(String::from("2,0")),
+                ..base.clone()
+            }),
+            Err(ConfigError::InvalidRatios(_))
+        ));
+        assert_eq!(
+            check(Config {
+                padding: Some(String::from("abc")),
+                ..base.clone()
+            }),
+            Err(ConfigError::InvalidSpacing {
+                option: "padding",
+                value: String::from("abc")
+            })
+        );
+        assert_eq!(
+            check(Config {
+                margin: Some(String::from("1 2 3 4 5")),
+                ..base.clone()
+            }),
+            Err(ConfigError::InvalidSpacing {
+                option: "margin",
+                value: String::from("1 2 3 4 5")
+            })
+        );
+        assert_eq!(
+            check(Config {
+                ratios: Some(String::from("2,1")),
+                padding: Some(String::from("1 2")),
+                margin: Some(String::from("3")),
+                ..base.clone()
+            }),
+            Ok(())
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_sprite_name_never_panics() {
+        assert_eq!(sprite_name(Path::new("icons")), "icons");
+        assert_eq!(sprite_name(Path::new("assets/icons/")), "icons");
+        // `.` and `..` have no final component: resolved through the real path.
+        let cwd = std::env::current_dir().unwrap();
+        let cwd_name = cwd.file_name().unwrap().to_string_lossy().into_owned();
+        assert_eq!(sprite_name(Path::new(".")), cwd_name);
+        let parent_name = cwd
+            .parent()
+            .and_then(Path::file_name)
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(sprite_name(Path::new("..")), parent_name);
+        assert_eq!(sprite_name(Path::new("/")), "sprite");
+    }
+
+    #[test]
+    fn test_list_sprite_names_ignores_malformed_metadata_names() {
+        // Review 3.7: a `.spriters` file panicked with "byte range starts at 1 but ends at 0".
+        let dir = tmp_dir("meta_names");
+        for file in [
+            ".spriters",
+            "..spriters",
+            ".icons.spriters",
+            "icons.spriters",
+        ] {
+            std::fs::write(dir.join(file), "").unwrap();
+        }
+        let names = list_sprite_names(&dir);
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(names, vec!["icons"]);
     }
 
     #[test]

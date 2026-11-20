@@ -47,7 +47,7 @@ Output options:
 --namespace:            global namespace for CSS classes (default: 'sprite')
 --sprite-namespace:     sprite-specific namespace, use %(sprite)s for sprite name
 --pseudo-class-separator: separator in filenames for pseudo-classes (e.g., '__' makes button__hover.png use :hover)
--u, --url:              base URL for sprite images in CSS (e.g., https://cdn.example.com/sprites)
+-u, --url:              base URL for sprite images in CSS (e.g., /static/ or https://cdn.example.com/sprites)
 
 Image processing options:
 -a, --algorithm:        algorithm to order images in the sprite: square (default), vertical, horizontal, diagonal, vertical-right, horizontal-bottom
@@ -261,8 +261,10 @@ fn parse_args_from(mut parser: lexopt::Parser) -> Result<CliArgs, lexopt::Error>
                 cli.set(move |config| config.output = output.clone());
             }
             Short('u') | Long("url") => {
-                let url = String::from(parser.value()?.to_os_string().to_str().unwrap());
-                url::Url::parse(&url).unwrap();
+                // Prepended as is: relative URLs (`/static/`) are the most common case.
+                let url = parser.value()?.into_string().map_err(|value| {
+                    lexopt::Error::Custom(format!("--url must be valid UTF-8: {value:?}").into())
+                })?;
                 cli.set(move |config| config.url = Some(url.clone()));
             }
             Short('h') | Long("help") => {

@@ -64,13 +64,36 @@ impl ops::Add<Spacing> for Spacing {
     }
 }
 impl Spacing {
+    /// Parse an optional spacing value. Invalid values are rejected by `Config::check`;
+    /// here they are logged and replaced by no spacing.
     pub fn from(raw: Option<String>) -> Spacing {
         match raw {
-            Some(value) => Spacing::from_str(&value)
-                .unwrap_or_else(|e| panic!("Invalid spacing value '{}': {}", value, e)),
+            Some(value) => Spacing::from_str(&value).unwrap_or_else(|e| {
+                log::error!("Invalid spacing value '{}': {}, using 0", value, e);
+                Spacing::default()
+            }),
             None => Spacing::default(),
         }
     }
+}
+
+/// Parse a comma-separated list of pixel ratios (e.g. `2,1.5,1`), sorted in ascending order.
+/// Every ratio must be a positive finite number.
+pub fn parse_ratios(raw: &str) -> Result<Vec<f32>, String> {
+    let mut ratios = raw
+        .split(',')
+        .map(|value| {
+            let value = value.trim();
+            match value.parse::<f32>() {
+                Ok(ratio) if ratio.is_finite() && ratio > 0.0 => Ok(ratio),
+                _ => Err(format!(
+                    "invalid ratio '{value}': must be a positive finite number"
+                )),
+            }
+        })
+        .collect::<Result<Vec<f32>, String>>()?;
+    ratios.sort_by(|a, b| a.total_cmp(b));
+    Ok(ratios)
 }
 
 /// Return the horizontal padding and margin for an image.
@@ -129,6 +152,36 @@ mod tests {
         assert_eq!(round_up(1.5), 2);
         assert_eq!(round_up(-5f32), 0);
         assert_eq!(round_up(f32::MAX), u32::MAX);
+    }
+
+    #[test]
+    fn test_parse_ratios() {
+        assert_eq!(parse_ratios("2,1"), Ok(vec![1.0, 2.0]));
+        assert_eq!(parse_ratios(" 1.5 , 2 ,1"), Ok(vec![1.0, 1.5, 2.0]));
+        assert_eq!(parse_ratios("1"), Ok(vec![1.0]));
+    }
+
+    #[test]
+    fn test_parse_ratios_rejects_invalid_values() {
+        // Review 3.7: these used to panic in `Sprite::new`.
+        for raw in ["abc", "0", "-1", "2,,1", "", "inf", "NaN", "2,x"] {
+            assert!(parse_ratios(raw).is_err(), "{raw:?} must be rejected");
+        }
+        assert_eq!(
+            parse_ratios("2,0"),
+            Err(String::from(
+                "invalid ratio '0': must be a positive finite number"
+            ))
+        );
+    }
+
+    #[test]
+    fn test_spacing_from_invalid_value_does_not_panic() {
+        assert_eq!(Spacing::from(Some(String::from("abc"))), Spacing::default());
+        assert_eq!(
+            Spacing::from(Some(String::from("1 2 3 4 5"))),
+            Spacing::default()
+        );
     }
 
     #[test]

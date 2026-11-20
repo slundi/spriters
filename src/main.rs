@@ -30,8 +30,8 @@ fn run_sprite_generation(config: &spriters::Config) {
     manager.save();
 }
 
-fn handle_stats(output_dir: Option<&str>) {
-    let dir = std::path::Path::new(output_dir.unwrap_or("."));
+fn handle_stats(output_dir: Option<&std::path::Path>) {
+    let dir = output_dir.unwrap_or(std::path::Path::new("."));
     if !dir.is_dir() {
         eprintln!("Error: '{}' is not a directory", dir.display());
         std::process::exit(1);
@@ -111,15 +111,16 @@ fn format_bytes(n: u64) -> String {
 }
 
 fn main() -> ExitCode {
-    // Detect subcommands before full argument parsing.
-    let raw: Vec<String> = std::env::args().collect();
-    match raw.get(1).map(String::as_str) {
+    // Detect subcommands before full argument parsing. `args_os`: `args` panics on
+    // arguments that are not valid UTF-8 (lexopt reports those properly).
+    let raw: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    match raw.get(1).and_then(|arg| arg.to_str()) {
         Some("stats") => {
-            handle_stats(raw.get(2).map(String::as_str));
+            handle_stats(raw.get(2).map(std::path::Path::new));
             return ExitCode::SUCCESS;
         }
         Some("completions") => {
-            handle_completions(raw.get(2).map(String::as_str));
+            handle_completions(raw.get(2).and_then(|arg| arg.to_str()));
             return ExitCode::SUCCESS;
         }
         _ => {}

@@ -36,11 +36,7 @@ fn hashed_sprite_filename(config: &Config) -> bool {
 ///
 /// Single source of truth for the written file and every reference to it.
 pub(crate) fn sprite_filename(config: &Config, sprite: &Sprite) -> String {
-    let name = sprite
-        .path
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy();
+    let name = sprite.name();
     let ext = config.sprite_format.extension();
     if hashed_sprite_filename(config) {
         format!("{name}_{}.{ext}", cache_buster(config, sprite))
@@ -104,6 +100,15 @@ fn build_class_name(config: &Config, sprite_name: &str, image_label: &str) -> St
     class_name
 }
 
+/// Create an output file, logging the error instead of panicking (e.g. no write permission
+/// or a full disk): the other outputs are still generated.
+fn create_output(path: &std::path::Path) -> Option<BufWriter<File>> {
+    File::create(path)
+        .map(BufWriter::new)
+        .map_err(|e| log::error!("Cannot create {:?}: {}", path, e))
+        .ok()
+}
+
 /// Derive a CSS-safe label from an arbitrary file path (same logic as `ImageAndPosition::label()`).
 fn label_from_path(path: &str) -> String {
     slug::slugify(
@@ -115,7 +120,7 @@ fn label_from_path(path: &str) -> String {
 }
 
 fn implode_image_label(config: &Config, sprite: &Sprite) -> String {
-    let sprite_name = sprite.path.file_name().unwrap().to_string_lossy();
+    let sprite_name = sprite.name();
     let mut labels: Vec<String> = Vec::with_capacity(sprite.images.len());
     for img in sprite.images.iter() {
         labels.push(build_class_name(config, &sprite_name, &img.label()));
@@ -131,9 +136,11 @@ fn implode_image_label(config: &Config, sprite: &Sprite) -> String {
 }
 
 fn generate_css(config: &Config, sprite: &Sprite) {
-    let name = sprite.path.file_name().unwrap().to_string_lossy();
+    let name = sprite.name();
     let output_path = config.output.join(format!("{}.css", name));
-    let mut f = BufWriter::new(File::create(&output_path).expect("Unable to create CSS file"));
+    let Some(mut f) = create_output(&output_path) else {
+        return;
+    };
     let sprite_url = get_sprite_url(config, sprite);
     let (width, height) = sprite.dimensions();
 
@@ -204,9 +211,11 @@ fn generate_css(config: &Config, sprite: &Sprite) {
 }
 
 fn generate_html(config: &Config, sprite: &Sprite) {
-    let name = sprite.path.file_name().unwrap().to_string_lossy();
+    let name = sprite.name();
     let output_path = config.output.join(format!("{}.html", name));
-    let mut f = BufWriter::new(File::create(&output_path).expect("Unable to create HTML file"));
+    let Some(mut f) = create_output(&output_path) else {
+        return;
+    };
     let total = sprite
         .images
         .iter()
@@ -259,9 +268,11 @@ const _LESS_TEMPLATE: &str = "<% for image in &images { %>.<%= image.label %><%=
 <% } %>";
 
 fn generate_less(config: &Config, sprite: &Sprite) {
-    let name = sprite.path.file_name().unwrap().to_string_lossy();
+    let name = sprite.name();
     let output_path = config.output.join(format!("{}.less", name));
-    let mut f = BufWriter::new(File::create(&output_path).expect("Unable to create LESS file"));
+    let Some(mut f) = create_output(&output_path) else {
+        return;
+    };
     let sprite_url = get_sprite_url(config, sprite);
     let _ = writeln!(
         f,
@@ -299,9 +310,11 @@ fn generate_less(config: &Config, sprite: &Sprite) {
 }
 
 fn generate_scss(config: &Config, sprite: &Sprite) {
-    let name = sprite.path.file_name().unwrap().to_string_lossy();
+    let name = sprite.name();
     let output_path = config.output.join(format!("{}.scss", name));
-    let mut f = BufWriter::new(File::create(&output_path).expect("Unable to create SCSS file"));
+    let Some(mut f) = create_output(&output_path) else {
+        return;
+    };
     let (width, height) = sprite.dimensions();
     let sprite_url = get_sprite_url(config, sprite);
 
@@ -343,9 +356,11 @@ fn generate_scss(config: &Config, sprite: &Sprite) {
 }
 
 fn generate_css_vars(config: &Config, sprite: &Sprite) {
-    let name = sprite.path.file_name().unwrap().to_string_lossy();
+    let name = sprite.name();
     let output_path = config.output.join(format!("{}.vars.css", name));
-    let mut f = BufWriter::new(File::create(&output_path).expect("Unable to create CSS vars file"));
+    let Some(mut f) = create_output(&output_path) else {
+        return;
+    };
     let sprite_url = get_sprite_url(config, sprite);
 
     let _ = writeln!(f, ":root {{");
@@ -384,10 +399,11 @@ fn generate_css_vars(config: &Config, sprite: &Sprite) {
 }
 
 fn generate_coco2d(config: &Config, sprite: &Sprite) {
-    let name = sprite.path.file_name().unwrap().to_string_lossy();
+    let name = sprite.name();
     let output_path = config.output.join(format!("{}.plist", name));
-    let mut f =
-        BufWriter::new(File::create(&output_path).expect("Unable to create Cocos2d plist file"));
+    let Some(mut f) = create_output(&output_path) else {
+        return;
+    };
     let (width, height) = sprite.dimensions();
     let sprite_url = get_sprite_url(config, sprite);
 
@@ -457,9 +473,11 @@ fn generate_coco2d(config: &Config, sprite: &Sprite) {
 }
 
 fn generate_json(config: &Config, sprite: &Sprite) {
-    let name = sprite.path.file_name().unwrap().to_string_lossy();
+    let name = sprite.name();
     let output_path = config.output.join(format!("{}.json", name));
-    let mut f = BufWriter::new(File::create(&output_path).expect("Unable to create JSON file"));
+    let Some(mut f) = create_output(&output_path) else {
+        return;
+    };
     let (width, height) = sprite.dimensions();
     let sprite_url = get_sprite_url(config, sprite);
 
@@ -511,9 +529,11 @@ fn generate_json(config: &Config, sprite: &Sprite) {
 }
 
 fn generate_caat(config: &Config, sprite: &Sprite) {
-    let name = sprite.path.file_name().unwrap().to_string_lossy();
+    let name = sprite.name();
     let output_path = config.output.join(format!("{}.caat.json", name));
-    let mut f = BufWriter::new(File::create(&output_path).expect("Unable to create CAAT file"));
+    let Some(mut f) = create_output(&output_path) else {
+        return;
+    };
     let (width, height) = sprite.dimensions();
     let sprite_filename = sprite_filename(config, sprite);
     let hash = compute_sprite_hash(config, sprite);
@@ -614,11 +634,7 @@ fn remove_stale_hashed_sprites(config: &Config, sprite: &Sprite, current: &str) 
     let Ok(entries) = std::fs::read_dir(&config.output) else {
         return;
     };
-    let name = sprite
-        .path
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy();
+    let name = sprite.name();
     let prefix = format!("{name}_");
     let suffix = format!(".{}", config.sprite_format.extension());
 
@@ -647,7 +663,7 @@ pub(crate) fn meta_file_name(name: &str) -> String {
 
 /// Get the path to the metadata file for a sprite
 fn get_meta_path(config: &Config, sprite: &Sprite) -> PathBuf {
-    let name = sprite.path.file_name().unwrap().to_string_lossy();
+    let name = sprite.name();
     config.output.join(meta_file_name(&name))
 }
 
@@ -903,11 +919,7 @@ fn staleness_from(config: &Config, sprite: &Sprite, stored: &Metadata) -> Stalen
         };
     }
 
-    let name = sprite
-        .path
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy();
+    let name = sprite.name();
 
     let image = !config.no_img && {
         let sprite_path = config.output.join(sprite_filename(config, sprite));
@@ -959,10 +971,11 @@ fn save_metadata(
 }
 
 fn generate_tailwind(config: &Config, sprite: &Sprite) {
-    let name = sprite.path.file_name().unwrap().to_string_lossy();
+    let name = sprite.name();
     let output_path = config.output.join(format!("{}.tailwind.json", name));
-    let mut f =
-        BufWriter::new(File::create(&output_path).expect("Unable to create Tailwind JSON file"));
+    let Some(mut f) = create_output(&output_path) else {
+        return;
+    };
 
     let class_names: Vec<String> = sprite
         .images
@@ -988,9 +1001,11 @@ fn generate_tailwind(config: &Config, sprite: &Sprite) {
 }
 
 fn generate_dts(config: &Config, sprite: &Sprite) {
-    let name = sprite.path.file_name().unwrap().to_string_lossy();
+    let name = sprite.name();
     let output_path = config.output.join(format!("{}.d.ts", name));
-    let mut f = BufWriter::new(File::create(&output_path).expect("Unable to create .d.ts file"));
+    let Some(mut f) = create_output(&output_path) else {
+        return;
+    };
 
     let labels: Vec<String> = sprite
         .images
@@ -1016,7 +1031,7 @@ fn generate_dts(config: &Config, sprite: &Sprite) {
 }
 
 fn print_dry_run(config: &Config, sprite: &Sprite) {
-    let name = sprite.path.file_name().unwrap().to_string_lossy();
+    let name = sprite.name();
     let (w, h) = sprite.dimensions();
     let total_entries: usize = sprite.images.iter().map(|i| 1 + i.aliases.len()).sum();
 

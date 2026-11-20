@@ -274,6 +274,128 @@ fn input_dash_reads_the_file_list() {
     });
 }
 
+/// The process ended normally: no panic message and not Rust's panic exit code (101).
+fn assert_no_panic(output: &Output) {
+    let message = stderr(output);
+    assert!(!message.contains("panicked"), "panic: {message}");
+    assert_ne!(output.status.code(), Some(101), "panic: {message}");
+}
+
+#[test]
+fn input_dot_uses_the_directory_name() {
+    // Review 3.7: `-i .` panicked on `file_name().unwrap()`.
+    with_tmp_dir(|tmp| {
+        let (source, out) = source_and_output(tmp);
+        let output = command(&["-i", ".", "-o", out.to_str().unwrap()])
+            .current_dir(&source)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+
+        assert_no_panic(&output);
+        assert!(output.status.success(), "{}", stderr(&output));
+        assert!(out.join("icons.png").exists());
+        assert!(out.join("icons.css").exists());
+    });
+}
+
+#[test]
+fn relative_url_is_accepted() {
+    // Review 3.7: `-u /static/` panicked with RelativeUrlWithoutBase.
+    with_tmp_dir(|tmp| {
+        let (source, out) = source_and_output(tmp);
+        let output = spriters(&[
+            "-i",
+            source.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+            "-u",
+            "/static/",
+        ]);
+
+        assert_no_panic(&output);
+        assert!(output.status.success(), "{}", stderr(&output));
+        let css = std::fs::read_to_string(out.join("icons.css")).unwrap();
+        assert!(css.contains("url('/static/icons.png')"), "{css}");
+    });
+}
+
+#[cfg(unix)]
+#[test]
+fn non_utf8_url_is_a_clean_error() {
+    use std::os::unix::ffi::OsStrExt;
+    let mut invalid = command(&["-u"]);
+    invalid.arg(std::ffi::OsStr::from_bytes(b"/st\xffatic/"));
+    let output = invalid.stdin(Stdio::null()).output().unwrap();
+
+    assert_no_panic(&output);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("--url"), "{}", stderr(&output));
+}
+
+#[test]
+fn invalid_ratios_and_spacing_are_clean_errors() {
+    with_tmp_dir(|tmp| {
+        let (source, out) = source_and_output(tmp);
+        for (option, value, expected) in [
+            ("--ratios", "abc", "invalid ratio 'abc'"),
+            ("--ratios", "0", "invalid ratio '0'"),
+            ("--padding", "abc", "invalid padding 'abc'"),
+            ("--margin", "1 2 3 4 5", "invalid margin '1 2 3 4 5'"),
+        ] {
+            let output = spriters(&[
+                "-i",
+                source.to_str().unwrap(),
+                "-o",
+                out.to_str().unwrap(),
+                option,
+                value,
+            ]);
+
+            assert_no_panic(&output);
+            assert!(!output.status.success(), "{option} {value} must fail");
+            assert!(
+                stderr(&output).contains(expected),
+                "{option} {value}: {}",
+                stderr(&output)
+            );
+        }
+    });
+}
+
+#[test]
+fn stats_ignores_bare_metadata_file() {
+    // Review 3.7: a file named `.spriters` made `spriters stats` panic.
+    with_tmp_dir(|tmp| {
+        std::fs::write(tmp.join(".spriters"), "").unwrap();
+        let output = spriters(&["stats", tmp.to_str().unwrap()]);
+
+        assert_no_panic(&output);
+        assert!(stderr(&output).contains("No sprite metadata found"));
+    });
+}
+
+#[cfg(unix)]
+#[test]
+fn unwritable_output_does_not_panic() {
+    use std::os::unix::fs::PermissionsExt;
+    with_tmp_dir(|tmp| {
+        let (source, out) = source_and_output(tmp);
+        std::fs::set_permissions(&out, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let output = spriters(&[
+            "-i",
+            source.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+            "--json",
+        ]);
+        std::fs::set_permissions(&out, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        // Running as root bypasses the permission: then the run simply succeeds.
+        assert_no_panic(&output);
+    });
+}
+
 #[test]
 fn unknown_option_fails_with_message() {
     let output = spriters(&["--bogus"]);
