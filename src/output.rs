@@ -152,32 +152,46 @@ fn background_size(sprite: &Sprite) -> String {
 /// Media queries switching `selectors` to the image of each ratio above the smallest one
 /// (`background-size` set in the base rule keeps them at the 1× size).
 fn write_ratio_media_queries(
-    f: &mut impl Write,
+    f: &mut dyn Write,
     config: &Config,
     sprite: &Sprite,
     selectors: &str,
-) {
+) -> std::io::Result<()> {
     for &ratio in sprite.ratios.iter().skip(1) {
         let url = sprite_file_url(config, sprite, sprite_filename_at(config, sprite, ratio));
-        let _ = writeln!(
+        writeln!(
             f,
             "\n@media screen and (-webkit-min-device-pixel-ratio: {r}), screen and (min--moz-device-pixel-ratio: {r}), screen and (-o-min-device-pixel-ratio: {frac}), screen and (min-device-pixel-ratio: {r}), screen and (min-resolution: {r}dppx) {{",
             r = ratio,
             frac = crate::util::nearest_fration(ratio),
-        );
-        let _ = writeln!(
+        )?;
+        writeln!(
             f,
             "  .{selectors} {{\n    background-image: url('{url}');\n  }}\n}}"
-        );
+        )?;
     }
+    Ok(())
 }
 
-/// Create an output file, logging the error instead of panicking (e.g. no write permission
-/// or a full disk): the other outputs are still generated.
-fn create_output(path: &std::path::Path) -> std::io::Result<BufWriter<File>> {
-    File::create(path)
-        .map(BufWriter::new)
-        .inspect_err(|e| log::error!("Cannot create {:?}: {}", path, e))
+/// Write the `kind` output file `path` with `write`, then flush it. Errors (no write
+/// permission, full disk) are logged instead of panicking: the other outputs are still
+/// generated.
+fn write_output(
+    path: &std::path::Path,
+    kind: &str,
+    write: impl FnOnce(&mut dyn Write) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    let result = File::create(path).and_then(|file| {
+        let mut writer = BufWriter::new(file);
+        write(&mut writer)?;
+        // Explicit: dropping a `BufWriter` ignores the error of its last flush.
+        writer.flush()
+    });
+    match &result {
+        Ok(()) => log::info!("Generated {kind}: {:?}", path),
+        Err(e) => log::error!("Cannot write {kind} {:?}: {}", path, e),
+    }
+    result
 }
 
 /// Derive a CSS-safe label from an arbitrary file path (same logic as `ImageAndPosition::label()`).
@@ -206,21 +220,19 @@ fn implode_image_label(config: &Config, sprite: &Sprite) -> String {
     labels.join(",")
 }
 
-fn generate_css(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
+fn generate_css(config: &Config, sprite: &Sprite, f: &mut dyn Write) -> std::io::Result<()> {
     let name = sprite.name();
-    let output_path = config.output.join(format!("{}.css", name));
-    let mut f = create_output(&output_path)?;
     let sprite_url = get_sprite_url(config, sprite);
     let selectors = implode_image_label(config, sprite).replace(",", ", .");
 
     // Write the shared class for all images
-    let _ = writeln!(
-        &mut f,
+    writeln!(
+        f,
         ".{list} {{\n  background-image: url('{url}');\n  background-repeat: no-repeat;{size}\n}}",
         list = selectors,
         url = sprite_url,
         size = background_size(sprite),
-    );
+    )?;
 
     // Write individual image classes (primary + aliases share the same rule).
     for img in sprite.images.iter() {
@@ -239,33 +251,29 @@ fn generate_css(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
             .map(|lbl| format!(".{}", build_class_name(config, &name, &lbl)))
             .collect::<Vec<_>>()
             .join(", ");
-        let _ = writeln!(
-            &mut f,
+        writeln!(
+            f,
             "\n{selector} {{\n  background-position: {x} {y};\n  width: {w}px;\n  height: {h}px;\n}}",
             selector = selector,
             x = x,
             y = y,
             w = img.computed_width,
             h = img.computed_height,
-        );
+        )?;
     }
 
-    write_ratio_media_queries(&mut f, config, sprite, &selectors);
-
-    log::info!("Generated CSS: {:?}", output_path);
+    write_ratio_media_queries(f, config, sprite, &selectors)?;
     Ok(())
 }
 
-fn generate_html(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
+fn generate_html(config: &Config, sprite: &Sprite, f: &mut dyn Write) -> std::io::Result<()> {
     let name = sprite.name();
-    let output_path = config.output.join(format!("{}.html", name));
-    let mut f = create_output(&output_path)?;
     let total = sprite
         .images
         .iter()
         .map(|img| 1 + img.aliases.len())
         .sum::<usize>();
-    let _ = writeln!(&mut f, "<html>
+    writeln!(f, "<html>
     <head><title>Spriters Test Html</title>
     <link rel=\"stylesheet\" type=\"text/css\" href=\"{}.css\">
     <style type=\"text/css\">tr div:hover{{border:1px solid #ccc;}} tr div{{border:1px solid white;}}</style>
@@ -275,23 +283,22 @@ fn generate_html(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
     <thead><tr>
         <th>CSS Class</th>
         <th>Result</th>
-    </tr></thead><tbody>", name, total);
+    </tr></thead><tbody>", name, total)?;
     for image in sprite.images.iter() {
         for label in
             std::iter::once(image.label()).chain(image.aliases.iter().map(|p| label_from_path(p)))
         {
             // Same class names as the generated stylesheet (namespace, separator…).
-            let _ = writeln!(
-                &mut f,
+            writeln!(
+                f,
                 "<tr><td>.{class}</td><td><div class=\"{class}\"></div></td></tr>",
                 class = build_class_name(config, &name, &label)
-            );
+            )?;
         }
     }
-    let _ = write!(&mut f, "</tbody></table>
+    write!(f, "</tbody></table>
     <footer>Generated using <a href=\"https://codeberg.org/slundi/spriters\">Spriters v{}</a></footer>
-    </body></html>", SPRITERS_VERSION);
-    log::info!("Generated HTML: {:?}", output_path);
+    </body></html>", SPRITERS_VERSION)?;
     Ok(())
 }
 const _LESS_TEMPLATE: &str = "<% for image in &images { %>.<%= image.label %><%= image.pseudo %><%- if !image.last %>,\n<% } %><% } %>{
@@ -313,19 +320,17 @@ const _LESS_TEMPLATE: &str = "<% for image in &images { %>.<%= image.label %><%=
 }
 <% } %>";
 
-fn generate_less(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
+fn generate_less(config: &Config, sprite: &Sprite, f: &mut dyn Write) -> std::io::Result<()> {
     let name = sprite.name();
-    let output_path = config.output.join(format!("{}.less", name));
-    let mut f = create_output(&output_path)?;
     let sprite_url = get_sprite_url(config, sprite);
     let selectors = implode_image_label(config, sprite).replace(",", ", .");
-    let _ = writeln!(
+    writeln!(
         f,
         ".{list} {{\n  background-image: url('{url}');\n  background-repeat: no-repeat;{size}\n}}",
         list = selectors,
         url = sprite_url,
         size = background_size(sprite),
-    );
+    )?;
     for img in sprite.images.iter() {
         let x = if img.x == 0 {
             String::from("0")
@@ -342,7 +347,7 @@ fn generate_less(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
             .map(|lbl| format!(".{}", build_class_name(config, &name, &lbl)))
             .collect::<Vec<_>>()
             .join(", ");
-        let _ = writeln!(
+        writeln!(
             f,
             "\n{selector} {{\n  background-position: {x} {y};\n  width: {w}px;\n  height: {h}px;\n}}",
             selector = selector,
@@ -350,37 +355,34 @@ fn generate_less(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
             y = y,
             w = img.computed_width,
             h = img.computed_height,
-        );
+        )?;
     }
-    write_ratio_media_queries(&mut f, config, sprite, &selectors);
-    log::info!("Generated LESS: {:?}", output_path);
+    write_ratio_media_queries(f, config, sprite, &selectors)?;
     Ok(())
 }
 
-fn generate_scss(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
+fn generate_scss(config: &Config, sprite: &Sprite, f: &mut dyn Write) -> std::io::Result<()> {
     let name = sprite.name();
-    let output_path = config.output.join(format!("{}.scss", name));
-    let mut f = create_output(&output_path)?;
     let (width, height) = sprite.dimensions();
     let sprite_url = get_sprite_url(config, sprite);
 
     // Generate a mixin for the sprite base
-    let _ = writeln!(
+    writeln!(
         f,
         "@mixin {name}-sprite {{\n  background-image: url('{url}');\n  background-repeat: no-repeat;\n  background-size: {w}px {h}px;\n}}",
         name = name,
         url = sprite_url,
         w = width,
         h = height,
-    );
+    )?;
 
     // Generate the shared class
-    let _ = writeln!(
+    writeln!(
         f,
         "\n.{list} {{\n  @include {name}-sprite;\n}}",
         list = implode_image_label(config, sprite).replace(",", ",."),
         name = name,
-    );
+    )?;
 
     // Generate individual image classes (primary + aliases share the same rule).
     for img in sprite.images.iter() {
@@ -389,7 +391,7 @@ fn generate_scss(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
             .map(|lbl| format!(".{}", build_class_name(config, &name, &lbl)))
             .collect::<Vec<_>>()
             .join(", ");
-        let _ = writeln!(
+        writeln!(
             f,
             "\n{selector} {{\n  background-position: -{x}px -{y}px;\n  width: {w}px;\n  height: {h}px;\n}}",
             selector = selector,
@@ -397,27 +399,25 @@ fn generate_scss(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
             y = img.y,
             w = img.computed_width,
             h = img.computed_height,
-        );
+        )?;
     }
     // The mixin already sets `background-size`.
     let selectors = implode_image_label(config, sprite).replace(",", ", .");
-    write_ratio_media_queries(&mut f, config, sprite, &selectors);
+    write_ratio_media_queries(f, config, sprite, &selectors)?;
     Ok(())
 }
 
-fn generate_css_vars(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
+fn generate_css_vars(config: &Config, sprite: &Sprite, f: &mut dyn Write) -> std::io::Result<()> {
     let name = sprite.name();
-    let output_path = config.output.join(format!("{}.vars.css", name));
-    let mut f = create_output(&output_path)?;
     let sprite_url = get_sprite_url(config, sprite);
 
-    let _ = writeln!(f, ":root {{");
-    let _ = writeln!(
+    writeln!(f, ":root {{")?;
+    writeln!(
         f,
         "  --{name}-image: url('{url}');",
         name = name,
         url = sprite_url
-    );
+    )?;
 
     for img in sprite.images.iter() {
         let x_val = if img.x == 0 {
@@ -435,95 +435,87 @@ fn generate_css_vars(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
             std::iter::once(img.label()).chain(img.aliases.iter().map(|p| label_from_path(p)))
         {
             let prop = build_class_name(config, &name, &label);
-            let _ = writeln!(f, "  --{p}-x: {x};", p = prop, x = x_val);
-            let _ = writeln!(f, "  --{p}-y: {y};", p = prop, y = y_val);
-            let _ = writeln!(f, "  --{p}-w: {w}px;", p = prop, w = img.computed_width);
-            let _ = writeln!(f, "  --{p}-h: {h}px;", p = prop, h = img.computed_height);
+            writeln!(f, "  --{p}-x: {x};", p = prop, x = x_val)?;
+            writeln!(f, "  --{p}-y: {y};", p = prop, y = y_val)?;
+            writeln!(f, "  --{p}-w: {w}px;", p = prop, w = img.computed_width)?;
+            writeln!(f, "  --{p}-h: {h}px;", p = prop, h = img.computed_height)?;
         }
     }
 
-    let _ = writeln!(f, "}}");
-    log::info!("Generated CSS vars: {:?}", output_path);
+    writeln!(f, "}}")?;
     Ok(())
 }
 
-fn generate_coco2d(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
-    let name = sprite.name();
-    let output_path = config.output.join(format!("{}.plist", name));
-    let mut f = create_output(&output_path)?;
+fn generate_coco2d(config: &Config, sprite: &Sprite, f: &mut dyn Write) -> std::io::Result<()> {
     let (width, height) = sprite.dimensions();
     let sprite_url = get_sprite_url(config, sprite);
 
     // Write plist header
-    let _ = writeln!(f, r#"<?xml version="1.0" encoding="UTF-8"?>"#);
-    let _ = writeln!(
+    writeln!(f, r#"<?xml version="1.0" encoding="UTF-8"?>"#)?;
+    writeln!(
         f,
         r#"<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">"#
-    );
-    let _ = writeln!(f, r#"<plist version="1.0">"#);
-    let _ = writeln!(f, "<dict>");
+    )?;
+    writeln!(f, r#"<plist version="1.0">"#)?;
+    writeln!(f, "<dict>")?;
 
     // Write frames (primary + aliases share the same region).
-    let _ = writeln!(f, "    <key>frames</key>");
-    let _ = writeln!(f, "    <dict>");
+    writeln!(f, "    <key>frames</key>")?;
+    writeln!(f, "    <dict>")?;
 
     for img in sprite.images.iter() {
         let labels: Vec<String> = std::iter::once(img.label())
             .chain(img.aliases.iter().map(|p| label_from_path(p)))
             .collect();
         for lbl in &labels {
-            let _ = writeln!(f, "        <key>{}</key>", lbl);
-            let _ = writeln!(f, "        <dict>");
-            let _ = writeln!(f, "            <key>frame</key>");
-            let _ = writeln!(
+            writeln!(f, "        <key>{}</key>", lbl)?;
+            writeln!(f, "        <dict>")?;
+            writeln!(f, "            <key>frame</key>")?;
+            writeln!(
                 f,
                 "            <string>{{{{{},{}}},{{{},{}}}}}</string>",
                 img.x, img.y, img.computed_width, img.computed_height
-            );
-            let _ = writeln!(f, "            <key>offset</key>");
-            let _ = writeln!(f, "            <string>{{0,0}}</string>");
-            let _ = writeln!(f, "            <key>rotated</key>");
-            let _ = writeln!(f, "            <false/>");
-            let _ = writeln!(f, "            <key>sourceColorRect</key>");
-            let _ = writeln!(
+            )?;
+            writeln!(f, "            <key>offset</key>")?;
+            writeln!(f, "            <string>{{0,0}}</string>")?;
+            writeln!(f, "            <key>rotated</key>")?;
+            writeln!(f, "            <false/>")?;
+            writeln!(f, "            <key>sourceColorRect</key>")?;
+            writeln!(
                 f,
                 "            <string>{{{{0,0}},{{{},{}}}}}</string>",
                 img.computed_width, img.computed_height
-            );
-            let _ = writeln!(f, "            <key>sourceSize</key>");
-            let _ = writeln!(
+            )?;
+            writeln!(f, "            <key>sourceSize</key>")?;
+            writeln!(
                 f,
                 "            <string>{{{},{}}}</string>",
                 img.computed_width, img.computed_height
-            );
-            let _ = writeln!(f, "        </dict>");
+            )?;
+            writeln!(f, "        </dict>")?;
         }
     }
 
-    let _ = writeln!(f, "    </dict>");
+    writeln!(f, "    </dict>")?;
 
     // Write metadata
-    let _ = writeln!(f, "    <key>metadata</key>");
-    let _ = writeln!(f, "    <dict>");
-    let _ = writeln!(f, "        <key>format</key>");
-    let _ = writeln!(f, "        <integer>2</integer>");
-    let _ = writeln!(f, "        <key>size</key>");
-    let _ = writeln!(f, "        <string>{{{},{}}}</string>", width, height);
-    let _ = writeln!(f, "        <key>textureFileName</key>");
-    let _ = writeln!(f, "        <string>{}</string>", sprite_url);
-    let _ = writeln!(f, "    </dict>");
+    writeln!(f, "    <key>metadata</key>")?;
+    writeln!(f, "    <dict>")?;
+    writeln!(f, "        <key>format</key>")?;
+    writeln!(f, "        <integer>2</integer>")?;
+    writeln!(f, "        <key>size</key>")?;
+    writeln!(f, "        <string>{{{},{}}}</string>", width, height)?;
+    writeln!(f, "        <key>textureFileName</key>")?;
+    writeln!(f, "        <string>{}</string>", sprite_url)?;
+    writeln!(f, "    </dict>")?;
 
-    let _ = writeln!(f, "</dict>");
-    let _ = writeln!(f, "</plist>");
-
-    log::info!("Generated Cocos2d plist: {:?}", output_path);
+    writeln!(f, "</dict>")?;
+    writeln!(f, "</plist>")?;
     Ok(())
 }
 
-fn generate_json(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
+fn generate_json(config: &Config, sprite: &Sprite, f: &mut dyn Write) -> std::io::Result<()> {
     let name = sprite.name();
-    let output_path = config.output.join(format!("{}.json", name));
-    let mut f = create_output(&output_path)?;
     let (width, height) = sprite.dimensions();
     let sprite_url = get_sprite_url(config, sprite);
 
@@ -542,43 +534,38 @@ fn generate_json(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
 
     match config.json_format {
         JsonFormat::Array => {
-            let _ = writeln!(f, "{{\"frames\":[");
+            writeln!(f, "{{\"frames\":[")?;
             for (index, (label, x, y, w, h)) in entries.iter().enumerate() {
-                let _ = writeln!(
+                writeln!(
                     f,
                     "{{\"filename\": \"{label}\", \"frame\":{{\"x\":{x},\"y\":{y},\"w\":{w},\"h\":{h}}}}}{coma}",
                     coma = if index + 1 < n { "," } else { "" },
-                );
+                )?;
             }
-            let _ = writeln!(
+            writeln!(
                 f,
                 "],\n\"meta\":{{\"width\": {w}, \"height\": {h}, \"sprite_filename\": \"{name}\", \"sprite_url\": \"{url}\"}}\n}}",
                 w = width,
                 h = height,
                 url = sprite_url,
-            );
+            )?;
         }
         JsonFormat::Hash => {
-            let _ = writeln!(f, "{{");
+            writeln!(f, "{{")?;
             for (index, (label, x, y, w, h)) in entries.iter().enumerate() {
-                let _ = writeln!(
+                writeln!(
                     f,
                     "\"{label}\": {{\"x\": {x}, \"y\": {y}, \"w\": {w}, \"h\": {h}}}{coma}",
                     coma = if index + 1 < n { "," } else { "" },
-                );
+                )?;
             }
-            let _ = writeln!(f, "}}");
+            writeln!(f, "}}")?;
         }
     }
-
-    log::info!("Generated JSON: {:?}", output_path);
     Ok(())
 }
 
-fn generate_caat(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
-    let name = sprite.name();
-    let output_path = config.output.join(format!("{}.caat.json", name));
-    let mut f = create_output(&output_path)?;
+fn generate_caat(config: &Config, sprite: &Sprite, f: &mut dyn Write) -> std::io::Result<()> {
     let (width, height) = sprite.dimensions();
     let sprite_filename = sprite_filename(config, sprite);
     let hash = compute_sprite_hash(config, sprite);
@@ -607,27 +594,25 @@ fn generate_caat(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
         .collect();
     let n = entries.len();
 
-    let _ = writeln!(f, "{{");
-    let _ = writeln!(f, "    \"sprites\": {{");
+    writeln!(f, "{{")?;
+    writeln!(f, "    \"sprites\": {{")?;
     for (index, (filename, x, y, w, h)) in entries.iter().enumerate() {
-        let _ = writeln!(
+        writeln!(
             f,
             "        \"{fn}\": {{\"x\": {x}, \"y\": {y}, \"width\": {w}, \"height\": {h}}}{coma}",
             fn = filename, x = x, y = y, w = w, h = h,
             coma = if index + 1 < n { "," } else { "" },
-        );
+        )?;
     }
-    let _ = writeln!(f, "    }},");
-    let _ = writeln!(f, "    \"meta\": {{");
-    let _ = writeln!(f, "        \"version\": \"{}\",", SPRITERS_VERSION);
-    let _ = writeln!(f, "        \"hash\": \"{:x}\",", hash);
-    let _ = writeln!(f, "        \"sprite_filename\": \"{}\",", sprite_filename);
-    let _ = writeln!(f, "        \"width\": {},", width);
-    let _ = writeln!(f, "        \"height\": {}", height);
-    let _ = writeln!(f, "    }}");
-    let _ = writeln!(f, "}}");
-
-    log::info!("Generated CAAT: {:?}", output_path);
+    writeln!(f, "    }},")?;
+    writeln!(f, "    \"meta\": {{")?;
+    writeln!(f, "        \"version\": \"{}\",", SPRITERS_VERSION)?;
+    writeln!(f, "        \"hash\": \"{:x}\",", hash)?;
+    writeln!(f, "        \"sprite_filename\": \"{}\",", sprite_filename)?;
+    writeln!(f, "        \"width\": {},", width)?;
+    writeln!(f, "        \"height\": {}", height)?;
+    writeln!(f, "    }}")?;
+    writeln!(f, "}}")?;
     Ok(())
 }
 
@@ -704,7 +689,7 @@ fn save_sprite_image(config: &Config, canvas: RgbaImage, output_path: &std::path
     let save_result = if png8 {
         save_png8(&canvas, output_path)
     } else {
-        canvas.save(output_path).map_err(|e| e.to_string())
+        save_image(&canvas, output_path, config.sprite_format.image_format())
     };
 
     match save_result {
@@ -724,6 +709,21 @@ fn save_sprite_image(config: &Config, canvas: RgbaImage, output_path: &std::path
             true
         }
     }
+}
+
+/// Write `canvas` in `format`. Unlike `RgbaImage::save`, the buffered file is flushed
+/// explicitly, so that a write error (e.g. a full disk) on the last bytes is reported.
+fn save_image(
+    canvas: &RgbaImage,
+    path: &std::path::Path,
+    format: image::ImageFormat,
+) -> Result<(), String> {
+    let file = File::create(path).map_err(|e| e.to_string())?;
+    let mut writer = BufWriter::new(file);
+    canvas
+        .write_to(&mut writer, format)
+        .map_err(|e| e.to_string())?;
+    writer.flush().map_err(|e| e.to_string())
 }
 
 /// Write `canvas` as an 8-bit palette PNG (`--png8`): up to 256 colours, transparency kept
@@ -749,7 +749,11 @@ fn save_png8(canvas: &RgbaImage, path: &std::path::Path) -> Result<(), String> {
         encoder.set_trns(alpha);
     }
     let mut writer = encoder.write_header().map_err(|e| e.to_string())?;
-    writer.write_image_data(&indices).map_err(|e| e.to_string())
+    writer
+        .write_image_data(&indices)
+        .map_err(|e| e.to_string())?;
+    // Writes the end chunk and flushes; dropping the writer would ignore their errors.
+    writer.finish().map_err(|e| e.to_string())
 }
 
 /// Reduce `canvas` to a palette of at most 256 RGBA colours and one palette index per pixel.
@@ -1093,24 +1097,51 @@ fn compute_outputs_hash(config: &Config, sprite: &Sprite) -> u64 {
     hasher.finish()
 }
 
+/// Writes the content of a text output; every write error is returned.
+type TextWriter = fn(&Config, &Sprite, &mut dyn Write) -> std::io::Result<()>;
+
+/// A text output: file suffix (after `<sprite name>.`), name used in logs, and writer.
+struct TextOutput {
+    suffix: &'static str,
+    kind: &'static str,
+    write: TextWriter,
+}
+
+/// The text outputs enabled in `config`.
+fn text_outputs(config: &Config) -> Vec<TextOutput> {
+    let all: [(bool, &'static str, &'static str, TextWriter); 10] = [
+        (!config.no_css, "css", "CSS", generate_css),
+        (config.less, "less", "LESS", generate_less),
+        (config.scss, "scss", "SCSS", generate_scss),
+        (config.json, "json", "JSON", generate_json),
+        (config.html, "html", "HTML", generate_html),
+        (config.cocos2d, "plist", "Cocos2d plist", generate_coco2d),
+        (config.caat, "caat.json", "CAAT", generate_caat),
+        (config.css_vars, "vars.css", "CSS vars", generate_css_vars),
+        (
+            config.tailwind,
+            "tailwind.json",
+            "Tailwind JSON",
+            generate_tailwind,
+        ),
+        (config.dts, "d.ts", "TypeScript definitions", generate_dts),
+    ];
+    all.into_iter()
+        .filter(|(enabled, ..)| *enabled)
+        .map(|(_, suffix, kind, write)| TextOutput {
+            suffix,
+            kind,
+            write,
+        })
+        .collect()
+}
+
 /// File names of the text outputs enabled in `config`.
 fn text_output_names(config: &Config, name: &str) -> Vec<String> {
-    [
-        (!config.no_css, "css"),
-        (config.less, "less"),
-        (config.scss, "scss"),
-        (config.json, "json"),
-        (config.html, "html"),
-        (config.cocos2d, "plist"),
-        (config.caat, "caat.json"),
-        (config.css_vars, "vars.css"),
-        (config.tailwind, "tailwind.json"),
-        (config.dts, "d.ts"),
-    ]
-    .into_iter()
-    .filter(|(enabled, _)| *enabled)
-    .map(|(_, ext)| format!("{name}.{ext}"))
-    .collect()
+    text_outputs(config)
+        .iter()
+        .map(|output| format!("{name}.{}", output.suffix))
+        .collect()
 }
 
 /// Sprite image extensions, see [`SpriteFormat::extension`].
@@ -1250,7 +1281,7 @@ fn save_metadata(
     image_hash: Option<u64>,
     image_file: Option<&str>,
     outputs_hash: Option<u64>,
-) {
+) -> std::io::Result<()> {
     let meta_path = get_meta_path(config, sprite);
     let image_line = image_hash.map(|hash| hash.to_string()).unwrap_or_default();
     let outputs_line = outputs_hash
@@ -1258,15 +1289,16 @@ fn save_metadata(
         .unwrap_or_default();
     let image_file = image_file.unwrap_or_default();
 
-    if let Ok(mut file) = File::create(&meta_path) {
-        let _ = writeln!(file, "{image_line}\n{outputs_line}\n{image_file}");
-    }
+    // A single unbuffered write: nothing is left to flush.
+    std::fs::write(
+        &meta_path,
+        format!("{image_line}\n{outputs_line}\n{image_file}\n"),
+    )
+    .inspect_err(|e| log::error!("Cannot write {:?}: {}", meta_path, e))
 }
 
-fn generate_tailwind(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
+fn generate_tailwind(config: &Config, sprite: &Sprite, f: &mut dyn Write) -> std::io::Result<()> {
     let name = sprite.name();
-    let output_path = config.output.join(format!("{}.tailwind.json", name));
-    let mut f = create_output(&output_path)?;
 
     let class_names: Vec<String> = sprite
         .images
@@ -1280,23 +1312,18 @@ fn generate_tailwind(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
         .collect();
 
     let n = class_names.len();
-    let _ = writeln!(f, "{{");
-    let _ = writeln!(f, "  \"safelist\": [");
+    writeln!(f, "{{")?;
+    writeln!(f, "  \"safelist\": [")?;
     for (i, cls) in class_names.iter().enumerate() {
         let comma = if i + 1 < n { "," } else { "" };
-        let _ = writeln!(f, "    \"{}\"{}", cls, comma);
+        writeln!(f, "    \"{}\"{}", cls, comma)?;
     }
-    let _ = writeln!(f, "  ]");
-    let _ = writeln!(f, "}}");
-    log::info!("Generated Tailwind JSON: {:?}", output_path);
+    writeln!(f, "  ]")?;
+    writeln!(f, "}}")?;
     Ok(())
 }
 
-fn generate_dts(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
-    let name = sprite.name();
-    let output_path = config.output.join(format!("{}.d.ts", name));
-    let mut f = create_output(&output_path)?;
-
+fn generate_dts(_config: &Config, sprite: &Sprite, f: &mut dyn Write) -> std::io::Result<()> {
     let labels: Vec<String> = sprite
         .images
         .iter()
@@ -1308,16 +1335,15 @@ fn generate_dts(config: &Config, sprite: &Sprite) -> std::io::Result<()> {
         .collect();
 
     if labels.is_empty() {
-        let _ = writeln!(f, "export type SpriteName = never;");
+        writeln!(f, "export type SpriteName = never;")?;
         return Ok(());
     }
 
-    let _ = write!(f, "export type SpriteName");
+    write!(f, "export type SpriteName")?;
     for (i, lbl) in labels.iter().enumerate() {
         let semi = if i + 1 == labels.len() { ";" } else { "" };
-        let _ = writeln!(f, "\n  | \"{}\"{}", lbl, semi);
+        writeln!(f, "\n  | \"{}\"{}", lbl, semi)?;
     }
-    log::info!("Generated TypeScript definitions: {:?}", output_path);
     Ok(())
 }
 
@@ -1384,60 +1410,30 @@ pub fn generate_files(config: &Config, sprite: &Sprite) -> bool {
     } else {
         (None, None)
     };
-    save_metadata(
+    let metadata_written = save_metadata(
         config,
         sprite,
         image_hash,
         image_file.as_deref(),
         outputs_written.then(|| compute_outputs_hash(config, sprite)),
-    );
-    image_written && outputs_written
+    )
+    .is_ok();
+    image_written && outputs_written && metadata_written
 }
 
 /// Write every enabled text output. Returns whether all of them were written.
 fn generate_text_outputs(config: &Config, sprite: &Sprite) -> bool {
     use rayon::prelude::*;
 
-    type Generator = fn(&Config, &Sprite) -> std::io::Result<()>;
+    let name = sprite.name();
     // Text-format outputs are all independent — generate them in parallel.
-    let tasks: Vec<Generator> = {
-        let mut t: Vec<Generator> = Vec::new();
-        if !config.no_css {
-            t.push(generate_css);
-        }
-        if config.html {
-            t.push(generate_html);
-        }
-        if config.less {
-            t.push(generate_less);
-        }
-        if config.scss {
-            t.push(generate_scss);
-        }
-        if config.cocos2d {
-            t.push(generate_coco2d);
-        }
-        if config.json {
-            t.push(generate_json);
-        }
-        if config.caat {
-            t.push(generate_caat);
-        }
-        if config.css_vars {
-            t.push(generate_css_vars);
-        }
-        if config.tailwind {
-            t.push(generate_tailwind);
-        }
-        if config.dts {
-            t.push(generate_dts);
-        }
-        t
-    };
     // Counted rather than `all`: a failure must not stop the other outputs.
-    let failures = tasks
+    let failures = text_outputs(config)
         .par_iter()
-        .filter(|generate| generate(config, sprite).is_err())
+        .filter(|output| {
+            let path = config.output.join(format!("{name}.{}", output.suffix));
+            write_output(&path, output.kind, |f| (output.write)(config, sprite, f)).is_err()
+        })
         .count();
     failures == 0
 }
@@ -1445,6 +1441,142 @@ fn generate_text_outputs(config: &Config, sprite: &Sprite) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Accepts `remaining` bytes, then fails every write.
+    struct LimitedWriter {
+        remaining: usize,
+    }
+    impl Write for LimitedWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            if self.remaining == 0 {
+                return Err(std::io::Error::from(std::io::ErrorKind::StorageFull));
+            }
+            let written = buf.len().min(self.remaining);
+            self.remaining -= written;
+            Ok(written)
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// Sprite with an alias and two ratios, so that every branch of the writers produces
+    /// text (aliases, media queries).
+    fn sprite_for_writers(config: &Config) -> Sprite {
+        let image = |path: &str, x: u32, aliases: Vec<String>| crate::ImageAndPosition {
+            path: String::from(path),
+            image: image::DynamicImage::new_rgba8(8, 8),
+            computed_width: 4,
+            computed_height: 4,
+            x,
+            y: 0,
+            aliases,
+            source_hash: 0,
+        };
+        Sprite {
+            config: config.clone(),
+            path: PathBuf::from("icons"),
+            ratios: vec![1.0, 2.0],
+            images: vec![
+                image("icons/red.png", 0, vec![String::from("icons/copy.png")]),
+                image("icons/blue.png", 4, vec![]),
+            ],
+            ..Default::default()
+        }
+    }
+
+    fn all_text_outputs() -> Config {
+        Config {
+            html: true,
+            less: true,
+            scss: true,
+            cocos2d: true,
+            json: true,
+            caat: true,
+            css_vars: true,
+            tailwind: true,
+            dts: true,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_text_writers_report_every_write_error() {
+        // Review 6.2: write errors were ignored (`let _ = writeln!`), so a full disk left
+        // truncated files behind without any message. Failing at each byte offset checks
+        // that no write of any writer is ignored.
+        let config = all_text_outputs();
+        let sprite = sprite_for_writers(&config);
+        let outputs = text_outputs(&config);
+        assert_eq!(outputs.len(), 10);
+        for output in outputs {
+            let mut full = Vec::new();
+            (output.write)(&config, &sprite, &mut full).unwrap();
+            assert!(!full.is_empty(), "{}", output.kind);
+            for remaining in 0..full.len() {
+                let result = (output.write)(&config, &sprite, &mut LimitedWriter { remaining });
+                assert!(
+                    result.is_err(),
+                    "{}: error after {remaining} of {} bytes was ignored",
+                    output.kind,
+                    full.len()
+                );
+            }
+            let mut exact = LimitedWriter {
+                remaining: full.len(),
+            };
+            assert!((output.write)(&config, &sprite, &mut exact).is_ok());
+        }
+    }
+
+    #[test]
+    fn test_text_output_names_follow_enabled_outputs() {
+        assert_eq!(
+            text_output_names(&Config::default(), "icons"),
+            vec!["icons.css"]
+        );
+        let config = Config {
+            no_css: true,
+            json: true,
+            dts: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            text_output_names(&config, "icons"),
+            vec!["icons.json", "icons.d.ts"]
+        );
+        assert_eq!(text_output_names(&all_text_outputs(), "icons").len(), 10);
+    }
+
+    #[test]
+    fn test_write_output_returns_writer_errors() {
+        let dir =
+            std::env::temp_dir().join(format!("spriters_write_output_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("icons.css");
+
+        assert!(write_output(&path, "CSS", |f| f.write_all(b".a {}")).is_ok());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), ".a {}");
+        assert!(write_output(&path, "CSS", |_| Err(std::io::Error::other("boom"))).is_err());
+        // Cannot be created: the path is a directory.
+        assert!(write_output(&dir, "CSS", |f| f.write_all(b".a {}")).is_err());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// `/dev/full` accepts the file creation, then fails every write with "no space left".
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_full_disk_is_reported_on_flush() {
+        let full = std::path::Path::new("/dev/full");
+        // A few buffered bytes only fail when the `BufWriter` is flushed.
+        assert!(write_output(full, "CSS", |f| f.write_all(b".a {}")).is_err());
+
+        let canvas = RgbaImage::from_pixel(4, 4, image::Rgba([255, 0, 0, 255]));
+        for format in [image::ImageFormat::Png, image::ImageFormat::WebP] {
+            assert!(save_image(&canvas, full, format).is_err(), "{format:?}");
+        }
+        assert!(save_png8(&canvas, full).is_err());
+    }
 
     #[test]
     fn test_cache_buster_deterministic() {

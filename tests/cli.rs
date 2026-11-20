@@ -528,7 +528,7 @@ fn unwritable_text_output_fails_on_every_run() {
         let first = spriters(&args);
         assert!(!first.status.success());
         assert!(
-            stderr(&first).contains("Cannot create"),
+            stderr(&first).contains("Cannot write CSS"),
             "{}",
             stderr(&first)
         );
@@ -547,6 +547,56 @@ fn unwritable_text_output_fails_on_every_run() {
         std::fs::remove_dir(out.join("icons.css")).unwrap();
         let fixed = spriters(&args);
         assert!(fixed.status.success(), "{}", stderr(&fixed));
+        assert!(out.join("icons.css").is_file());
+    });
+}
+
+/// On a full disk, files were left truncated without any message. Each
+/// generated file in turn is a link to `/dev/full`, which fails every write with "no
+/// space left on device". (Not the metadata file: it is read first, and reading
+/// `/dev/full` never ends.)
+#[cfg(target_os = "linux")]
+#[test]
+fn full_disk_is_reported_for_every_generated_file() {
+    for (file, extra, message) in [
+        ("icons.css", None, "Cannot write CSS"),
+        ("icons.json", Some("--json"), "Cannot write JSON"),
+        ("icons.png", None, "Failed to save sprite image"),
+        ("icons.png", Some("--png8"), "Failed to save sprite image"),
+    ] {
+        with_tmp_dir(|tmp| {
+            let (source, out) = source_and_output(tmp);
+            std::os::unix::fs::symlink("/dev/full", out.join(file)).unwrap();
+            let mut args = vec!["-i", source.to_str().unwrap(), "-o", out.to_str().unwrap()];
+            args.extend(extra);
+            let output = spriters(&args);
+
+            assert!(!output.status.success(), "{file} {extra:?}");
+            let stderr = stderr(&output);
+            assert!(stderr.contains(message), "{file} {extra:?}: {stderr}");
+            assert!(
+                stderr.contains("No space left"),
+                "{file} {extra:?}: {stderr}"
+            );
+        });
+    }
+}
+
+#[test]
+fn unwritable_metadata_fails() {
+    with_tmp_dir(|tmp| {
+        let (source, out) = source_and_output(tmp);
+        std::fs::create_dir(out.join(".icons.spriters")).unwrap();
+        let output = spriters(&["-i", source.to_str().unwrap(), "-o", out.to_str().unwrap()]);
+
+        assert!(!output.status.success());
+        assert!(
+            stderr(&output).contains("Cannot write"),
+            "{}",
+            stderr(&output)
+        );
+        // The outputs themselves are written.
+        assert!(out.join("icons.png").is_file());
         assert!(out.join("icons.css").is_file());
     });
 }
