@@ -3,7 +3,7 @@ name = "spriters"
 version = "1.0.0"
 authors = ["Sébastien LUNDI"]
 categories = ["command-line-utilities", "multimedia::images", "algorithms", "game-development", "web-programming"]
-edition = "2021"
+edition = "2024"
 keywords = ["sprites", "css-sprites", "sprite-sheet", "image-packing", "css"]
 license = "GPL-3.0-or-later"
 readme = "README.md"
@@ -21,14 +21,14 @@ name = "spriters"
 path = "src/main.rs"
 
 [dependencies]
-fraction = "0.15"
+fraction = "0.17"
 glob = "0.3"
 image = { version = "0.25", features = ["avif"] }
 lexopt = "0.3"
 log = "0.4"
 notify = "8"
 rayon = "1"
-resvg = "0.47"
+resvg = "0.50"
 serde = { version = "1", features = ["derive"] }
 slug = "0.1"
 stderrlog = "0.6"

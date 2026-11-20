@@ -1,89 +1,176 @@
-# Release workflow — triggered by pushing a `v*` tag.
-# Builds cross-compiled binaries and creates a Forgejo/GitHub release.
+# Release — manual only: run it from the Actions tab with an existing tag to
+# (re)build its release. Releases are normally built and published locally by
+# `just release`; this workflow is the fallback, and the only way to get macOS
+# binaries. Running it after `just release` replaces same-named assets and the
+# SHA256SUMS file on the GitHub release with the CI-built ones.
+# Builds fully static musl binaries for Linux (amd64/arm64 on native runners,
+# i686/armv7/armv6 via `cross`), plus Windows and macOS binaries. Linux targets
+# are packaged as tarballs and .deb, then a GitHub release is published with a
+# SHA256SUMS file and git-cliff release notes.
 #
-# Usage:
-#   just tag v1.0.0        # creates the tag and pushes it, triggering this workflow
-#
-# Add a CODEBERG_TOKEN secret (or use the automatic GITHUB_TOKEN/FORGEJO_TOKEN)
-# in your repository settings → Actions → Secrets.
+# Build steps are inlined (no justfile recipes) so a manual run can rebuild
+# tags created before this workflow existed.
+
 name: Release
+
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and release (e.g. v1.2.3)"
+        required: true
+        type: string
+
 env:
   CARGO_TERM_COLOR: always
-  # Change this to match your binary name (same as `binary_name` in the justfile)
-  BINARY_NAME: MY_PROJECT
+  BINARY_NAME: spriters
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+# Never build the same tag twice concurrently (tag push + manual rerun).
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+
 jobs:
-  build-linux:
-    name: Linux ${{ matrix.target }}
+  preflight:
+    name: Check tag matches Cargo.toml
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Compare tag and crate version
+        run: |
+          expected="${TAG#v}"
+          actual="$(grep -m1 '^version = ' Cargo.toml | sed -E 's/.*"(.*)".*/\1/')"
+          if [[ "$expected" != "$actual" ]]; then
+            echo "::error::tag ${TAG} does not match Cargo.toml version ${actual}"
+            exit 1
+          fi
+
+  build-linux:
+    name: Build ${{ matrix.target }}
+    needs: preflight
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-unknown-linux-gnu
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-24.04
             use_cross: false
-          - target: aarch64-unknown-linux-gnu
+            deb: true
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+            use_cross: false
+            deb: true
+          - target: i686-unknown-linux-musl
+            runner: ubuntu-24.04
             use_cross: true
-          - target: armv7-unknown-linux-gnueabihf
+            deb: true
+          - target: armv7-unknown-linux-musleabihf
+            runner: ubuntu-24.04
             use_cross: true
-          - target: i686-unknown-linux-gnu
+            deb: true
+          # ARMv6 (e.g. Raspberry Pi Zero/1): tarball only, its .deb would
+          # clash with the armv7 one (both map to the `armhf` Debian arch).
+          - target: arm-unknown-linux-musleabihf
+            runner: ubuntu-24.04
             use_cross: true
+            deb: false
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/cache@v4
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-${{ matrix.target }}-
+          ref: ${{ env.TAG }}
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-      - name: Install cross
-        if: matrix.use_cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
-      - name: Build (cross)
-        if: matrix.use_cross
-        run: cross build --release --target ${{ matrix.target }}
-      - name: Build (native)
+
+      # musl-gcc compiles the C sources of zstd-sys for native musl builds.
+      - name: Install musl toolchain
         if: "!matrix.use_cross"
-        run: cargo build --release --target ${{ matrix.target }}
-      - name: Package
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb${{ matrix.use_cross && ',cross' || '' }}
+
+      - name: Build
+        run: ${{ matrix.use_cross && 'cross' || 'cargo' }} build --release --target ${{ matrix.target }}
+
+      # Same check as `just verify-static`: no ELF interpreter, no NEEDED libraries.
+      - name: Check binary is fully static
         run: |
-          cd target/${{ matrix.target }}/release
-          tar czvf ../../../${{ env.BINARY_NAME }}-${{ matrix.target }}.tar.gz ${{ env.BINARY_NAME }}
+          bin="target/${{ matrix.target }}/release/${BINARY_NAME}"
+          if readelf -l "$bin" | grep -q INTERP || readelf -d "$bin" 2>/dev/null | grep -q NEEDED; then
+            echo "::error::${bin} is dynamically linked, expected a fully static musl build"
+            exit 1
+          fi
+          # Only native builds can be executed on the runner.
+          if [[ "${{ matrix.use_cross }}" == "false" ]]; then
+            "$bin" --version
+          fi
+
+      # --no-build: package the binary built above; --no-strip: keep symbols for addr2line.
+      - name: Build .deb
+        if: matrix.deb
+        run: |
+          mkdir -p dist
+          cargo deb --no-build --no-strip --target ${{ matrix.target }} --output dist/
+
+      - name: Package tarball
+        run: |
+          stage="${BINARY_NAME}-${TAG}-${{ matrix.target }}"
+          mkdir -p "dist/${stage}"
+          cp README.md LICENSE CHANGELOG.md "target/${{ matrix.target }}/release/${BINARY_NAME}" "dist/${stage}/"
+          tar -C dist -czf "dist/${stage}.tar.gz" "${stage}"
+          rm -rf "dist/${stage}"
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ env.BINARY_NAME }}-${{ matrix.target }}
-          path: ${{ env.BINARY_NAME }}-${{ matrix.target }}.tar.gz
+          path: |
+            dist/*.tar.gz
+            dist/*.deb
+          if-no-files-found: error
+
   build-windows:
-    name: Windows x86_64
+    name: Build x86_64-pc-windows-msvc
+    needs: preflight
     runs-on: windows-latest
+    env:
+      TARGET: x86_64-pc-windows-msvc
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/cache@v4
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-x86_64-pc-windows-msvc-${{ hashFiles('**/Cargo.lock') }}
+          ref: ${{ env.TAG }}
+
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build --release
-      - name: Package
+        with:
+          targets: ${{ env.TARGET }}
+
+      - name: Build
+        run: cargo build --release --target ${{ env.TARGET }}
+
+      - name: Package zip
         shell: pwsh
-        run: Compress-Archive -Path target/release/${{ env.BINARY_NAME }}.exe -DestinationPath ${{ env.BINARY_NAME }}-x86_64-pc-windows-msvc.zip
+        run: |
+          $stage = "$env:BINARY_NAME-$env:TAG-$env:TARGET"
+          New-Item -ItemType Directory -Force -Path "dist/$stage" | Out-Null
+          Copy-Item README.md, LICENSE, CHANGELOG.md, "target/$env:TARGET/release/$env:BINARY_NAME.exe" -Destination "dist/$stage/"
+          Compress-Archive -Path "dist/$stage" -DestinationPath "dist/$stage.zip"
+          Remove-Item -Recurse -Force "dist/$stage"
+
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.BINARY_NAME }}-x86_64-pc-windows-msvc
-          path: ${{ env.BINARY_NAME }}-x86_64-pc-windows-msvc.zip
+          name: ${{ env.BINARY_NAME }}-${{ env.TARGET }}
+          path: dist/*.zip
+          if-no-files-found: error
+
   build-macos:
-    name: macOS ${{ matrix.target }}
+    name: Build ${{ matrix.target }}
+    needs: preflight
     runs-on: macos-latest
     strategy:
       fail-fast: false
@@ -93,45 +180,66 @@ jobs:
           - aarch64-apple-darwin
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/cache@v4
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          ref: ${{ env.TAG }}
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-      - run: cargo build --release --target ${{ matrix.target }}
-      - name: Package
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package tarball
         run: |
-          cd target/${{ matrix.target }}/release
-          tar czvf ../../../${{ env.BINARY_NAME }}-${{ matrix.target }}.tar.gz ${{ env.BINARY_NAME }}
+          stage="${BINARY_NAME}-${TAG}-${{ matrix.target }}"
+          mkdir -p "dist/${stage}"
+          cp README.md LICENSE CHANGELOG.md "target/${{ matrix.target }}/release/${BINARY_NAME}" "dist/${stage}/"
+          tar -C dist -czf "dist/${stage}.tar.gz" "${stage}"
+          rm -rf "dist/${stage}"
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ env.BINARY_NAME }}-${{ matrix.target }}
-          path: ${{ env.BINARY_NAME }}-${{ matrix.target }}.tar.gz
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
   release:
-    name: Create Release
+    name: Publish GitHub release
     needs: [build-linux, build-windows, build-macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+          fetch-depth: 0 # git-cliff needs the full history and tags
+
       - uses: actions/download-artifact@v4
         with:
-          path: artifacts
-      - name: Collect release files
+          path: dist
+          merge-multiple: true
+
+      - name: Write SHA256SUMS
         run: |
-          mkdir -p release
-          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec mv {} release/ \;
+          cd dist
+          sha256sum -- *.tar.gz *.zip *.deb > "${BINARY_NAME}-${TAG}-SHA256SUMS"
+          cat "${BINARY_NAME}-${TAG}-SHA256SUMS"
+
+      # --current: notes for the checked-out tag, even when rebuilding an older one.
+      - name: Generate release notes
+        id: cliff
+        uses: orhun/git-cliff-action@v4
+        with:
+          args: --current --strip header
+        env:
+          OUTPUT: RELEASE_NOTES.md
+
+      # On a rerun the existing release is updated and same-named assets are replaced.
       - uses: softprops/action-gh-release@v2
         with:
-          files: release/*
-          generate_release_notes: true
-          draft: false
-          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: ${{ env.TAG }}
+          body_path: RELEASE_NOTES.md
+          files: dist/*
+          prerelease: ${{ contains(env.TAG, '-') }}

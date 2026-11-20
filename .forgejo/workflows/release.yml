@@ -1,0 +1,75 @@
+# Build the release binaries and publish them to the Codeberg release matching
+# the pushed `v*` tag.
+#
+# This is a thin wrapper over the justfile so CI and a local `just release`
+# produce byte-identical artifacts from a single source of truth:
+#   - targets:   the justfile's `release_targets` (musl x2 + windows-gnu)
+#   - packaging: `just package-all`   (versioned tarballs + wrapping dir + SHA256SUMS)
+#   - static:    `just verify-static` runs inside `package` for musl targets
+#   - smoke:     `just docker-smoke`  runs the distroless image's `--version`
+#   - upload:    `just _release-codeberg`
+# The asset layout is the contract consumed by install.sh and docker-release.yml.
+#
+# Auth: _release-codeberg reads CODEBERG_TOKEN; we feed it the automatic
+# per-run token (Forgejo provides GITHUB_TOKEN with contents:write). Override
+# with a dedicated CODEBERG_TOKEN secret if your instance's token lacks scope.
+#
+# Runner: a docker-capable Forgejo Actions runner (same class as docker-release);
+# `just docker-smoke` needs a reachable docker daemon.
+#
+# Manual only: `just release` publishes the Codeberg release locally, and a
+# tag-triggered run would race it (both POST the same release). Dispatch it on
+# a tag ref, e.g. to rebuild a release whose local publish failed.
+# NOTE: `just package-all` now cross-builds with `cargo zigbuild`; this image
+# needs zig + cargo-zigbuild + cargo-deb before a dispatch will succeed.
+
+name: release
+
+on:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  # cross launches its own containers; tell it we are already inside one.
+  CROSS_CONTAINER_IN_CONTAINER: "true"
+
+jobs:
+  release:
+    runs-on: docker
+    container:
+      image: catthehacker/ubuntu:act-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # git-cliff needs full history for release notes
+
+      - name: Resolve version
+        id: ver
+        run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install release tooling
+        run: |
+          set -euo pipefail
+          apt-get update && apt-get install -y --no-install-recommends jq zip binutils
+          cargo install --locked just git-cliff
+          cargo install --locked cross --git https://github.com/cross-rs/cross
+
+      - name: Build, verify and package all targets
+        env:
+          VER: ${{ steps.ver.outputs.tag }}
+        run: just package-all "$VER"
+
+      - name: Smoke-test the distroless image
+        env:
+          VER: ${{ steps.ver.outputs.tag }}
+        run: just docker-smoke "$VER"
+
+      - name: Publish to Codeberg release
+        env:
+          VER: ${{ steps.ver.outputs.tag }}
+          CODEBERG_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: just _release-codeberg "$VER"
