@@ -1194,8 +1194,8 @@ pub fn crop(image: DynamicImage, color: Option<u32>) -> DynamicImage {
             top += 1;
         }
         // bottom
-        for y in 0..image.height() {
-            for x in (0..image.width()).rev() {
+        for y in (0..image.height()).rev() {
+            for x in 0..image.width() {
                 let pixel = image.get_pixel(x, y);
                 if !is_color_or_transparent(pixel, crop_alpha, cropable_color) {
                     stop = true;
@@ -1394,17 +1394,85 @@ mod tests {
         assert_eq!(img.width(), 120);
         assert_eq!(img.height(), 100);
 
-        // crop transparency
+        // crop transparency: must match the bounding box of non-transparent pixels
+        let (bbox_width, bbox_height) = opaque_bounding_box(&img);
         let mut img2 = img.clone();
         img2 = crop(img2, None);
-        assert_eq!(img2.width(), 100);
-        assert_eq!(img2.height(), 74);
+        assert_eq!((img2.width(), img2.height()), (bbox_width, bbox_height));
+        assert_eq!((img2.width(), img2.height()), (100, 73));
 
         // crop white... will be same size
         let mut img2 = img.clone();
         img2 = crop(img2, Some(0xffffffff));
         assert_eq!(img2.width(), 120);
         assert_eq!(img2.height(), 100);
+    }
+
+    /// Reference implementation: size of the bounding box of all non-transparent pixels.
+    fn opaque_bounding_box(image: &DynamicImage) -> (u32, u32) {
+        let rgba = image.to_rgba8();
+        let opaque: Vec<(u32, u32)> = rgba
+            .enumerate_pixels()
+            .filter(|(_, _, pixel)| pixel.0[3] != 0)
+            .map(|(x, y, _)| (x, y))
+            .collect();
+        let min_x = opaque.iter().map(|point| point.0).min().unwrap();
+        let max_x = opaque.iter().map(|point| point.0).max().unwrap();
+        let min_y = opaque.iter().map(|point| point.1).min().unwrap();
+        let max_y = opaque.iter().map(|point| point.1).max().unwrap();
+        (max_x - min_x + 1, max_y - min_y + 1)
+    }
+
+    /// Transparent `width`×`height` image with the given rectangles painted opaque red.
+    fn transparent_with(width: u32, height: u32, opaque: &[(u32, u32, u32, u32)]) -> DynamicImage {
+        let mut canvas = image::RgbaImage::new(width, height);
+        for &(left, top, rect_width, rect_height) in opaque {
+            for y in top..top + rect_height {
+                for x in left..left + rect_width {
+                    canvas.put_pixel(x, y, image::Rgba([255, 0, 0, 255]));
+                }
+            }
+        }
+        DynamicImage::ImageRgba8(canvas)
+    }
+
+    #[test]
+    fn test_crop_single_row_near_top() {
+        // Review 3.1: a single opaque row at y=1 gave 10x8 instead of 10x1.
+        let cropped = crop(transparent_with(10, 10, &[(0, 1, 10, 1)]), None);
+        assert_eq!((cropped.width(), cropped.height()), (10, 1));
+    }
+
+    #[test]
+    fn test_crop_single_row_near_bottom() {
+        let cropped = crop(transparent_with(10, 10, &[(0, 8, 10, 1)]), None);
+        assert_eq!((cropped.width(), cropped.height()), (10, 1));
+    }
+
+    #[test]
+    fn test_crop_off_center_block_keeps_only_content() {
+        let cropped = crop(transparent_with(10, 10, &[(2, 1, 3, 2)]), None);
+        assert_eq!((cropped.width(), cropped.height()), (3, 2));
+        assert!(
+            cropped.to_rgba8().pixels().all(|pixel| pixel.0[3] == 255),
+            "only the opaque block must remain"
+        );
+    }
+
+    #[test]
+    fn test_crop_bounding_box_of_scattered_pixels() {
+        // Two single pixels: the result is their bounding box, gaps included.
+        let cropped = crop(transparent_with(12, 9, &[(3, 1, 1, 1), (7, 6, 1, 1)]), None);
+        assert_eq!((cropped.width(), cropped.height()), (5, 6));
+    }
+
+    #[test]
+    fn test_crop_explicit_color() {
+        let mut canvas = image::RgbaImage::from_pixel(10, 10, image::Rgba([255, 255, 255, 255]));
+        canvas.put_pixel(7, 6, image::Rgba([0, 0, 0, 255]));
+        let cropped = crop(DynamicImage::ImageRgba8(canvas), Some(0xffffffff));
+        assert_eq!((cropped.width(), cropped.height()), (1, 1));
+        assert_eq!(cropped.get_pixel(0, 0), image::Rgba([0, 0, 0, 255]));
     }
 
     #[test]

@@ -122,3 +122,37 @@ fn ratio_aware_resize_triggers_above_effective_limit() {
     assert_eq!(img.computed_width, 200);
     assert_eq!(img.computed_height, 133); // floor(167 * 0.8) = floor(133.6) = 133
 }
+
+#[test]
+fn crop_handles_content_off_center_vertically() {
+    // Opaque 6×2 band at (3, 1) in a transparent 20×20 icon: far from the vertical centre.
+    let source = std::env::temp_dir().join(format!(
+        "spriters_crop_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .subsec_nanos()
+    ));
+    std::fs::create_dir_all(&source).unwrap();
+    let mut canvas = image::RgbaImage::new(20, 20);
+    for y in 1..3 {
+        for x in 3..9 {
+            canvas.put_pixel(x, y, image::Rgba([0, 128, 255, 255]));
+        }
+    }
+    canvas.save(source.join("band.png")).unwrap();
+
+    let config = Config {
+        source: source.clone(),
+        output: std::env::temp_dir(),
+        crop: true,
+        ..Default::default()
+    };
+    let sprite = Sprite::new(&config, source.clone());
+    std::fs::remove_dir_all(&source).ok();
+
+    assert_eq!(sprite.images.len(), 1);
+    assert_eq!(sprite.images[0].computed_width, 6);
+    assert_eq!(sprite.images[0].computed_height, 2);
+}

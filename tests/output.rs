@@ -524,19 +524,19 @@ fn test_max_width_ratio_aware() {
     });
 }
 
-// 3.1 — resize happens before crop (no.png has a transparent border: 120×100 → crops to 100×74).
+// 3.1 — resize happens before crop (no.png has a transparent border: 120×100 → crops to 100×73).
 // With max-width=60 the image is first resized (120→60), then the smaller transparent border removed.
 #[test]
 fn test_resize_before_crop() {
     with_tmp_dir(|out| {
-        // Crop only — no resize: should produce 100×74
+        // Crop only — no resize: should produce 100×73
         let mut config_crop = make_config("tests/images/europe", out);
         config_crop.json = true;
         config_crop.crop = true;
         run_manager(config_crop);
         let json_crop = std::fs::read_to_string(format!("{}/europe.json", out)).unwrap();
         let widths_crop = parse_widths_from_json(&json_crop);
-        // no.png crops from 120×100 to 100×74; its width in the output must be 100
+        // no.png crops from 120×100 to 100×73; its width in the output must be 100
         assert!(
             widths_crop.contains(&100),
             "crop-only: no.png should appear as 100px wide"
