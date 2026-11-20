@@ -1621,6 +1621,7 @@ mod tests {
                     x: 0,
                     y: 0,
                     aliases: vec![],
+                    source_hash: 0,
                 })
                 .collect(),
             margin: util::Spacing::default(),

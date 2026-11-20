@@ -1057,6 +1057,7 @@ mod tests {
                     x: 0,
                     y: 0,
                     aliases: vec![],
+                    source_hash: 0,
                 }],
                 margin: crate::util::Spacing::default(),
                 padding: crate::util::Spacing::default(),

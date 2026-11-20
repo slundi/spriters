@@ -152,6 +152,7 @@ mod tests {
                 computed_width: *w,
                 computed_height: *h,
                 aliases: vec![],
+                source_hash: 0,
             });
         }
 
