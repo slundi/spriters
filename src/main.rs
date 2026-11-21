@@ -338,7 +338,12 @@ fn main() -> ExitCode {
     } else {
         info!("Reading {} files from stdin", config.files.len());
     }
-    info!("Output directory: {}", config.output.to_string_lossy());
+    if config.image_dir() == config.css_dir() {
+        info!("Output directory: {}", config.output.to_string_lossy());
+    } else {
+        info!("Image directory: {}", config.image_dir().to_string_lossy());
+        info!("CSS directory: {}", config.css_dir().to_string_lossy());
+    }
 
     // In watch mode, decoded images are kept between runs: a change only re-decodes the
     // files that changed.

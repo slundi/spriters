@@ -4,7 +4,7 @@ const HELP_MSG: &str = "spriters [OPTIONS] [SOURCE_DIR] [OUTPUT_DIR]
 spriters stats [OUTPUT_DIR]
 spriters completions <bash|zsh|fish>
 
-By default, it search images on the current working directory. The output is alson on the working directory.
+By default, it search images on the current working directory. The output is also on the working directory.
 SOURCE_DIR and OUTPUT_DIR can also be given with -i and -o (but not both ways).
 
 Subcommands are only recognised as the first argument:
@@ -14,6 +14,7 @@ A SOURCE_DIR named like a subcommand is written as a path or after '--': spriter
 
 General options:
 -h, --help:             print this message
+-V, --version:          print the version
 -q, --quiet:            don't print anything on the console
 -i, --input:            input directory ('-' is the same as --stdin)
 -o, --output:           output directory
@@ -35,22 +36,22 @@ Output options:
 --cocos2d:              generate Cocos2d XML compatible files
 -l, --less:             generate LESS dynamic  stylesheet
 --scss:                 generate SCSS dynamic stylesheet
---css-template:         custom Jinja template for CSS output
+--css-template:         custom Jinja template for CSS output (variables are listed in the README)
 --less-template:        custom Jinja template for LESS output
 --scss-template:        custom Jinja template for SCSS output
 --css-vars:             generate a .vars.css file with CSS custom properties (--sprite-name-x, -y, -w, -h)
---css-vars-template:    custom template file for CSS vars output
+--css-vars-template:    custom Jinja template for CSS vars output
 --tailwind:             generate a .tailwind.json file with a Tailwind CSS safelist of all sprite class names
 --dts:                  generate a .d.ts TypeScript definition file with a SpriteName union type
 --no-css:               do not generate CSS files
 --no-img:               do not generate image file
 --format:               output image format: png (default), webp, avif
---css:                  custom output directory for CSS files
---img:                  custom output directory for image files
+--css:                  custom output directory for CSS and the other text files (the image URL is relative to it)
+--img:                  custom output directory for image files (and the .<sprite>.spriters metadata)
 --cachebuster:          when generating CSS, add image hash in the end of the filename
 --cachebuster-filename: when generating CSS, add image hash before the extension in the filename
 --cachebuster-filename-only-sprites: embed hash in sprite image filename but keep CSS filename unchanged
---separator:            separator for CSS class names (default: '-')
+--separator:            separator for CSS class names (default: '-'), 'camelcase' for spriteIconsMyImage
 --namespace:            global namespace for CSS classes (default: 'sprite')
 --sprite-namespace:     sprite-specific namespace, use %(sprite)s for sprite name
 --pseudo-class-separator: separator in filenames for pseudo-classes (e.g., '__' makes button__hover.png use :hover)
@@ -252,6 +253,10 @@ fn parse_args_from(mut parser: lexopt::Parser) -> Result<CliArgs, lexopt::Error>
                 println!("{}", HELP_MSG);
                 std::process::exit(0);
             }
+            Short('V') | Long("version") => {
+                println!("{}", version());
+                std::process::exit(0);
+            }
             Long("separator") => {
                 let separator: String = parser.value()?.parse()?;
                 cli.set(move |config| config.separator = separator.clone());
@@ -290,6 +295,11 @@ fn parse_args_from(mut parser: lexopt::Parser) -> Result<CliArgs, lexopt::Error>
     }
 
     Ok(cli)
+}
+
+/// What `--version` prints: `spriters <version>` (read by `install.sh`).
+fn version() -> String {
+    format!("spriters {}", env!("CARGO_PKG_VERSION"))
 }
 
 /// Value of the current option, parsed with `parse`. Unlike `spriters.toml` and env vars,
@@ -462,6 +472,40 @@ mod tests {
         cli.apply(&mut config);
         assert_eq!(config.source, std::path::PathBuf::from("icons"));
         assert!(parse(&["-i", "-", "icons"]).reads_stdin());
+    }
+
+    #[test]
+    fn test_version_names_the_program() {
+        // `install.sh` prints the output of `spriters --version`.
+        assert_eq!(version(), format!("spriters {}", env!("CARGO_PKG_VERSION")));
+    }
+
+    #[test]
+    fn test_output_directory_options_are_applied() {
+        let config = parsed_config(&[
+            "--css",
+            "static/css",
+            "--img",
+            "static/img",
+            "--css-template",
+            "a.jinja",
+            "--pseudo-class-separator",
+            "__",
+            "--separator",
+            "camelcase",
+        ]);
+        assert_eq!(config.css_dir(), std::path::Path::new("static/css"));
+        assert_eq!(config.image_dir(), std::path::Path::new("static/img"));
+        assert_eq!(
+            config.css_template,
+            Some(std::path::PathBuf::from("a.jinja"))
+        );
+        assert_eq!(config.pseudo_class_separator.as_deref(), Some("__"));
+        assert_eq!(config.separator, "camelcase");
+        // Without them, both are the output directory.
+        let config = parsed_config(&["-o", "dist"]);
+        assert_eq!(config.css_dir(), std::path::Path::new("dist"));
+        assert_eq!(config.image_dir(), std::path::Path::new("dist"));
     }
 
     #[test]

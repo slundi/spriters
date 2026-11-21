@@ -26,6 +26,8 @@ glob = "0.3"
 image = { version = "0.25", features = ["avif"] }
 lexopt = "0.3"
 log = "0.4"
+# Custom output templates (--css-template…): Jinja syntax, no dependency of its own.
+minijinja = { version = "3.0.5", default-features = false, features = ["builtins"] }
 notify = "8"
 png = "0.18"
 rayon = "1"

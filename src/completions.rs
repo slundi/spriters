@@ -3,7 +3,7 @@ pub const BASH: &str = r#"_spriters() {
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    opts="--help --quiet --input --output --stdin --recursive --project --watch
+    opts="--help --version --quiet --input --output --stdin --recursive --project --watch
           --follow-links --force --dry-run --check
           --html --json --json-format --caat --cocos2d
           --less --scss --css-template --less-template --scss-template
@@ -31,8 +31,11 @@ pub const BASH: &str = r#"_spriters() {
         --resize-algorithm)
             COMPREPLY=($(compgen -W "nearest triangle catmullrom gaussian lanczos3" -- "${cur}"))
             return 0 ;;
-        --input|-i|--output|-o|--css|--img|--css-template|--less-template|--scss-template|--css-vars-template)
+        --input|-i|--output|-o|--css|--img)
             COMPREPLY=($(compgen -d -- "${cur}"))
+            return 0 ;;
+        --css-template|--less-template|--scss-template|--css-vars-template)
+            COMPREPLY=($(compgen -f -- "${cur}"))
             return 0 ;;
     esac
 
@@ -49,6 +52,7 @@ _spriters() {
     local -a opts
     opts=(
         '--help[Show help]'
+        {-V,--version}'[Show version]'
         '--quiet[Suppress output]'
         {-i,--input}'[Input directory]:dir:_files -/'
         {-o,--output}'[Output directory]:dir:_files -/'
@@ -69,6 +73,12 @@ _spriters() {
         '--scss[Generate SCSS stylesheet]'
         '--no-css[Skip CSS generation]'
         '--no-img[Skip image generation]'
+        '--css[Directory of the CSS and other text files]:dir:_files -/'
+        '--img[Directory of the sprite images]:dir:_files -/'
+        '--css-template[Jinja template for CSS output]:file:_files'
+        '--less-template[Jinja template for LESS output]:file:_files'
+        '--scss-template[Jinja template for SCSS output]:file:_files'
+        '--css-vars-template[Jinja template for CSS vars output]:file:_files'
         '--css-vars[Generate CSS custom properties file]'
         '--tailwind[Generate Tailwind CSS safelist JSON]'
         '--dts[Generate TypeScript SpriteName type definition]'
@@ -79,6 +89,7 @@ _spriters() {
         '--separator[CSS class name separator]:sep'
         '--namespace[Global CSS namespace]:ns'
         '--sprite-namespace[Sprite CSS namespace]:ns'
+        '--pseudo-class-separator[File name separator before a pseudo-class]:sep'
         '--url[Base URL for sprite images]:url'
         {-a,--algorithm}'[Layout algorithm]:algo:(square vertical horizontal diagonal vertical-right horizontal-bottom)'
         '--ordering[Sort order]:order:(maxside -maxside width -width height -height area -area filename -filename)'
@@ -103,6 +114,7 @@ _spriters
 pub const FISH: &str = r#"# fish completion for spriters
 
 complete -c spriters -s h -l help        -d 'Show help'
+complete -c spriters -s V -l version     -d 'Show version'
 complete -c spriters -s q -l quiet       -d 'Suppress output'
 complete -c spriters -s i -l input       -d 'Input directory'        -r -a '(__fish_complete_directories)'
 complete -c spriters -s o -l output      -d 'Output directory'       -r -a '(__fish_complete_directories)'
@@ -123,6 +135,12 @@ complete -c spriters -s l -l less        -d 'Generate LESS stylesheet'
 complete -c spriters      -l scss        -d 'Generate SCSS stylesheet'
 complete -c spriters      -l no-css      -d 'Skip CSS generation'
 complete -c spriters      -l no-img      -d 'Skip image generation'
+complete -c spriters      -l css         -d 'Directory of the CSS and other text files' -r -a '(__fish_complete_directories)'
+complete -c spriters      -l img         -d 'Directory of the sprite images' -r -a '(__fish_complete_directories)'
+complete -c spriters      -l css-template      -d 'Jinja template for CSS output'      -r -F
+complete -c spriters      -l less-template     -d 'Jinja template for LESS output'     -r -F
+complete -c spriters      -l scss-template     -d 'Jinja template for SCSS output'     -r -F
+complete -c spriters      -l css-vars-template -d 'Jinja template for CSS vars output' -r -F
 complete -c spriters      -l css-vars    -d 'Generate CSS custom properties'
 complete -c spriters      -l tailwind    -d 'Generate Tailwind CSS safelist JSON'
 complete -c spriters      -l dts         -d 'Generate TypeScript SpriteName type'
@@ -131,6 +149,7 @@ complete -c spriters      -l cachebuster -d 'Add hash as query param'
 complete -c spriters      -l cachebuster-filename -d 'Embed hash in filename'
 complete -c spriters      -l separator   -d 'CSS class name separator' -r
 complete -c spriters      -l namespace   -d 'Global CSS namespace'     -r
+complete -c spriters      -l pseudo-class-separator -d 'File name separator before a pseudo-class' -r
 complete -c spriters      -l url         -d 'Base URL for images'      -r
 complete -c spriters -s a -l algorithm   -d 'Layout algorithm'         -r -a 'square vertical horizontal diagonal vertical-right horizontal-bottom'
 complete -c spriters      -l ordering    -d 'Sort order'               -r -a 'maxside -maxside width -width height -height area -area filename -filename'

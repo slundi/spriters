@@ -277,6 +277,7 @@ pub struct Config {
     /// `$ spriters source output --separator=_`.
     ///
     /// If you want to use camelCase instead of a separator, choose camelcase as separator. `$ spriters source output --separator=camelcase`
+    /// gives `.spriteIconsMyImage` instead of `.sprite-icons-my-image`.
     pub separator: String,
     /// This flag will make **spriters** suppress all console output.
     pub quiet: bool,
@@ -318,21 +319,28 @@ pub struct Config {
     /// Using the `--html` option, **Spriters** will also generate a test html per sprite using all the available CSS classes. This option is only useful for
     /// testing purposes. **Spriters** generate the html file in the same directory as the CSS file.
     pub html: bool,
-    /// Using the filename of the source images you can customize the pseudo class related to the images, so if you simply append `__hover` to the filename
-    /// **spriters** will add `:hover` to the CSS class name.
+    /// Using the filename of the source images you can customize the pseudo class related to the images: with `--pseudo-class-separator=__`, if you simply
+    /// append `__hover` to the filename **spriters** will add `:hover` to the CSS class name (`button__hover.png` gives `.sprite-icons-button:hover`).
+    /// Disabled by default. Recognised pseudo-classes: link, visited, active, hover, focus, first-letter, first-line, first-child, before and after.
     pub pseudo_class_separator: Option<String>,
     /// Usually both CSS and PNG files reside on different folders, e.g. css and img. If you want to choose an individual folder for each type of file you can
-    /// use the -`-img=<dir> --css=<dir>` options together to customize where the output files will be created.
+    /// use the `--img=<dir> --css=<dir>` options together to customize where the output files will be created.
     ///
-    /// `$ spriters source --img=images/compiled --css=css/compiled``
+    /// `$ spriters source --img=images/compiled --css=css/compiled`
+    ///
+    /// Every text output (CSS, LESS, SCSS, JSON, HTML…) goes to the `--css` directory (see
+    /// [`Config::css_dir`]), and the URL of the sprite image is relative to it, unless
+    /// `--url` is given.
     pub css: Option<std::path::PathBuf>,
     /// While using `--css` you can use your own css template using `--css-template=<FILE>`.
     ///
     /// *Note: by default **spriters** will use it’s own internal css template, so this command is not required unless you want to super-customize **spriters**’s css output using
-    /// your own template. You can find further documentation about how templates work in the templates documentation page.*
+    /// your own template. The template uses the Jinja syntax; its variables are listed in the README.*
     ///
     /// `$ spriters source output --css-template=my_template.jinja`
     pub css_template: Option<std::path::PathBuf>,
+    /// Directory of the sprite images and of the metadata files (see [`Config::image_dir`]),
+    /// the output directory by default.
     pub img: Option<std::path::PathBuf>,
     /// By using the flag `png8` the output image format will be `png8` instead of `png32`:
     /// an 8-bit palette PNG of up to 256 colours, transparency included (PNG output only).
@@ -348,7 +356,7 @@ pub struct Config {
     /// While using `--less` you can use your own less template using `--less-template=<FILE>`.
     ///
     /// *Note: By default **spriters** will use it’s own internal less template, so this command is not required unless you want to super-customize **spriters**’s less output
-    /// using your own template. You can find further documentation about how templates work in the templates documentation page.
+    /// using your own template. The template uses the Jinja syntax; its variables are listed in the README.
     ///
     /// `$ spriters source output --less-template=my_template.jinja`
     pub less_template: Option<std::path::PathBuf>,
@@ -415,6 +423,14 @@ pub enum ConfigError {
     SourceNotDir(PathBuf),
     #[error("output directory does not exist or is not accessible: {}", .0.display())]
     OutputNotDir(PathBuf),
+    #[error("--{option} directory does not exist or is not accessible: {}", .path.display())]
+    DirNotFound { option: &'static str, path: PathBuf },
+    #[error("--{option} {}: {error}", .path.display())]
+    InvalidTemplate {
+        option: &'static str,
+        path: PathBuf,
+        error: String,
+    },
     #[error("max-width must be greater than 0")]
     ZeroMaxWidth,
     #[error("max-height must be greater than 0")]
@@ -426,6 +442,28 @@ pub enum ConfigError {
 }
 
 impl Config {
+    /// Directory of the sprite images and of the metadata files: `--img`, or the output
+    /// directory.
+    pub fn image_dir(&self) -> &Path {
+        self.img.as_deref().unwrap_or(&self.output)
+    }
+
+    /// Directory of the text outputs (CSS, LESS, SCSS, JSON, HTML…): `--css`, or the output
+    /// directory.
+    pub fn css_dir(&self) -> &Path {
+        self.css.as_deref().unwrap_or(&self.output)
+    }
+
+    /// Custom template options, with the option name.
+    fn templates(&self) -> [(&'static str, &Option<PathBuf>); 4] {
+        [
+            ("css-template", &self.css_template),
+            ("less-template", &self.less_template),
+            ("scss-template", &self.scss_template),
+            ("css-vars-template", &self.css_vars_template),
+        ]
+    }
+
     /// Check mandatory arguments and some values
     pub fn check(&self) -> Result<(), ConfigError> {
         if self.files.is_empty() && !self.source.is_dir() {
@@ -433,6 +471,25 @@ impl Config {
         }
         if !self.output.is_dir() {
             return Err(ConfigError::OutputNotDir(self.output.clone()));
+        }
+        for (option, dir) in [("css", &self.css), ("img", &self.img)] {
+            if let Some(path) = dir
+                && !path.is_dir()
+            {
+                return Err(ConfigError::DirNotFound {
+                    option,
+                    path: path.clone(),
+                });
+            }
+        }
+        for (option, template) in self.templates() {
+            if let Some(path) = template {
+                output::check_template(path).map_err(|error| ConfigError::InvalidTemplate {
+                    option,
+                    path: path.clone(),
+                    error,
+                })?;
+            }
         }
         if self.max_width == Some(0) {
             return Err(ConfigError::ZeroMaxWidth);
@@ -543,51 +600,121 @@ pub(crate) fn label_from_path(path: &str) -> String {
     )
 }
 
+/// Pseudo-classes recognised at the end of a file name with `--pseudo-class-separator`.
+pub(crate) const CSS_PSEUDO_CLASSES: [&str; 10] = [
+    "link",
+    "visited",
+    "active",
+    "hover",
+    "focus",
+    "first-letter",
+    "first-line",
+    "first-child",
+    "before",
+    "after",
+];
+
+/// CSS label and pseudo-classes of the image file `path`. With a pseudo-class `separator`,
+/// known pseudo-classes are taken from the end of the file stem before it is slugified:
+/// with `__`, `button__hover.png` gives `("button", ":hover")` and `link__focus__hover.png`
+/// gives `("link", ":focus:hover")`. Otherwise the label is [`label_from_path`].
+pub(crate) fn css_label_from_path(path: &str, separator: Option<&str>) -> (String, String) {
+    let stem = Path::new(path)
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy();
+    let mut base: &str = &stem;
+    let mut pseudo_classes = Vec::new();
+    if let Some(separator) = separator.filter(|separator| !separator.is_empty()) {
+        while let Some((rest, suffix)) = base.rsplit_once(separator) {
+            let suffix = suffix.to_ascii_lowercase();
+            if rest.is_empty() || !CSS_PSEUDO_CLASSES.contains(&suffix.as_str()) {
+                break;
+            }
+            pseudo_classes.push(suffix);
+            base = rest;
+        }
+    }
+    let pseudo = pseudo_classes
+        .iter()
+        .rev()
+        .map(|pseudo_class| format!(":{pseudo_class}"))
+        .collect();
+    (slug::slugify(base), pseudo)
+}
+
+/// The names under which `path` appears in the outputs: its label (JSON keys, class names),
+/// plus its CSS selector key `label:pseudo` when it has pseudo-classes. The latter never
+/// equals a label, which cannot contain `:`.
+fn label_keys(path: &str, pseudo_separator: Option<&str>) -> Vec<String> {
+    let mut keys = vec![label_from_path(path)];
+    let (label, pseudo) = css_label_from_path(path, pseudo_separator);
+    if !pseudo.is_empty() {
+        keys.push(format!("{label}{pseudo}"));
+    }
+    keys
+}
+
 /// Leave out the images and aliases whose label is already taken by another image: both
 /// would get the same class name (and JSON key) at different positions, e.g. `my_image.png`
-/// and `my-image.png`, or `rss.png` in two folders with `--recursive`.
+/// and `my-image.png`, or `rss.png` in two folders with `--recursive`. With a
+/// `pseudo_separator`, CSS selectors (`button:hover`) must be unique too (see
+/// [`label_keys`]).
 ///
 /// Images claim their label first, in path order, so the same one is kept whatever the walk
 /// order; then aliases. An alias with the label of its own image adds nothing and is dropped
 /// silently. Returns the paths left out.
-fn remove_label_collisions(images: &mut Vec<ImageAndPosition>) -> Vec<String> {
+fn remove_label_collisions(
+    images: &mut Vec<ImageAndPosition>,
+    pseudo_separator: Option<&str>,
+) -> Vec<String> {
     images.sort_by(|a, b| a.path.cmp(&b.path));
     // Label -> path of the image whose position it designates.
     let mut owners: HashMap<String, String> = HashMap::new();
     let mut left_out = Vec::new();
 
     images.retain(|image| {
-        let label = image.label();
-        if let Some(owner) = owners.get(&label) {
+        let keys = label_keys(&image.path, pseudo_separator);
+        if let Some((key, owner)) = keys
+            .iter()
+            .find_map(|key| owners.get(key).map(|owner| (key, owner)))
+        {
             error!(
                 "{} is left out: its label '{}' is already used by {}, rename one of them",
-                image.path, label, owner
+                image.path, key, owner
             );
             left_out.push(image.path.clone());
             left_out.extend(image.aliases.iter().cloned());
             return false;
         }
-        owners.insert(label, image.path.clone());
+        for key in keys {
+            owners.insert(key, image.path.clone());
+        }
         true
     });
 
     for image in images.iter_mut() {
         image.aliases.retain(|alias| {
-            let label = label_from_path(alias);
-            match owners.get(&label) {
-                Some(owner) if *owner == image.path => {
+            let keys = label_keys(alias, pseudo_separator);
+            let taken = keys
+                .iter()
+                .find_map(|key| owners.get(key).map(|owner| (key, owner)));
+            match taken {
+                Some((_, owner)) if *owner == image.path => {
                     debug!("{alias}: same label as {}, nothing to add", image.path);
                     false
                 }
-                Some(owner) => {
+                Some((key, owner)) => {
                     error!(
-                        "{alias} is left out: its label '{label}' is already used by {owner}, rename one of them"
+                        "{alias} is left out: its label '{key}' is already used by {owner}, rename one of them"
                     );
                     left_out.push(alias.clone());
                     false
                 }
                 None => {
-                    owners.insert(label, image.path.clone());
+                    for key in keys {
+                        owners.insert(key, image.path.clone());
+                    }
                     true
                 }
             }
@@ -1083,7 +1210,10 @@ impl Sprite {
             });
         self.images = images;
         failed.extend(failed_decoding);
-        failed.extend(remove_label_collisions(&mut self.images));
+        failed.extend(remove_label_collisions(
+            &mut self.images,
+            self.config.pseudo_class_separator.as_deref(),
+        ));
         failed.sort();
         self.failed_images = failed;
 
@@ -1470,44 +1600,46 @@ fn canonical_path(path: &Path) -> Option<PathBuf> {
 ///
 /// By default the source and output directories are the same: without this filter, the
 /// sprite of a run would become an input image of the next one. Only generated files are
-/// filtered: images the user keeps in the output directory are still sources.
+/// filtered: images the user keeps in an output directory are still sources.
 #[derive(Debug, Default)]
 pub struct OutputFilter {
-    /// Canonical output directory.
-    output: Option<PathBuf>,
-    /// Sprites whose generated files may be in the output directory.
+    /// Canonical output directories: images (`--img`) and text outputs (`--css`).
+    outputs: Vec<PathBuf>,
+    /// Sprites whose generated files may be in the output directories.
     sprite_names: Vec<String>,
 }
 
 impl OutputFilter {
     /// Filter for the outputs of `config`: the sprite built from `config.source`, plus every
-    /// sprite recorded by a metadata file in `config.output`.
+    /// sprite recorded by a metadata file in the image directory.
     pub fn new(config: &Config) -> Self {
-        let mut sprite_names = list_sprite_names(&config.output);
+        let mut sprite_names = list_sprite_names(config.image_dir());
         sprite_names.push(sprite_name(&config.source));
+        let mut outputs: Vec<PathBuf> = [config.image_dir(), config.css_dir()]
+            .into_iter()
+            .filter_map(canonical_path)
+            .collect();
+        outputs.dedup();
         OutputFilter {
-            output: canonical_path(&config.output),
+            outputs,
             sprite_names,
         }
     }
 
-    /// Whether `dir` is the output directory.
+    /// Whether `dir` is an output directory.
     pub fn is_output_dir(&self, dir: &Path) -> bool {
-        self.output.is_some() && canonical_path(dir) == self.output
+        canonical_path(dir).is_some_and(|dir| self.outputs.contains(&dir))
     }
 
-    /// Whether `path` is a file spriters generated in the output directory (sprite image,
+    /// Whether `path` is a file spriters generated in an output directory (sprite image,
     /// text output or metadata). `path` does not need to exist (deleted files).
     pub fn is_generated_file(&self, path: &Path) -> bool {
-        let Some(output) = &self.output else {
-            return false;
-        };
         path.file_name().is_some_and(|name| {
             output::is_generated_file_name(&name.to_string_lossy(), &self.sprite_names)
         }) && canonical_path(path)
             .as_deref()
             .and_then(Path::parent)
-            .is_some_and(|parent| parent == output)
+            .is_some_and(|parent| self.outputs.iter().any(|output| output == parent))
     }
 
     /// Whether `dir` holds at least one source image (a non-hidden image that spriters did
@@ -2262,7 +2394,7 @@ mod tests {
             labelled("icons/my-image.png", &[]),
             labelled("icons/other.png", &[]),
         ];
-        let left_out = remove_label_collisions(&mut images);
+        let left_out = remove_label_collisions(&mut images, None);
 
         assert_eq!(
             paths(&images),
@@ -2289,7 +2421,7 @@ mod tests {
             labelled("icons/zz/other.png", &["icons/zz/other-copy.png"]),
             labelled("icons/other.png", &[]),
         ];
-        let mut left_out = remove_label_collisions(&mut images);
+        let mut left_out = remove_label_collisions(&mut images, None);
         left_out.sort();
 
         assert_eq!(
@@ -2316,10 +2448,73 @@ mod tests {
     #[test]
     fn test_unique_labels_are_untouched() {
         let mut images = vec![labelled("b.png", &["b-copy.png"]), labelled("a.png", &[])];
-        assert!(remove_label_collisions(&mut images).is_empty());
+        assert!(remove_label_collisions(&mut images, None).is_empty());
         assert_eq!(
             paths(&images),
             [("a.png", vec![]), ("b.png", vec!["b-copy.png"])]
+        );
+    }
+
+    #[test]
+    fn test_css_label_from_path() {
+        // Review §7: `--pseudo-class-separator` was ignored, and slugify turned
+        // `button__hover` into `button-hover`.
+        let separator = Some("__");
+        for (path, label, pseudo) in [
+            ("icons/button__hover.png", "button", ":hover"),
+            ("icons/my_link__focus__HOVER.png", "my-link", ":focus:hover"),
+            ("icons/arrow__first-child.png", "arrow", ":first-child"),
+            // Not a pseudo-class: part of the label.
+            ("icons/menu__open.png", "menu-open", ""),
+            ("icons/menu__open__hover.png", "menu-open", ":hover"),
+            // A pseudo-class alone is a label.
+            ("icons/__hover.png", "hover", ""),
+            ("icons/hover.png", "hover", ""),
+            ("icons/plain.png", "plain", ""),
+        ] {
+            assert_eq!(
+                css_label_from_path(path, separator),
+                (String::from(label), String::from(pseudo)),
+                "{path}"
+            );
+        }
+        // Without separator (the default), or an empty one, the file stem is the label.
+        for separator in [None, Some("")] {
+            assert_eq!(
+                css_label_from_path("icons/button__hover.png", separator),
+                (String::from("button-hover"), String::new())
+            );
+        }
+        assert_eq!(
+            css_label_from_path("icons/nav-active.png", Some("-")),
+            (String::from("nav"), String::from(":active"))
+        );
+    }
+
+    #[test]
+    fn test_label_collisions_with_pseudo_classes() {
+        let mut images = vec![
+            labelled("icons/button.png", &[]),
+            labelled("icons/button__hover.png", &[]),
+            // Same selector `.button:hover`.
+            labelled("icons/zz/button__hover.png", &[]),
+            // Same JSON key `button-hover`.
+            labelled("icons/zz/button-hover.png", &[]),
+            labelled("icons/link__focus.png", &["icons/link__active.png"]),
+        ];
+        let mut left_out = remove_label_collisions(&mut images, Some("__"));
+        left_out.sort();
+        assert_eq!(
+            paths(&images),
+            [
+                ("icons/button.png", vec![]),
+                ("icons/button__hover.png", vec![]),
+                ("icons/link__focus.png", vec!["icons/link__active.png"]),
+            ]
+        );
+        assert_eq!(
+            left_out,
+            ["icons/zz/button-hover.png", "icons/zz/button__hover.png"]
         );
     }
 

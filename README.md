@@ -111,6 +111,7 @@ spriters icons/ dist/ --check
 | `--force`           | Regenerate even if sprite is up to date                             |
 | `--watch`           | Watch for changes and regenerate                                    |
 | `-q`, `--quiet`     | Suppress console output                                             |
+| `-V`, `--version`   | Print the version                                                   |
 | `--exclude`         | Skip files matching glob pattern (repeatable, supports `*` and `?`) |
 | `--dry-run`         | Print what would be generated without writing any files             |
 | `--check`           | Exit non-zero if output is missing or stale (CI assertion)          |
@@ -145,13 +146,13 @@ spriters icons/ dist/ --check
 | `--scss`                              | Generate SCSS stylesheet                                                                       |
 | `--no-css`                            | Skip CSS generation                                                                            |
 | `--no-img`                            | Skip sprite image generation                                                                   |
-| `--css`                               | Custom directory for CSS files                                                                 |
-| `--img`                               | Custom directory for sprite image                                                              |
-| `--css-template`                      | Custom Jinja-style CSS template                                                                |
-| `--less-template`                     | Custom Jinja-style LESS template                                                               |
-| `--scss-template`                     | Custom Jinja-style SCSS template                                                               |
+| `--css`                               | Directory of the CSS and every other text output (default: `--output`); the image URL is relative to it |
+| `--img`                               | Directory of the sprite images and of the `.{name}.spriters` metadata (default: `--output`)   |
+| `--css-template`                      | Custom Jinja template for the CSS output (see [Templates](#templates))                        |
+| `--less-template`                     | Custom Jinja template for the LESS output                                                      |
+| `--scss-template`                     | Custom Jinja template for the SCSS output                                                      |
 | `--css-vars`                          | Emit CSS custom properties (`<sprite>.vars.css`) with `--name-x/y/w/h` tokens                  |
-| `--css-vars-template`                 | Custom template for CSS custom properties output                                               |
+| `--css-vars-template`                 | Custom Jinja template for the CSS custom properties output                                     |
 | `--tailwind`                          | Emit `<sprite>.tailwind.json` safelist for Tailwind CSS purge/safelist config                  |
 | `--dts`                               | Emit `<sprite>.d.ts` TypeScript union type of all sprite names                                 |
 | `--cachebuster`                       | Add content hash as query param to sprite URL                                                  |
@@ -159,8 +160,8 @@ spriters icons/ dist/ --check
 | `--cachebuster-filename-only-sprites` | Embed hash in sprite image filename; CSS URL stays clean                                       |
 | `--namespace`                         | Global CSS namespace (default: `sprite`)                                                       |
 | `--sprite-namespace`                  | Per-sprite CSS namespace; use `%(sprite)s` for the sprite name                                 |
-| `--separator`                         | CSS class name separator (default: `-`)                                                        |
-| `--pseudo-class-separator`            | Suffix separator for pseudo-classes (e.g. `__` → `button__hover.png` → `.sprite-button:hover`) |
+| `--separator`                         | CSS class name separator (default: `-`); `camelcase` gives `.spriteIconsMyImage`               |
+| `--pseudo-class-separator`            | Suffix separator for pseudo-classes, off by default (e.g. `__` → `button__hover.png` → `.sprite-icons-button:hover`); recognised: `link`, `visited`, `active`, `hover`, `focus`, `first-letter`, `first-line`, `first-child`, `before`, `after` |
 | `-u`, `--url`                         | Base URL for sprite images (e.g. `https://cdn.example.com/sprites`)                            |
 
 ### Subcommands
@@ -185,6 +186,48 @@ spriters -- stats dist/
 
 ---
 
+## Templates
+
+`--css-template`, `--less-template`, `--scss-template` and `--css-vars-template` replace the
+built-in output with a [Jinja](https://jinja.palletsprojects.com/) template, rendered with
+[MiniJinja](https://docs.rs/minijinja). Nothing is HTML-escaped. A missing template or a
+syntax error is reported before anything is generated, and editing a template regenerates
+its output on the next run.
+
+| Variable          | Content                                                                         |
+| ----------------- | ------------------------------------------------------------------------------- |
+| `name`            | Sprite name                                                                     |
+| `sprite_path`     | URL of the sprite image, as in the built-in CSS (`--url`, cache buster…)        |
+| `sprite_filename` | File name of the sprite image                                                   |
+| `width`, `height` | Sprite size in CSS px                                                           |
+| `hash`            | Cache buster of the sprite (8 hex digits)                                       |
+| `images`          | One entry per image and per duplicate (alias), see below                        |
+| `ratios`          | With `--ratios`, one entry per ratio above the smallest: `ratio` (`2`), `fraction` (`2`, `3/2`), `sprite_path`, `sprite_filename` |
+
+Each entry of `images`:
+
+| Variable          | Content                                                                         |
+| ----------------- | ------------------------------------------------------------------------------- |
+| `label`           | CSS class name (`sprite-icons-arrow`), without pseudo-class                     |
+| `pseudo`          | Pseudo-classes from `--pseudo-class-separator` (`:hover`), usually empty        |
+| `selector`        | `.label` followed by `pseudo`                                                   |
+| `name`            | Image name without namespaces (`arrow`), as in the JSON output                  |
+| `filename`, `path` | Source file name and path                                                      |
+| `x`, `y`          | Position in the sprite in CSS px (positive: use `-{{ image.x }}px`)             |
+| `width`, `height` | Size in CSS px, padding included                                                |
+| `last`            | Whether it is the last entry (`loop.last` works too)                            |
+
+```jinja
+{% for image in images %}{{ image.selector }}{% if not loop.last %}, {% endif %}{% endfor %} {
+  background-image: url('{{ sprite_path }}');
+}
+{% for image in images %}
+{{ image.selector }} { background-position: -{{ image.x }}px -{{ image.y }}px; width: {{ image.width }}px; height: {{ image.height }}px; }
+{%- endfor %}
+```
+
+---
+
 ## Configuration file
 
 Create `spriters.toml` in your source directory:
@@ -200,7 +243,7 @@ ratios = "2,1"
 max_width = 200
 ```
 
-All CLI options are supported. The file holds project defaults: `SPRITERS_*` environment variables override it, and CLI flags override both.
+Most CLI options are supported; directories (`--output`, `--css`, `--img`) and templates are given on the command line. The file holds project defaults: `SPRITERS_*` environment variables override it, and CLI flags override both.
 
 Priority order (highest → lowest): CLI flags > `SPRITERS_*` env vars > `spriters.toml` > defaults.
 

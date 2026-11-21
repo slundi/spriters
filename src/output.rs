@@ -3,23 +3,15 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
 
-use crate::{Config, JsonFormat, Sprite, SpriteFormat, label_from_path};
+use crate::{
+    Config, ImageAndPosition, JsonFormat, Sprite, SpriteFormat, css_label_from_path,
+    label_from_path,
+};
 
 const SPRITERS_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-#[cfg(test)]
-const CSS_PSEUDO_CLASSES: [&str; 10] = [
-    "link",
-    "visited",
-    "active",
-    "hover",
-    "focus",
-    "first-letter",
-    "first-line",
-    "first-child",
-    "before",
-    "after",
-];
+/// `--separator` value joining the class name parts in camelCase (see [`camel_case`]).
+const CAMEL_CASE: &str = "camelcase";
 
 /// Deterministic cache buster: lower 32 bits of the sprite hash, hex-encoded.
 fn cache_buster(config: &Config, sprite: &Sprite) -> String {
@@ -101,15 +93,50 @@ fn sprite_file_url(config: &Config, sprite: &Sprite, mut filename: String) -> St
                 format!("{}/{}", base_url, filename)
             }
         }
-        None => filename,
+        None => format!("{}{filename}", image_dir_url(config)),
+    }
+}
+
+/// `path` made absolute, symbolic links resolved when it exists.
+fn resolved(path: &std::path::Path) -> PathBuf {
+    path.canonicalize()
+        .or_else(|_| std::path::absolute(path))
+        .unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// URL of the image directory relative to the text outputs (`--img` and `--css`): empty
+/// when they are the same directory, otherwise a path ending with `/` (`../img/`).
+fn image_dir_url(config: &Config) -> String {
+    let (from, to) = (resolved(config.css_dir()), resolved(config.image_dir()));
+    let from: Vec<_> = from.components().collect();
+    let to: Vec<_> = to.components().collect();
+    let common = from
+        .iter()
+        .zip(&to)
+        .take_while(|(left, right)| left == right)
+        .count();
+    if common == 0 {
+        // Nothing in common (another drive): only an absolute path reaches it.
+        return format!("{}/", config.image_dir().display());
+    }
+    let parts: Vec<String> = std::iter::repeat_n(String::from(".."), from.len() - common)
+        .chain(
+            to[common..]
+                .iter()
+                .map(|component| component.as_os_str().to_string_lossy().into_owned()),
+        )
+        .collect();
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!("{}/", parts.join("/"))
     }
 }
 
 /// Build a CSS class name based on config settings (namespace, sprite_namespace, separator).
-/// Default pattern: `sprite-{sprite_name}-{image_label}`
+/// Default pattern: `sprite-{sprite_name}-{image_label}`, empty parts left out; in camelCase
+/// with `--separator=camelcase`.
 fn build_class_name(config: &Config, sprite_name: &str, image_label: &str) -> String {
-    let sep = &config.separator;
-
     // Determine namespace (default: "sprite")
     let namespace = config.namespace.as_deref().unwrap_or("sprite");
 
@@ -119,23 +146,105 @@ fn build_class_name(config: &Config, sprite_name: &str, image_label: &str) -> St
         None => sprite_name.to_string(),
     };
 
-    // Build the class name
-    let mut class_name = String::new();
-    if !namespace.is_empty() {
-        class_name.push_str(namespace);
-        if !sprite_ns.is_empty() || !image_label.is_empty() {
-            class_name.push_str(sep);
-        }
+    let parts = [namespace, &sprite_ns, image_label];
+    if config.separator.eq_ignore_ascii_case(CAMEL_CASE) {
+        return camel_case(&parts);
     }
-    if !sprite_ns.is_empty() {
-        class_name.push_str(&sprite_ns);
-        if !image_label.is_empty() {
-            class_name.push_str(sep);
-        }
-    }
-    class_name.push_str(image_label);
+    parts
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(&config.separator)
+}
 
-    class_name
+/// The words of `parts` in camelCase: `["sprite", "icons", "my-image"]` gives
+/// `spriteIconsMyImage`. Every character that is not alphanumeric separates words.
+fn camel_case(parts: &[&str]) -> String {
+    let mut result = String::new();
+    let words = parts
+        .iter()
+        .flat_map(|part| part.split(|character: char| !character.is_alphanumeric()))
+        .filter(|word| !word.is_empty());
+    for word in words {
+        if result.is_empty() {
+            result.push_str(word);
+            continue;
+        }
+        let mut characters = word.chars();
+        if let Some(first) = characters.next() {
+            result.extend(first.to_uppercase());
+            result.push_str(characters.as_str());
+        }
+    }
+    result
+}
+
+/// An image or one of its aliases, as named in the outputs.
+struct Entry<'a> {
+    image: &'a ImageAndPosition,
+    /// Source file: the image or the alias.
+    path: &'a str,
+    /// Name in the non-CSS outputs (JSON keys…), see [`label_from_path`].
+    label: String,
+    /// CSS class name, see [`build_class_name`].
+    class: String,
+    /// Pseudo-classes (`:hover`) from `--pseudo-class-separator`, usually empty.
+    pseudo: String,
+}
+
+impl Entry<'_> {
+    /// CSS selector: `.class:pseudo`.
+    fn selector(&self) -> String {
+        format!(".{}{}", self.class, self.pseudo)
+    }
+}
+
+/// Every entry of the sprite: each image followed by its aliases (same position).
+fn entries<'a>(config: &Config, sprite: &'a Sprite) -> Vec<Entry<'a>> {
+    let name = sprite.name();
+    let pseudo_separator = config.pseudo_class_separator.as_deref();
+    sprite
+        .images
+        .iter()
+        .flat_map(|image| {
+            std::iter::once(image.path.as_str())
+                .chain(image.aliases.iter().map(String::as_str))
+                .map(move |path| (image, path))
+        })
+        .map(|(image, path)| {
+            let (css_label, pseudo) = css_label_from_path(path, pseudo_separator);
+            Entry {
+                image,
+                path,
+                label: label_from_path(path),
+                class: build_class_name(config, &name, &css_label),
+                pseudo,
+            }
+        })
+        .collect()
+}
+
+/// The entries grouped by image: an image and its aliases share one CSS rule.
+fn entries_by_image<'a, 'b>(entries: &'b [Entry<'a>]) -> impl Iterator<Item = &'b [Entry<'a>]> {
+    entries.chunk_by(|left, right| std::ptr::eq(left.image, right.image))
+}
+
+/// The selectors of `entries`, joined with `separator`.
+fn selectors(entries: &[Entry], separator: &str) -> String {
+    entries
+        .iter()
+        .map(Entry::selector)
+        .collect::<Vec<_>>()
+        .join(separator)
+}
+
+/// CSS `background-position` component for the position `offset`: `0` or `-<offset>px`.
+fn css_offset(offset: u32) -> String {
+    if offset == 0 {
+        String::from("0")
+    } else {
+        format!("-{offset}px")
+    }
 }
 
 /// `background-size` declaration of the base rule when the sprite has ratios: every image
@@ -167,7 +276,7 @@ fn write_ratio_media_queries(
         )?;
         writeln!(
             f,
-            "  .{selectors} {{\n    background-image: url('{url}');\n  }}\n}}"
+            "  {selectors} {{\n    background-image: url('{url}');\n  }}\n}}"
         )?;
     }
     Ok(())
@@ -236,75 +345,40 @@ fn write_output(
     result
 }
 
-fn implode_image_label(config: &Config, sprite: &Sprite) -> String {
-    let sprite_name = sprite.name();
-    let mut labels: Vec<String> = Vec::with_capacity(sprite.images.len());
-    for img in sprite.images.iter() {
-        labels.push(build_class_name(config, &sprite_name, &img.label()));
-        for alias_path in &img.aliases {
-            labels.push(build_class_name(
-                config,
-                &sprite_name,
-                &label_from_path(alias_path),
-            ));
-        }
-    }
-    labels.join(",")
-}
-
+/// The built-in CSS output; the LESS one is identical.
 fn generate_css(config: &Config, sprite: &Sprite, f: &mut dyn Write) -> std::io::Result<()> {
-    let name = sprite.name();
     let sprite_url = get_sprite_url(config, sprite);
-    let selectors = implode_image_label(config, sprite).replace(",", ", .");
+    let entries = entries(config, sprite);
+    let all_selectors = selectors(&entries, ", ");
 
     // Write the shared class for all images
     writeln!(
         f,
-        ".{list} {{\n  background-image: url('{url}');\n  background-repeat: no-repeat;{size}\n}}",
-        list = selectors,
-        url = sprite_url,
+        "{all_selectors} {{\n  background-image: url('{sprite_url}');\n  background-repeat: no-repeat;{size}\n}}",
         size = background_size(sprite),
     )?;
 
     // Write individual image classes (primary + aliases share the same rule).
-    for img in sprite.images.iter() {
-        let x = if img.x == 0 {
-            String::from("0")
-        } else {
-            format!("-{}px", img.x)
-        };
-        let y = if img.y == 0 {
-            String::from("0")
-        } else {
-            format!("-{}px", img.y)
-        };
-        let selector = std::iter::once(img.label())
-            .chain(img.aliases.iter().map(|p| label_from_path(p)))
-            .map(|lbl| format!(".{}", build_class_name(config, &name, &lbl)))
-            .collect::<Vec<_>>()
-            .join(", ");
+    for group in entries_by_image(&entries) {
+        let img = group[0].image;
         writeln!(
             f,
             "\n{selector} {{\n  background-position: {x} {y};\n  width: {w}px;\n  height: {h}px;\n}}",
-            selector = selector,
-            x = x,
-            y = y,
+            selector = selectors(group, ", "),
+            x = css_offset(img.x),
+            y = css_offset(img.y),
             w = img.computed_width,
             h = img.computed_height,
         )?;
     }
 
-    write_ratio_media_queries(f, config, sprite, &selectors)?;
+    write_ratio_media_queries(f, config, sprite, &all_selectors)?;
     Ok(())
 }
 
 fn generate_html(config: &Config, sprite: &Sprite, f: &mut dyn Write) -> std::io::Result<()> {
     let name = sprite.name();
-    let total = sprite
-        .images
-        .iter()
-        .map(|img| 1 + img.aliases.len())
-        .sum::<usize>();
+    let entries = entries(config, sprite);
     writeln!(f, "<html>
     <head><title>Spriters Test Html</title>
     <link rel=\"stylesheet\" type=\"text/css\" href=\"{}.css\">
@@ -315,86 +389,26 @@ fn generate_html(config: &Config, sprite: &Sprite, f: &mut dyn Write) -> std::io
     <thead><tr>
         <th>CSS Class</th>
         <th>Result</th>
-    </tr></thead><tbody>", name, total)?;
-    for image in sprite.images.iter() {
-        for label in
-            std::iter::once(image.label()).chain(image.aliases.iter().map(|p| label_from_path(p)))
-        {
-            // Same class names as the generated stylesheet (namespace, separator…).
-            writeln!(
-                f,
-                "<tr><td>.{class}</td><td><div class=\"{class}\"></div></td></tr>",
-                class = build_class_name(config, &name, &label)
-            )?;
-        }
+    </tr></thead><tbody>", name, entries.len())?;
+    for entry in &entries {
+        // Same class names as the generated stylesheet (namespace, separator…). An entry
+        // with a pseudo-class shows when its state applies (e.g. on hover).
+        writeln!(
+            f,
+            "<tr><td>{selector}</td><td><div class=\"{class}\"></div></td></tr>",
+            selector = entry.selector(),
+            class = entry.class,
+        )?;
     }
     write!(f, "</tbody></table>
     <footer>Generated using <a href=\"https://codeberg.org/slundi/spriters\">Spriters v{}</a></footer>
     </body></html>", SPRITERS_VERSION)?;
     Ok(())
 }
-const _LESS_TEMPLATE: &str = "<% for image in &images { %>.<%= image.label %><%= image.pseudo %><%- if !image.last %>,\n<% } %><% } %>{
-    background-image:url('<%= sprite_path %'); background-repeat:no-repeat;
-    -webkit-background-size: {{ width }}px {{ height }}px;
-    -moz-background-size: {{ width }}px {{ height }}px;
-    background-size: {{ width }}px {{ height }}px;
-    {% for r, ratio in ratios.items() %}
-    @media screen and (-webkit-min-device-pixel-ratio: {{ ratio.ratio }}), screen and (min--moz-device-pixel-ratio: {{ ratio.ratio }}),screen and (-o-min-device-pixel-ratio: {{ ratio.fraction }}),screen and (min-device-pixel-ratio: {{ ratio.ratio }}),screen and (min-resolution: {{ ratio.ratio }}dppx){
-        background-image:url('<%= ratio.sprite_path %');
-    }
-    <% } %>
-}
-<% for image in &images { %>
-.<%= image.label %><%= image.pseudo %>{
-    background-position:{{ image.x ~ ('px' if image.x) }} {{ image.y ~ ('px' if image.y) }};
-    width:<%= image.width %>px;
-    height:<%= image.height %>px;
-}
-<% } %>";
-
-fn generate_less(config: &Config, sprite: &Sprite, f: &mut dyn Write) -> std::io::Result<()> {
-    let name = sprite.name();
-    let sprite_url = get_sprite_url(config, sprite);
-    let selectors = implode_image_label(config, sprite).replace(",", ", .");
-    writeln!(
-        f,
-        ".{list} {{\n  background-image: url('{url}');\n  background-repeat: no-repeat;{size}\n}}",
-        list = selectors,
-        url = sprite_url,
-        size = background_size(sprite),
-    )?;
-    for img in sprite.images.iter() {
-        let x = if img.x == 0 {
-            String::from("0")
-        } else {
-            format!("-{}px", img.x)
-        };
-        let y = if img.y == 0 {
-            String::from("0")
-        } else {
-            format!("-{}px", img.y)
-        };
-        let selector = std::iter::once(img.label())
-            .chain(img.aliases.iter().map(|p| label_from_path(p)))
-            .map(|lbl| format!(".{}", build_class_name(config, &name, &lbl)))
-            .collect::<Vec<_>>()
-            .join(", ");
-        writeln!(
-            f,
-            "\n{selector} {{\n  background-position: {x} {y};\n  width: {w}px;\n  height: {h}px;\n}}",
-            selector = selector,
-            x = x,
-            y = y,
-            w = img.computed_width,
-            h = img.computed_height,
-        )?;
-    }
-    write_ratio_media_queries(f, config, sprite, &selectors)?;
-    Ok(())
-}
 
 fn generate_scss(config: &Config, sprite: &Sprite, f: &mut dyn Write) -> std::io::Result<()> {
     let name = sprite.name();
+    let entries = entries(config, sprite);
     let (width, height) = sprite.dimensions();
     let sprite_url = get_sprite_url(config, sprite);
 
@@ -411,22 +425,18 @@ fn generate_scss(config: &Config, sprite: &Sprite, f: &mut dyn Write) -> std::io
     // Generate the shared class
     writeln!(
         f,
-        "\n.{list} {{\n  @include {name}-sprite;\n}}",
-        list = implode_image_label(config, sprite).replace(",", ",."),
+        "\n{list} {{\n  @include {name}-sprite;\n}}",
+        list = selectors(&entries, ","),
         name = name,
     )?;
 
     // Generate individual image classes (primary + aliases share the same rule).
-    for img in sprite.images.iter() {
-        let selector = std::iter::once(img.label())
-            .chain(img.aliases.iter().map(|p| label_from_path(p)))
-            .map(|lbl| format!(".{}", build_class_name(config, &name, &lbl)))
-            .collect::<Vec<_>>()
-            .join(", ");
+    for group in entries_by_image(&entries) {
+        let img = group[0].image;
         writeln!(
             f,
             "\n{selector} {{\n  background-position: -{x}px -{y}px;\n  width: {w}px;\n  height: {h}px;\n}}",
-            selector = selector,
+            selector = selectors(group, ", "),
             x = img.x,
             y = img.y,
             w = img.computed_width,
@@ -434,8 +444,7 @@ fn generate_scss(config: &Config, sprite: &Sprite, f: &mut dyn Write) -> std::io
         )?;
     }
     // The mixin already sets `background-size`.
-    let selectors = implode_image_label(config, sprite).replace(",", ", .");
-    write_ratio_media_queries(f, config, sprite, &selectors)?;
+    write_ratio_media_queries(f, config, sprite, &selectors(&entries, ", "))?;
     Ok(())
 }
 
@@ -451,27 +460,14 @@ fn generate_css_vars(config: &Config, sprite: &Sprite, f: &mut dyn Write) -> std
         url = sprite_url
     )?;
 
-    for img in sprite.images.iter() {
-        let x_val = if img.x == 0 {
-            "0".to_owned()
-        } else {
-            format!("-{}px", img.x)
-        };
-        let y_val = if img.y == 0 {
-            "0".to_owned()
-        } else {
-            format!("-{}px", img.y)
-        };
-
-        for label in
-            std::iter::once(img.label()).chain(img.aliases.iter().map(|p| label_from_path(p)))
-        {
-            let prop = build_class_name(config, &name, &label);
-            writeln!(f, "  --{p}-x: {x};", p = prop, x = x_val)?;
-            writeln!(f, "  --{p}-y: {y};", p = prop, y = y_val)?;
-            writeln!(f, "  --{p}-w: {w}px;", p = prop, w = img.computed_width)?;
-            writeln!(f, "  --{p}-h: {h}px;", p = prop, h = img.computed_height)?;
-        }
+    // Custom property names cannot hold a pseudo-class: the full file label is used.
+    for entry in entries(config, sprite) {
+        let img = entry.image;
+        let prop = build_class_name(config, &name, &entry.label);
+        writeln!(f, "  --{prop}-x: {x};", x = css_offset(img.x))?;
+        writeln!(f, "  --{prop}-y: {y};", y = css_offset(img.y))?;
+        writeln!(f, "  --{prop}-w: {w}px;", w = img.computed_width)?;
+        writeln!(f, "  --{prop}-h: {h}px;", h = img.computed_height)?;
     }
 
     writeln!(f, "}}")?;
@@ -663,7 +659,7 @@ fn generate_sprite_image(config: &Config, sprite: &Sprite) -> bool {
     let mut written = 0;
     for (&ratio, filename) in sprite.ratios.iter().zip(&filenames) {
         let canvas = render_sprite(config, sprite, ratio, max_ratio);
-        if save_sprite_image(config, canvas, &config.output.join(filename)) {
+        if save_sprite_image(config, canvas, &config.image_dir().join(filename)) {
             written += 1;
         }
     }
@@ -956,7 +952,7 @@ fn parse_sprite_image_name<'a>(file_name: &'a str, name: &str) -> Option<SpriteI
 /// not pile up in the output directory. Only cache-busted (`_<8 hex digits>`) or ratio
 /// (`@<ratio>x`) images with the current extension are removed; `current` files are kept.
 fn remove_stale_hashed_sprites(config: &Config, sprite: &Sprite, current: &[String]) {
-    let Ok(entries) = std::fs::read_dir(&config.output) else {
+    let Ok(entries) = std::fs::read_dir(config.image_dir()) else {
         return;
     };
     let name = sprite.name();
@@ -1008,7 +1004,7 @@ pub(crate) fn meta_file_name(name: &str) -> String {
 /// Get the path to the metadata file for a sprite
 fn get_meta_path(config: &Config, sprite: &Sprite) -> PathBuf {
     let name = sprite.name();
-    config.output.join(meta_file_name(&name))
+    config.image_dir().join(meta_file_name(&name))
 }
 
 /// Compute a hash of all inputs that affect sprite generation
@@ -1143,13 +1139,19 @@ fn compute_outputs_hash(config: &Config, sprite: &Sprite) -> u64 {
     )
         .hash(&mut hasher);
     (url, css, img).hash(&mut hasher);
-    (
+    // A template that changes on disk changes its output: its content is hashed too.
+    for template in [
         css_template,
         less_template,
         scss_template,
         css_vars_template,
-    )
-        .hash(&mut hasher);
+    ] {
+        template.hash(&mut hasher);
+        template
+            .as_ref()
+            .and_then(|path| std::fs::read(path).ok())
+            .hash(&mut hasher);
+    }
     (no_css, html, less, scss, cocos2d, json, json_format).hash(&mut hasher);
     (caat, css_vars, tailwind, dts).hash(&mut hasher);
     hasher.finish()
@@ -1157,6 +1159,119 @@ fn compute_outputs_hash(config: &Config, sprite: &Sprite) -> u64 {
 
 /// Writes the content of a text output; every write error is returned.
 type TextWriter = fn(&Config, &Sprite, &mut dyn Write) -> std::io::Result<()>;
+
+/// Environment of the custom templates (`--css-template`…): Jinja syntax, no HTML escaping
+/// (the outputs are stylesheets), and the final newline of the template is kept.
+fn template_environment() -> minijinja::Environment<'static> {
+    let mut environment = minijinja::Environment::new();
+    environment.set_auto_escape_callback(|_| minijinja::AutoEscape::None);
+    if let Ok(syntax) = minijinja::syntax::SyntaxConfig::builder()
+        .keep_trailing_newline(true)
+        .build()
+    {
+        environment.set_syntax(syntax);
+    }
+    environment
+}
+
+/// Read and compile the template `path`, so that a missing file or a syntax error is
+/// reported before anything is generated. Returns the error message.
+pub(crate) fn check_template(path: &std::path::Path) -> Result<(), String> {
+    let source = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    template_environment()
+        .template_from_str(&source)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+/// Variables given to a custom template, see the README.
+fn template_context(config: &Config, sprite: &Sprite) -> minijinja::Value {
+    use minijinja::{Value, context};
+
+    let (width, height) = sprite.dimensions();
+    let entries = entries(config, sprite);
+    let count = entries.len();
+    let images: Vec<Value> = entries
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| {
+            let img = entry.image;
+            let filename = std::path::Path::new(entry.path)
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            context! {
+                label => entry.class.clone(),
+                pseudo => entry.pseudo.clone(),
+                selector => entry.selector(),
+                name => entry.label.clone(),
+                filename,
+                path => entry.path,
+                x => img.x,
+                y => img.y,
+                width => img.computed_width,
+                height => img.computed_height,
+                last => index + 1 == count,
+            }
+        })
+        .collect();
+    let ratios: Vec<Value> = sprite
+        .ratios
+        .iter()
+        .skip(1)
+        .map(|&ratio| {
+            let sprite_filename = sprite_filename_at(config, sprite, ratio);
+            context! {
+                ratio => ratio.to_string(),
+                fraction => crate::util::nearest_fration(ratio),
+                sprite_path => sprite_file_url(config, sprite, sprite_filename.clone()),
+                sprite_filename,
+            }
+        })
+        .collect();
+    context! {
+        name => sprite.name(),
+        sprite_path => get_sprite_url(config, sprite),
+        sprite_filename => sprite_filename(config, sprite),
+        width,
+        height,
+        hash => cache_buster(config, sprite),
+        images,
+        ratios,
+    }
+}
+
+/// Render the custom template `path` for `sprite` into `f`.
+fn render_template(
+    path: &std::path::Path,
+    config: &Config,
+    sprite: &Sprite,
+    f: &mut dyn Write,
+) -> std::io::Result<()> {
+    let failed = |error: String| format!("template {}: {error}", path.display());
+    let source = std::fs::read_to_string(path)
+        .map_err(|e| std::io::Error::new(e.kind(), failed(e.to_string())))?;
+    let rendered = template_environment()
+        .template_from_str(&source)
+        .and_then(|template| template.render(template_context(config, sprite)))
+        .map_err(|e| std::io::Error::other(failed(e.to_string())))?;
+    f.write_all(rendered.as_bytes())
+}
+
+/// Write with the custom `template` when there is one, with `builtin` otherwise.
+fn templated(
+    template: &Option<PathBuf>,
+    builtin: TextWriter,
+    config: &Config,
+    sprite: &Sprite,
+    f: &mut dyn Write,
+) -> std::io::Result<()> {
+    match template {
+        Some(path) => render_template(path, config, sprite, f),
+        None => builtin(config, sprite, f),
+    }
+}
 
 /// A text output: file suffix (after `<sprite name>.`), name used in logs, and writer.
 struct TextOutput {
@@ -1168,14 +1283,34 @@ struct TextOutput {
 /// The text outputs enabled in `config`.
 fn text_outputs(config: &Config) -> Vec<TextOutput> {
     let all: [(bool, &'static str, &'static str, TextWriter); 10] = [
-        (!config.no_css, "css", "CSS", generate_css),
-        (config.less, "less", "LESS", generate_less),
-        (config.scss, "scss", "SCSS", generate_scss),
+        (!config.no_css, "css", "CSS", |config, sprite, f| {
+            templated(&config.css_template, generate_css, config, sprite, f)
+        }),
+        // The built-in LESS output is the CSS one.
+        (config.less, "less", "LESS", |config, sprite, f| {
+            templated(&config.less_template, generate_css, config, sprite, f)
+        }),
+        (config.scss, "scss", "SCSS", |config, sprite, f| {
+            templated(&config.scss_template, generate_scss, config, sprite, f)
+        }),
         (config.json, "json", "JSON", generate_json),
         (config.html, "html", "HTML", generate_html),
         (config.cocos2d, "plist", "Cocos2d plist", generate_coco2d),
         (config.caat, "caat.json", "CAAT", generate_caat),
-        (config.css_vars, "vars.css", "CSS vars", generate_css_vars),
+        (
+            config.css_vars,
+            "vars.css",
+            "CSS vars",
+            |config, sprite, f| {
+                templated(
+                    &config.css_vars_template,
+                    generate_css_vars,
+                    config,
+                    sprite,
+                    f,
+                )
+            },
+        ),
         (
             config.tailwind,
             "tailwind.json",
@@ -1304,7 +1439,7 @@ fn staleness_from(config: &Config, sprite: &Sprite, stored: &Metadata) -> Stalen
     let image = !config.no_img && {
         let missing_image = sprite_filenames(config, sprite)
             .into_iter()
-            .find(|file| !config.output.join(file).exists());
+            .find(|file| !config.image_dir().join(file).exists());
         if let Some(file) = missing_image {
             log::debug!("Sprite file {file} doesn't exist, generating");
             true
@@ -1318,7 +1453,7 @@ fn staleness_from(config: &Config, sprite: &Sprite, stored: &Metadata) -> Stalen
 
     let missing_output = text_output_names(config, &name)
         .into_iter()
-        .find(|file| !config.output.join(file).exists());
+        .find(|file| !config.css_dir().join(file).exists());
     let outputs = if let Some(file) = missing_output {
         log::debug!("Output file {file} doesn't exist, generating");
         true
@@ -1358,18 +1493,13 @@ fn save_metadata(
 }
 
 fn generate_tailwind(config: &Config, sprite: &Sprite, f: &mut dyn Write) -> std::io::Result<()> {
-    let name = sprite.name();
-
-    let class_names: Vec<String> = sprite
-        .images
-        .iter()
-        .flat_map(|img| {
-            std::iter::once(img.label())
-                .chain(img.aliases.iter().map(|p| label_from_path(p)))
-                .map(|lbl| build_class_name(config, &name, &lbl))
-                .collect::<Vec<_>>()
-        })
-        .collect();
+    // Classes only: `button` and `button:hover` share one.
+    let mut class_names: Vec<String> = Vec::new();
+    for entry in entries(config, sprite) {
+        if !class_names.contains(&entry.class) {
+            class_names.push(entry.class);
+        }
+    }
 
     let n = class_names.len();
     writeln!(f, "{{")?;
@@ -1417,33 +1547,34 @@ fn dry_run_report(config: &Config, sprite: &Sprite) -> String {
         "Sprite: {} ({}×{} px, {} entries)",
         name, w, h, total_entries
     )];
-    for img in &sprite.images {
-        for label in
-            std::iter::once(img.label()).chain(img.aliases.iter().map(|p| label_from_path(p)))
-        {
-            lines.push(format!(
-                "  .{cls:40} at ({x},{y}) {w}×{h}px",
-                cls = build_class_name(config, &name, &label),
-                x = img.x,
-                y = img.y,
-                w = img.computed_width,
-                h = img.computed_height,
-            ));
-        }
+    for entry in entries(config, sprite) {
+        let img = entry.image;
+        lines.push(format!(
+            "  {selector:41} at ({x},{y}) {w}×{h}px",
+            selector = entry.selector(),
+            x = img.x,
+            y = img.y,
+            w = img.computed_width,
+            h = img.computed_height,
+        ));
     }
-    lines.push(format!("Would write to {}:", config.output.display()));
-    if !config.no_img {
-        lines.extend(
-            sprite_filenames(config, sprite)
-                .into_iter()
-                .map(|file| format!("  {file}")),
-        );
+    let images = if config.no_img {
+        Vec::new()
+    } else {
+        sprite_filenames(config, sprite)
+    };
+    let texts = text_output_names(config, &name);
+    let mut groups = vec![(config.image_dir(), images), (config.css_dir(), texts)];
+    if config.image_dir() == config.css_dir() {
+        let texts = groups.pop().map(|(_, texts)| texts).unwrap_or_default();
+        groups[0].1.extend(texts);
+    } else {
+        groups.retain(|(_, files)| !files.is_empty());
     }
-    lines.extend(
-        text_output_names(config, &name)
-            .into_iter()
-            .map(|file| format!("  {file}")),
-    );
+    for (dir, files) in groups {
+        lines.push(format!("Would write to {}:", dir.display()));
+        lines.extend(files.into_iter().map(|file| format!("  {file}")));
+    }
     lines.push(String::new());
     lines.join("\n")
 }
@@ -1508,7 +1639,7 @@ fn generate_text_outputs(config: &Config, sprite: &Sprite) -> bool {
     let failures = text_outputs(config)
         .par_iter()
         .filter(|output| {
-            let path = config.output.join(format!("{name}.{}", output.suffix));
+            let path = config.css_dir().join(format!("{name}.{}", output.suffix));
             write_output(&path, output.kind, |f| (output.write)(config, sprite, f)).is_err()
         })
         .count();
@@ -2181,11 +2312,64 @@ mod tests {
     }
 
     #[test]
+    fn test_camel_case_separator() {
+        // Review §7: `--separator=camelcase` was used literally as a separator.
+        assert_eq!(
+            camel_case(&["sprite", "icons", "my-image"]),
+            "spriteIconsMyImage"
+        );
+        assert_eq!(camel_case(&["", "icons.v2", "a_b--c"]), "iconsV2ABC");
+        assert_eq!(camel_case(&["my-ns", "", "été"]), "myNsÉté");
+        assert_eq!(camel_case(&["", "", ""]), "");
+
+        for separator in ["camelcase", "camelCase", "CAMELCASE"] {
+            let mut config = Config {
+                separator: String::from(separator),
+                ..Default::default()
+            };
+            assert_eq!(
+                build_class_name(&config, "icons", "arrow-left"),
+                "spriteIconsArrowLeft"
+            );
+            config.namespace = Some(String::new());
+            config.sprite_namespace = Some(String::from("%(sprite)s-x"));
+            assert_eq!(build_class_name(&config, "icons", "up"), "iconsXUp");
+        }
+    }
+
+    #[test]
+    fn test_image_dir_url_is_relative_to_the_css() {
+        let root =
+            std::env::temp_dir().join(format!("spriters_image_dir_url_{}", std::process::id()));
+        for dir in ["css/sub", "img", "css/img"] {
+            std::fs::create_dir_all(root.join(dir)).unwrap();
+        }
+        let url = |css: Option<&str>, img: Option<&str>| {
+            image_dir_url(&Config {
+                output: root.clone(),
+                css: css.map(|dir| root.join(dir)),
+                img: img.map(|dir| root.join(dir)),
+                ..Default::default()
+            })
+        };
+        assert_eq!(url(None, None), "");
+        assert_eq!(url(Some("css"), Some("css")), "");
+        assert_eq!(url(Some("css"), Some("img")), "../img/");
+        assert_eq!(url(Some("css/sub"), Some("img")), "../../img/");
+        assert_eq!(url(Some("css"), Some("css/img")), "img/");
+        assert_eq!(url(Some("css/img"), None), "../../");
+        assert_eq!(url(None, Some("css/sub")), "css/sub/");
+        // Spelled differently, same directory.
+        assert_eq!(url(Some("css/sub/.."), Some("css")), "");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
     fn test_css_pseudo_classes_constant() {
         // Verify known pseudo classes are present
-        assert!(CSS_PSEUDO_CLASSES.contains(&"hover"));
-        assert!(CSS_PSEUDO_CLASSES.contains(&"active"));
-        assert!(CSS_PSEUDO_CLASSES.contains(&"focus"));
-        assert_eq!(CSS_PSEUDO_CLASSES.len(), 10);
+        assert!(crate::CSS_PSEUDO_CLASSES.contains(&"hover"));
+        assert!(crate::CSS_PSEUDO_CLASSES.contains(&"active"));
+        assert!(crate::CSS_PSEUDO_CLASSES.contains(&"focus"));
+        assert_eq!(crate::CSS_PSEUDO_CLASSES.len(), 10);
     }
 }
