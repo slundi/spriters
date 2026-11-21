@@ -1,6 +1,6 @@
 [package]
 name = "spriters"
-version = "1.0.0"
+version = "2.0.0"
 authors = ["Sébastien LUNDI"]
 categories = ["command-line-utilities", "multimedia::images", "algorithms", "game-development", "web-programming"]
 edition = "2024"
@@ -28,7 +28,7 @@ lexopt = "0.3"
 log = "0.4"
 # Custom output templates (--css-template…): Jinja syntax, no dependency of its own.
 minijinja = { version = "3.0.5", default-features = false, features = ["builtins"] }
-notify = "8"
+notify = "9"
 png = "0.18"
 rayon = "1"
 resvg = "0.50"
@@ -36,7 +36,7 @@ serde = { version = "1", features = ["derive"] }
 slug = "0.1"
 stderrlog = "0.6"
 thiserror = "2"
-toml = "1.1"
+toml = "1.2"
 twox-hash = "2.1"
 walkdir = "2"
 
@@ -69,18 +69,18 @@ extended-description = """CLI to create sprites."""
 # --target directory. Listing only this binary excludes the gen_fixtures helper.
 assets = [
     [
-        "target/release/pcap-toolkit",
+        "target/release/spriters",
         "usr/bin/",
         "755",
     ],
     [
         "README.md",
-        "usr/share/doc/pcap-toolkit/README.md",
+        "usr/share/doc/spriters/README.md",
         "644",
     ],
     [
         "CHANGELOG.md",
-        "usr/share/doc/pcap-toolkit/CHANGELOG.md",
+        "usr/share/doc/spriters/CHANGELOG.md",
         "644",
     ],
 ]
