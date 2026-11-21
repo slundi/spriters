@@ -1,6 +1,7 @@
 //! CSS class names and selectors of the sprite entries.
 
-use crate::{Config, ImageAndPosition, Sprite, css_label_from_path, label_from_path};
+use crate::labels::{css_label_from_path, label_from_path};
+use crate::{Config, ImageAndPosition, Sprite};
 
 /// `--separator` value joining the class name parts in camelCase (see [`camel_case`]).
 const CAMEL_CASE: &str = "camelcase";
@@ -182,14 +183,5 @@ mod tests {
             config.sprite_namespace = Some(String::from("%(sprite)s-x"));
             assert_eq!(build_class_name(&config, "icons", "up"), "iconsXUp");
         }
-    }
-
-    #[test]
-    fn test_css_pseudo_classes_constant() {
-        // Verify known pseudo classes are present
-        assert!(crate::CSS_PSEUDO_CLASSES.contains(&"hover"));
-        assert!(crate::CSS_PSEUDO_CLASSES.contains(&"active"));
-        assert!(crate::CSS_PSEUDO_CLASSES.contains(&"focus"));
-        assert_eq!(crate::CSS_PSEUDO_CLASSES.len(), 10);
     }
 }

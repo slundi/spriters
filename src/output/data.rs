@@ -7,7 +7,8 @@ use super::SPRITERS_VERSION;
 use super::classes::entries;
 use super::meta::compute_sprite_hash;
 use super::names::{get_sprite_url, sprite_filename};
-use crate::{Config, JsonFormat, Sprite, label_from_path};
+use crate::labels::label_from_path;
+use crate::{Config, JsonFormat, Sprite};
 
 pub(super) fn generate_coco2d(
     config: &Config,

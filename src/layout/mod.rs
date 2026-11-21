@@ -1,7 +1,31 @@
+//! Layout algorithms: place the images of a sprite.
+
+mod square;
+
 use crate::{
-    Algorithm, Sprite,
+    Sprite,
     util::{absolute_length, horizontal_spacing, vertical_spacing},
 };
+
+/// Used to order the images before adding them to the canvas can be tuned. By default the algorithm is `Square``,
+/// but in some situations using another ordering like vertical or horizontal could be useful depending on the kind of images you are spriting.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum Algorithm {
+    /// The square algorithm was inspired by the Binary Tree Bin Packing Algorithm Article by Jake Gordon.
+    #[default]
+    Square,
+    /// The vertical one allocates the images vertically aligning them to the left of the sprite.
+    Vertical,
+    /// The vertical-right one allocates the images vertically aligning them to the right of the sprite.
+    Horizontal,
+    /// The Horizontal one allocates the images aligning them to the top of the sprite.
+    Diagonal,
+    /// The Horizontal-bottom one allocates the images aligning them to the bottom of the sprite.
+    VerticalRight,
+    /// The diagonal one allocates the images diagonally. It was inspired by the Diagonal CSS Sprites Article by Aaron Barker.
+    HorizontalBottom,
+}
 
 impl Algorithm {
     pub fn vertical(sprite: &mut Sprite) {
@@ -113,7 +137,7 @@ impl Algorithm {
         }
     }
     pub fn square(sprite: &mut Sprite) {
-        crate::algorithm_square::process(sprite);
+        square::process(sprite);
     }
 }
 

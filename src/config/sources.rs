@@ -1,3 +1,6 @@
+//! Where the configuration comes from besides the command line: `spriters.toml` and the
+//! `SPRITERS_*` environment variables.
+
 use serde::Deserialize;
 use std::path::Path;
 
